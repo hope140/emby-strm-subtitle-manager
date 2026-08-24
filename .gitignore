@@ -1,0 +1,30 @@
+# Local-only operations and generated state; never commit these.
+LOCAL_OPERATIONS.md
+.tools/
+config/local*
+data/
+dist/
+tmp/
+temp/
+.tmp/
+.cache/
+
+# Common local reports, backups, temporary files, and credentials.
+*.log
+*.tmp
+*.temp
+*.bak
+*.backup
+*.secret
+*.secrets
+*.token
+*.credentials
+*.key
+*.pem
+*.p12
+*.pfx
+.env
+.env.*
+
+# Local Emby credential file; never commit it.
+embyapi
