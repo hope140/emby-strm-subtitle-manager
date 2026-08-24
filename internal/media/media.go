@@ -134,9 +134,12 @@ type BuildOptions struct {
 	Guard         *pathmap.PathGuard
 }
 
-// Build creates a source-specific context. A source path is authoritative;
-// only a sole source may fall back to item.Path. For a multi-source item,
-// missing source-level streams are never filled from item-level streams.
+// Build creates a source-specific context. STRM items always use Item.Path
+// for local mapping, directory guarding and classification; non-STRM local
+// items may use a selected local MediaSource.Path for inventory. A remote
+// source path remains a playback locator and is never mapped. For a
+// multi-source item, missing source-level streams are never filled from
+// item-level streams.
 func Build(item domain.EmbyItem, options BuildOptions) (MediaContext, error) {
 	if item.ID == "" || (item.Type != "Movie" && item.Type != "Episode") {
 		return MediaContext{}, ErrInvalidItem
@@ -146,10 +149,24 @@ func Build(item domain.EmbyItem, options BuildOptions) (MediaContext, error) {
 		return MediaContext{}, err
 	}
 	warnings := make([]string, 0, 3)
-	embyPath := selected.Path
-	if embyPath == "" && len(item.MediaSources) == 1 {
-		embyPath = item.Path
-		warnings = append(warnings, WarningSourcePathFallback)
+	isStrm := isSTRM(item.Path)
+	embyPath := item.Path
+	if !isStrm {
+		switch {
+		case isRemoteSource(selected):
+			// A remote/non-file source is a playback locator, not a local
+			// inventory path. Do not send it through PathMapper.
+			embyPath = ""
+		case selected.Path != "":
+			embyPath = selected.Path
+		case len(item.MediaSources) == 1:
+			// A sole local source may use the item path when Emby omitted its
+			// source path. This fallback is only for non-STRM local media.
+			embyPath = item.Path
+			warnings = append(warnings, WarningSourcePathFallback)
+		default:
+			embyPath = ""
+		}
 	}
 
 	var localPath, localDirectory string
@@ -211,7 +228,7 @@ func Build(item domain.EmbyItem, options BuildOptions) (MediaContext, error) {
 		ParentID: item.ParentID, SeriesID: item.SeriesID, SeriesName: item.SeriesName,
 		ParentIndexNumber: item.ParentIndexNumber, IndexNumber: item.IndexNumber, ProductionYear: item.ProductionYear,
 		ProviderIDs: cloneStringMap(item.ProviderIDs), EmbyPath: embyPath, LocalPath: localPath,
-		LocalDirectory: localDirectory, IsStrm: isSTRM(embyPath, selected.Container), MediaStreams: streams,
+		LocalDirectory: localDirectory, IsStrm: isStrm, MediaStreams: streams,
 		MappingStatus: mappingStatus, Warnings: warnings, InventoryComplete: complete,
 	}, nil
 }
@@ -221,14 +238,26 @@ func NewMediaContext(item domain.EmbyItem, options BuildOptions) (MediaContext, 
 	return Build(item, options)
 }
 
-func isSTRM(value, container string) bool {
-	if strings.EqualFold(strings.TrimSpace(container), "strm") {
-		return true
-	}
+func isSTRM(value string) bool {
 	lastSeparator := strings.LastIndexAny(value, `/\\`)
 	base := value[lastSeparator+1:]
 	dot := strings.LastIndexByte(base, '.')
 	return dot > 0 && strings.EqualFold(base[dot+1:], "strm")
+}
+
+func isRemoteSource(source domain.MediaSource) bool {
+	if source.IsRemote != nil && *source.IsRemote {
+		return true
+	}
+	if strings.Contains(source.Path, "://") {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(source.Protocol)) {
+	case "http", "https", "rtmp", "rtsp", "udp", "mms":
+		return true
+	default:
+		return false
+	}
 }
 
 func cloneSource(source domain.MediaSource) domain.MediaSource {

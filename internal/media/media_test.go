@@ -2,6 +2,7 @@ package media
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
@@ -35,7 +36,7 @@ func TestBuildSingleSourceFallbackAndNilEmptyStreams(t *testing.T) {
 		ItemSummary: domain.ItemSummary{ID: "movie-1", Name: "Movie", Type: "Movie"},
 		Path:        `/srv/media/movie.strm`,
 		MediaSources: []domain.MediaSource{{
-			ID: "source-1", Container: "strm", Path: "", MediaStreams: nil,
+			ID: "source-1", Container: "mkv", Protocol: "Http", Path: "https://media.example.invalid/movie.mkv?opaque=private", MediaStreams: nil,
 		}},
 		MediaStreams: &empty,
 	}
@@ -52,8 +53,61 @@ func TestBuildSingleSourceFallbackAndNilEmptyStreams(t *testing.T) {
 	if len(*ctx.MediaStreams) != 0 {
 		t.Fatalf("stream list = %#v", *ctx.MediaStreams)
 	}
-	if ctx.MappingStatus != MappingStatusMapped || !ctx.InventoryComplete || !hasWarnings(ctx.Warnings, WarningSingleSourcePathFallback, WarningSingleSourceStreamsFallback) {
+	if ctx.MappingStatus != MappingStatusMapped || !ctx.InventoryComplete || !hasWarnings(ctx.Warnings, WarningSingleSourceStreamsFallback) {
 		t.Fatalf("fallback state = %#v", ctx)
+	}
+}
+
+func TestBuildUsesItemPathForInventoryAndIgnoresSourceLocator(t *testing.T) {
+	mapper, err := pathmap.New([]pathmap.Mapping{{Emby: `/media`, Local: `/local`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	streams := []domain.MediaStream{}
+	item := domain.EmbyItem{
+		ItemSummary: domain.ItemSummary{ID: "movie-1", Name: "Movie", Type: "Movie"},
+		Path:        `/media/x.strm`,
+		MediaSources: []domain.MediaSource{{
+			ID: "source-1", Path: `https://media.example.invalid/x.mkv?opaque=private`,
+			Container: "mkv", Protocol: "Http", MediaStreams: &streams,
+		}},
+	}
+	ctx, err := Build(item, BuildOptions{Mapper: mapper})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctx.EmbyPath != `/media/x.strm` || ctx.LocalPath != `/local/x.strm` || ctx.LocalDirectory != `/local` || !ctx.IsStrm || ctx.Container != "mkv" {
+		t.Fatalf("item path context = %#v", ctx)
+	}
+	if strings.Contains(ctx.EmbyPath, "media.example") || strings.Contains(ctx.LocalPath, "media.example") {
+		t.Fatal("source locator leaked into inventory paths")
+	}
+}
+
+func TestBuildNonSTRMUsesLocalSourcePathAndRemoteDegrades(t *testing.T) {
+	mapper, err := pathmap.New([]pathmap.Mapping{{Emby: `/media`, Local: `/local`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	streams := []domain.MediaStream{}
+	item := domain.EmbyItem{
+		ItemSummary:  domain.ItemSummary{ID: "movie-2", Name: "Movie", Type: "Movie"},
+		Path:         `/media/item.mkv`,
+		MediaSources: []domain.MediaSource{{ID: "source-1", Path: `/media/source.mkv`, MediaStreams: &streams}},
+	}
+	ctx, err := Build(item, BuildOptions{Mapper: mapper})
+	if err != nil || ctx.EmbyPath != `/media/source.mkv` || ctx.LocalPath != `/local/source.mkv` || ctx.IsStrm {
+		t.Fatalf("local non-STRM source state = %#v, %v", ctx, err)
+	}
+	item.MediaSources[0].Path = `https://media.example.invalid/source.mkv?opaque=private`
+	ctx, err = Build(item, BuildOptions{Mapper: mapper})
+	if err != nil || ctx.EmbyPath != "" || ctx.MappingStatus != MappingStatusUnavailable || ctx.InventoryComplete || !hasWarnings(ctx.Warnings, WarningMediaDirectoryUnavailable) {
+		t.Fatalf("remote non-STRM source state = %#v, %v", ctx, err)
+	}
+	item.MediaSources[0].Path = ""
+	ctx, err = Build(item, BuildOptions{Mapper: mapper})
+	if err != nil || ctx.EmbyPath != `/media/item.mkv` || !hasWarnings(ctx.Warnings, WarningSourcePathFallback) {
+		t.Fatalf("single local source fallback state = %#v, %v", ctx, err)
 	}
 }
 
@@ -63,7 +117,7 @@ func TestBuildSourceStreamsAreAuthoritative(t *testing.T) {
 	item := domain.EmbyItem{
 		ItemSummary:  domain.ItemSummary{ID: "episode-1", Name: "Episode", Type: "Episode"},
 		MediaStreams: &itemStreams,
-		MediaSources: []domain.MediaSource{{ID: "one", Path: `/srv/e.strm`, MediaStreams: &sourceStreams}},
+		MediaSources: []domain.MediaSource{{ID: "one", Path: `https://media.example.invalid/e.mkv`, MediaStreams: &sourceStreams}},
 	}
 	ctx, err := Build(item, BuildOptions{})
 	if err != nil {
@@ -73,7 +127,7 @@ func TestBuildSourceStreamsAreAuthoritative(t *testing.T) {
 		t.Fatalf("source empty list was not authoritative: %#v", ctx.MediaStreams)
 	}
 
-	item.MediaSources = []domain.MediaSource{{ID: "one", Path: `/srv/e.strm`}, {ID: "two", Path: `/srv/e2.strm`}}
+	item.MediaSources = []domain.MediaSource{{ID: "one", Path: `https://media.example.invalid/e.mkv`}, {ID: "two", Path: `https://media.example.invalid/e2.mkv`}}
 	ctx, err = Build(item, BuildOptions{MediaSourceID: "one"})
 	if err != nil || ctx.MediaStreams == nil || len(*ctx.MediaStreams) != 0 || ctx.InventoryComplete || !hasWarnings(ctx.Warnings, WarningSourceStreamsUnavailable) {
 		t.Fatalf("multi-source missing streams state = %#v, %v", ctx, err)
@@ -84,8 +138,8 @@ func TestBuildPreservesSelectedSourceAndDoesNotExposePathInErrors(t *testing.T) 
 	item := domain.EmbyItem{
 		ItemSummary: domain.ItemSummary{ID: "movie-1", Name: "Movie", Type: "Movie"},
 		MediaSources: []domain.MediaSource{
-			{ID: "one", Path: `/srv/media/movie.strm`, MediaStreams: pointerStreams(nil)},
-			{ID: "two", Path: `/srv/media/other.mkv`, MediaStreams: pointerStreams(nil)},
+			{ID: "one", Path: `https://media.example.invalid/movie.mkv`, MediaStreams: pointerStreams(nil)},
+			{ID: "two", Path: `https://media.example.invalid/other.mkv`, MediaStreams: pointerStreams(nil)},
 		},
 	}
 	if _, err := Build(item, BuildOptions{}); !errors.Is(err, ErrMediaSourceSelectionRequired) {
@@ -121,7 +175,8 @@ func TestSourceSelectorValidatesAllSourcesBeforeSelection(t *testing.T) {
 func TestBuildMappingFailuresDegradeWithoutMissingInventory(t *testing.T) {
 	item := domain.EmbyItem{
 		ItemSummary:  domain.ItemSummary{ID: "movie-1", Name: "Movie", Type: "Movie"},
-		MediaSources: []domain.MediaSource{{ID: "one", Path: `/srv/media/movie.strm`, MediaStreams: pointerStreams(nil)}},
+		Path:         `/unmapped/movie.strm`,
+		MediaSources: []domain.MediaSource{{ID: "one", Path: `https://media.example.invalid/movie.mkv`, MediaStreams: pointerStreams(nil)}},
 	}
 	mapper, err := pathmap.New([]pathmap.Mapping{{Emby: `/mapped/root`, Local: `/local`}})
 	if err != nil {
@@ -135,12 +190,12 @@ func TestBuildMappingFailuresDegradeWithoutMissingInventory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	item.MediaSources[0].Path = `/srv/media/../secret.strm`
+	item.Path = `/srv/media/../secret.strm`
 	ctx, err = Build(item, BuildOptions{Mapper: unsafeMapper})
 	if err != nil || ctx.MappingStatus != MappingStatusUnsafe || ctx.InventoryComplete || !hasWarnings(ctx.Warnings, WarningPathMappingUnsafe) {
 		t.Fatalf("unsafe state = %#v, %v", ctx, err)
 	}
-	item.MediaSources[0].Path = `/srv/media/movie.strm`
+	item.Path = `/srv/media/movie.strm`
 	ctx, err = Build(item, BuildOptions{})
 	if err != nil || ctx.MappingStatus != MappingStatusUnavailable || ctx.InventoryComplete || !hasWarnings(ctx.Warnings, WarningPathMappingUnavailable) {
 		t.Fatalf("unavailable state = %#v, %v", ctx, err)
@@ -163,17 +218,17 @@ func TestBuildMappingFailuresDegradeWithoutMissingInventory(t *testing.T) {
 func TestBuildMultiSourcePathFailuresDegradeWithoutItemPathFallback(t *testing.T) {
 	item := domain.EmbyItem{
 		ItemSummary: domain.ItemSummary{ID: "movie-1", Name: "Movie", Type: "Movie"},
-		Path:        `/srv/media/item.strm`,
+		Path:        "",
 		MediaSources: []domain.MediaSource{
-			{ID: "one", Path: "", MediaStreams: pointerStreams(nil)},
-			{ID: "two", Path: `/srv/media/two.strm`, MediaStreams: pointerStreams(nil)},
+			{ID: "one", Path: `https://media.example.invalid/one.mkv`, MediaStreams: pointerStreams(nil)},
+			{ID: "two", Path: `https://media.example.invalid/two.mkv`, MediaStreams: pointerStreams(nil)},
 		},
 	}
 	ctx, err := Build(item, BuildOptions{MediaSourceID: "one"})
 	if err != nil || ctx.EmbyPath != "" || ctx.MappingStatus != MappingStatusUnavailable || ctx.InventoryComplete || !hasWarnings(ctx.Warnings, WarningMediaDirectoryUnavailable) {
 		t.Fatalf("empty multi-source path state = %#v, %v", ctx, err)
 	}
-	item.MediaSources[0].Path = "/srv/media/movie\x1f.strm"
+	item.Path = "/srv/media/movie\x1f.strm"
 	ctx, err = Build(item, BuildOptions{MediaSourceID: "one"})
 	if err != nil || ctx.MappingStatus != MappingStatusUnsafe || ctx.InventoryComplete || !hasWarnings(ctx.Warnings, WarningMediaPathUnsafe) {
 		t.Fatalf("unsafe multi-source path state = %#v, %v", ctx, err)

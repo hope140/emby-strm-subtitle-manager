@@ -245,7 +245,7 @@ func TestMethodRestrictionUnknownRouteAndQueryRejection(t *testing.T) {
 	}
 }
 
-func TestBearerAuthenticationProtectsReadinessAndV1WithoutQueryFallback(t *testing.T) {
+func TestBearerAuthenticationProtectsV1WithoutQueryFallback(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	handler := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, logger, Services{Emby: &fakeEmby{}, AuthToken: testAuthToken}).Handler()
@@ -311,7 +311,7 @@ func TestMediaMovieProjectionAndSubtitleInventory(t *testing.T) {
 	fake := &fakeEmby{item: domain.EmbyItem{
 		ItemSummary: domain.ItemSummary{ID: "movie-1", Name: "Movie", Type: "Movie", ProductionYear: intPtr(2024)},
 		Path:        `C:\emby\media\Movie.strm`, ProviderIDs: map[string]string{"Imdb": "tt123", "Tmdb": "456", "Tvdb": "789", "private": "do-not-show"},
-		MediaSources: []domain.MediaSource{{ID: "source-1", Name: "Main", Container: "strm", Path: `C:\emby\media\Movie.strm`, MediaStreams: &emptyStreams}},
+		MediaSources: []domain.MediaSource{{ID: "source-1", Name: "Main", Container: "mkv", Protocol: "Http", Path: `https://media.example.invalid/Movie.mkv?opaque=private`, MediaStreams: &emptyStreams}},
 	}}
 	server := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{Emby: fake, Mapper: mapper, Inventory: inventoryService, AuthToken: testAuthToken})
 	handler := server.Handler()
@@ -330,9 +330,9 @@ func TestMediaMovieProjectionAndSubtitleInventory(t *testing.T) {
 
 func TestMediaMultipleSourcesRequireExplicitSafeSelection(t *testing.T) {
 	first, second := []domain.MediaStream{}, []domain.MediaStream{}
-	fake := &fakeEmby{item: domain.EmbyItem{ItemSummary: domain.ItemSummary{ID: "episode-1", Name: "Episode", Type: "Episode"}, MediaSources: []domain.MediaSource{
-		{ID: "source-a", Name: "A", Container: "mkv", Path: "/secret/a.mkv", MediaStreams: &first},
-		{ID: "source-b", Name: "B", Container: "strm", Path: "/secret/b.strm", MediaStreams: &second},
+	fake := &fakeEmby{item: domain.EmbyItem{ItemSummary: domain.ItemSummary{ID: "episode-1", Name: "Episode", Type: "Episode"}, Path: `/media/episode.strm`, MediaSources: []domain.MediaSource{
+		{ID: "source-a", Name: "A", Container: "mkv", Protocol: "Http", Path: "https://media.example.invalid/a.mkv?opaque=private", MediaStreams: &first},
+		{ID: "source-b", Name: "B", Container: "mkv", Protocol: "Http", Path: "https://media.example.invalid/b.mkv?opaque=private", MediaStreams: &second},
 	}}}
 	handler := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{Emby: fake, AuthToken: testAuthToken}).Handler()
 	rec := serve(handler, http.MethodGet, "/v1/media/episode-1")
@@ -351,7 +351,7 @@ func TestMediaMultipleSourcesRequireExplicitSafeSelection(t *testing.T) {
 
 func TestMediaUnmappedDegradesSafelyAndRejectsBadQueriesMethods(t *testing.T) {
 	empty := []domain.MediaStream{}
-	fake := &fakeEmby{item: domain.EmbyItem{ItemSummary: domain.ItemSummary{ID: "movie-2", Name: "Movie", Type: "Movie"}, Path: "/unmapped/Movie.strm", MediaSources: []domain.MediaSource{{ID: "source-1", Path: "/unmapped/Movie.strm", MediaStreams: &empty}}}}
+	fake := &fakeEmby{item: domain.EmbyItem{ItemSummary: domain.ItemSummary{ID: "movie-2", Name: "Movie", Type: "Movie"}, Path: "/unmapped/Movie.strm", MediaSources: []domain.MediaSource{{ID: "source-1", Path: "https://media.example.invalid/Movie.mkv?opaque=private", MediaStreams: &empty}}}}
 	mapper, err := pathmap.New([]pathmap.Mapping{{Emby: "/emby/media", Local: t.TempDir()}})
 	if err != nil {
 		t.Fatal(err)

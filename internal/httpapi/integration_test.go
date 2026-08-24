@@ -71,7 +71,7 @@ func writeIntegrationJSON(w http.ResponseWriter, body string) {
 }
 
 func integrationItemJSON() string {
-	return `{"Items":[{"Id":"movie-1","Name":"Movie","Type":"Movie","Path":"C:\\emby\\media\\Movie.strm","ProviderIds":{"Imdb":"tt-d1","Tmdb":"tmdb-d1","private":"must-not-appear"},"MediaSources":[{"Id":"source-1","Name":"Main","Path":"C:\\emby\\media\\Movie.strm","Container":"strm","Default":true,"MediaStreams":[{"Index":0,"Type":"Subtitle","Codec":"ass","Language":"eng","Title":"Signs","IsExternal":false,"IsDefault":true,"IsTextSubtitleStream":true},{"Index":1,"Type":"Subtitle","Codec":"srt","Language":"zho","Title":"Chinese sidecar","Path":"C:\\emby\\media\\Movie.zh.srt","IsExternal":true,"IsTextSubtitleStream":true}]}]}],"TotalRecordCount":1}`
+	return `{"Items":[{"Id":"movie-1","Name":"Movie","Type":"Movie","Path":"C:\\emby\\media\\Movie.strm","ProviderIds":{"Imdb":"tt-d1","Tmdb":"tmdb-d1","private":"must-not-appear"},"MediaSources":[{"Id":"source-1","Name":"Main","Path":"https://media.example.invalid/Movie.mkv?opaque=private","Protocol":"Http","Container":"mkv","Default":true,"MediaStreams":[{"Index":0,"Type":"Subtitle","Codec":"ass","Language":"eng","Title":"Signs","IsExternal":false,"IsDefault":true,"IsTextSubtitleStream":true},{"Index":1,"Type":"Subtitle","Codec":"srt","Language":"zho","Title":"Chinese sidecar","Path":"C:\\emby\\media\\Movie.zh.srt","IsExternal":true,"IsTextSubtitleStream":true}]}]}],"TotalRecordCount":1}`
 }
 
 func (f *integrationFakeEmby) snapshot() []integrationRequest {

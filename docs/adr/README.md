@@ -9,6 +9,7 @@ ADR 用于记录跨模块、长期有效且代码本身无法完整解释的选�
 | [ADR-001](001-v1-uses-emby-remote-subtitle-bridge.md) | accepted | V1 使用 Emby Remote Subtitle Bridge |
 | [ADR-002](002-project-codebase-route.md) | accepted | 方案 B：新建轻量 Go 后端，选择性复用 ChineseSubFinder |
 | [ADR-003](003-phase2-milestones-and-deployment.md) | accepted | D1 只读 Canary → D2 搜索预览 → D3 专用样本 Add；固定安全部署默认值 |
+| [ADR-004](004-item-and-source-path-separation.md) | accepted | STRM/Inventory 使用 Item.Path；MediaSource.Path 仅作为受控播放定位事实 |
 
 ## 创建条件
 

@@ -38,7 +38,7 @@ GET /v1/media/{itemId}/subtitles
 
 API 必须由服务端使用 `ItemID` 重新向 Emby 查询。客户端不能提交可直接访问的物理路径、STRM 内部地址或 Emby 原始候选 ID 作为可信写入依据。D1 响应只返回展示所需的脱敏领域字段。
 
-`MediaContext` 至少保留 `ItemID`、`MediaSourceID`、媒体类型、标题、季集信息、Provider IDs、EmbyPath、映射后的目录和 `IsStrm`。多媒体源选择规则必须显式记录，不能依赖列表顺序的偶然行为。当前实现对单源自动选择，对多源要求显式 `media_source_id`，并校验空 ID、重复 ID 和多个 default。
+`MediaContext` 至少保留 `ItemID`、`MediaSourceID`、媒体类型、标题、季集信息、Provider IDs、Inventory 使用的 EmbyPath、映射后的目录和 `IsStrm`。多媒体源选择规则必须显式记录，不能依赖列表顺序的偶然行为。当前实现对单源自动选择，对多源要求显式 `media_source_id`，并校验空 ID、重复 ID 和多个 default。STRM 的 PathMapper、PathGuard、LocalDirectory 和 STRM 判断基于 Item.Path；非 STRM 仅在 selected MediaSource.Path 是本地路径时使用它，远程 source path 不得进入本地映射。STRM 多源只共享 Item.Path 的 sidecar 目录，MediaStreams 仍保持 source-specific。
 
 字幕清单需要区分 Embedded、External 和 Sidecar，记录发现来源、格式、语言、Forced/Default 状态和 `Manageable`。内嵌字幕永远不可管理；同一 Sidecar 同时被 Emby 和文件系统发现时只能展示一条。Inventory 只枚举受控目录和读取文件元数据，不读取 STRM、媒体或字幕正文；目录、映射或 MediaStreams 不完整且没有已知字幕时报告 `unknown`，已有字幕时报告 `present` 并保留不完整 warning，不能伪装成“没有字幕”。
 
