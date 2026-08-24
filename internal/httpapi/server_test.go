@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,6 +19,8 @@ import (
 	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
+	"github.com/hope140/emby-strm-subtitle-manager/internal/inventory"
+	"github.com/hope140/emby-strm-subtitle-manager/internal/pathmap"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/version"
 )
 
@@ -25,6 +29,7 @@ type fakeEmby struct {
 	page      domain.ItemPage
 	listErr   error
 	itemErr   error
+	item      domain.EmbyItem
 	listCalls atomic.Int32
 	itemCalls atomic.Int32
 	block     <-chan struct{}
@@ -52,6 +57,10 @@ func (f *fakeEmby) ListLibraries(ctx context.Context) ([]domain.Library, error) 
 func (f *fakeEmby) ListItems(context.Context, string, int, int) (domain.ItemPage, error) {
 	f.itemCalls.Add(1)
 	return f.page, f.itemErr
+}
+
+func (f *fakeEmby) GetItem(context.Context, string) (domain.EmbyItem, error) {
+	return f.item, f.itemErr
 }
 
 func testServer(t *testing.T, fake EmbyReader, logs *bytes.Buffer) http.Handler {
@@ -229,10 +238,122 @@ func TestMethodRestrictionUnknownRouteAndQueryRejection(t *testing.T) {
 	if rec := serve(handler, http.MethodGet, "/v1/health?x=1"); rec.Code != 400 {
 		t.Fatalf("unexpected health query status = %d", rec.Code)
 	}
-	if rec := serve(handler, http.MethodGet, "/v1/media/secret-item"); rec.Code != 404 {
+	if rec := serve(handler, http.MethodGet, "/v1/other/secret-item"); rec.Code != 404 {
 		t.Fatalf("unknown route status = %d", rec.Code)
 	}
 }
+
+func TestMediaMovieProjectionAndSubtitleInventory(t *testing.T) {
+	root, err := os.MkdirTemp(".", "httpapi-media-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	root, err = filepath.Abs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Movie.zh.srt"), []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mapper, err := pathmap.New([]pathmap.Mapping{{Emby: `C:\emby\media`, Local: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := []byte("01234567890123456789012345678901")
+	inventoryService, err := inventory.New(inventory.Options{FileSystem: inventory.OSFileSystem{}, IdentityKey: key, Mapper: mapper})
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyStreams := []domain.MediaStream{}
+	fake := &fakeEmby{item: domain.EmbyItem{
+		ItemSummary: domain.ItemSummary{ID: "movie-1", Name: "Movie", Type: "Movie", ProductionYear: intPtr(2024)},
+		Path:        `C:\emby\media\Movie.strm`, ProviderIDs: map[string]string{"Imdb": "tt123", "Tmdb": "456", "Tvdb": "789", "private": "do-not-show"},
+		MediaSources: []domain.MediaSource{{ID: "source-1", Name: "Main", Container: "strm", Path: `C:\emby\media\Movie.strm`, MediaStreams: &emptyStreams}},
+	}}
+	server := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{Emby: fake, Mapper: mapper, Inventory: inventoryService})
+	handler := server.Handler()
+	rec := serve(handler, http.MethodGet, "/v1/media/movie-1")
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), `C:\emby\media`) || strings.Contains(rec.Body.String(), "private") {
+		t.Fatalf("unsafe media response = %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"is_strm":true`) || !strings.Contains(rec.Body.String(), `"imdb":"tt123"`) || strings.Contains(rec.Body.String(), `"private"`) {
+		t.Fatalf("media projection = %s", rec.Body.String())
+	}
+	rec = serve(handler, http.MethodGet, "/v1/media/movie-1/subtitles")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"inventory"`) || !strings.Contains(rec.Body.String(), "Movie.zh.srt") {
+		t.Fatalf("subtitle response = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMediaMultipleSourcesRequireExplicitSafeSelection(t *testing.T) {
+	first, second := []domain.MediaStream{}, []domain.MediaStream{}
+	fake := &fakeEmby{item: domain.EmbyItem{ItemSummary: domain.ItemSummary{ID: "episode-1", Name: "Episode", Type: "Episode"}, MediaSources: []domain.MediaSource{
+		{ID: "source-a", Name: "A", Container: "mkv", Path: "/secret/a.mkv", MediaStreams: &first},
+		{ID: "source-b", Name: "B", Container: "strm", Path: "/secret/b.strm", MediaStreams: &second},
+	}}}
+	handler := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{Emby: fake}).Handler()
+	rec := serve(handler, http.MethodGet, "/v1/media/episode-1")
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"media_sources"`) || !strings.Contains(rec.Body.String(), `"media_source_id":"source-a"`) || !strings.Contains(rec.Body.String(), `"media_source_id":"source-b"`) || strings.Contains(rec.Body.String(), `"source_options"`) || strings.Contains(rec.Body.String(), "/secret") {
+		t.Fatalf("source selection response = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = serve(handler, http.MethodGet, "/v1/media/episode-1?media_source_id=source-b")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"media_source_id":"source-b"`) || !strings.Contains(rec.Body.String(), `"is_strm":true`) {
+		t.Fatalf("selected source response = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = serve(handler, http.MethodGet, "/v1/media/episode-1?media_source_id=missing")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing source status = %d", rec.Code)
+	}
+}
+
+func TestMediaUnmappedDegradesSafelyAndRejectsBadQueriesMethods(t *testing.T) {
+	empty := []domain.MediaStream{}
+	fake := &fakeEmby{item: domain.EmbyItem{ItemSummary: domain.ItemSummary{ID: "movie-2", Name: "Movie", Type: "Movie"}, Path: "/unmapped/Movie.strm", MediaSources: []domain.MediaSource{{ID: "source-1", Path: "/unmapped/Movie.strm", MediaStreams: &empty}}}}
+	mapper, err := pathmap.New([]pathmap.Mapping{{Emby: "/emby/media", Local: t.TempDir()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{Emby: fake, Mapper: mapper}).Handler()
+	rec := serve(handler, http.MethodGet, "/v1/media/movie-2")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"mapping_status":"unmapped"`) || strings.Contains(rec.Body.String(), "/unmapped") {
+		t.Fatalf("unmapped response = %d %s", rec.Code, rec.Body.String())
+	}
+	for _, target := range []string{"/v1/media/movie-2?unknown=x", "/v1/media/movie-2?media_source_id=source-1&media_source_id=source-1", "/v1/media/movie-2?media_source_id="} {
+		if rec := serve(handler, http.MethodGet, target); rec.Code != http.StatusBadRequest {
+			t.Fatalf("bad media query %s status = %d", target, rec.Code)
+		}
+	}
+	if rec := serve(handler, http.MethodPost, "/v1/media/movie-2"); rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("media POST status = %d", rec.Code)
+	}
+}
+
+func TestMediaRejectsContradictoryUpstreamSources(t *testing.T) {
+	for name, sources := range map[string][]domain.MediaSource{
+		"empty":     {},
+		"empty-id":  {{ID: "", Path: "/private/movie.strm"}},
+		"duplicate": {{ID: "same", Path: "/private/a.strm"}, {ID: "same", Path: "/private/b.strm"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := &fakeEmby{item: domain.EmbyItem{
+				ItemSummary:  domain.ItemSummary{ID: "movie-invalid", Name: "Movie", Type: "Movie"},
+				MediaSources: sources,
+			}}
+			handler := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{Emby: fake}).Handler()
+			rec := serve(handler, http.MethodGet, "/v1/media/movie-invalid")
+			if rec.Code != http.StatusBadGateway {
+				t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+			}
+			assertErrorEnvelope(t, rec, "emby_invalid_response")
+			if strings.Contains(rec.Body.String(), "/private/") {
+				t.Fatalf("response leaked a source path: %s", rec.Body.String())
+			}
+		})
+	}
+}
+
+func intPtr(value int) *int { return &value }
 
 func serve(handler http.Handler, method, target string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, target, nil)

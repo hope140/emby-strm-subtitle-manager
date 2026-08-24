@@ -105,6 +105,7 @@ func SelectSource(item domain.EmbyItem, sourceID string) (domain.MediaSource, er
 type MediaContext struct {
 	ItemID            string
 	MediaSourceID     string
+	Container         string
 	Type              string
 	Title             string
 	ParentID          string
@@ -206,7 +207,7 @@ func Build(item domain.EmbyItem, options BuildOptions) (MediaContext, error) {
 	}
 	complete := mappingStatus == MappingStatusMapped && streamsComplete
 	return MediaContext{
-		ItemID: item.ID, MediaSourceID: selected.ID, Type: item.Type, Title: item.Name,
+		ItemID: item.ID, MediaSourceID: selected.ID, Container: selected.Container, Type: item.Type, Title: item.Name,
 		ParentID: item.ParentID, SeriesID: item.SeriesID, SeriesName: item.SeriesName,
 		ParentIndexNumber: item.ParentIndexNumber, IndexNumber: item.IndexNumber, ProductionYear: item.ProductionYear,
 		ProviderIDs: cloneStringMap(item.ProviderIDs), EmbyPath: embyPath, LocalPath: localPath,

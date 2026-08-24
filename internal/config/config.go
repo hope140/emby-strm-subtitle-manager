@@ -115,6 +115,9 @@ func (c Config) Validate() error {
 	if c.Features.RemoteSearchEnabled {
 		return errors.New("features.remote_search_enabled must be false in D1")
 	}
+	if len(c.PathMappings) == 0 {
+		return errors.New("path_mappings requires at least one mapping")
+	}
 	for i, mapping := range c.PathMappings {
 		if strings.TrimSpace(mapping.Emby) == "" || strings.TrimSpace(mapping.Local) == "" {
 			return fmt.Errorf("path_mappings[%d] requires emby and local", i)

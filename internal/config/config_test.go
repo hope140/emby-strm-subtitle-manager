@@ -166,6 +166,17 @@ func TestExampleConfigIsValid(t *testing.T) {
 	}
 }
 
+func TestValidateRequiresPathMapping(t *testing.T) {
+	cfg := Config{
+		Server:   ServerConfig{ListenAddress: "127.0.0.1:8080"},
+		Emby:     EmbyConfig{URL: "https://emby.example.test", APIKeyFile: "/run/secrets/emby", TimeoutSeconds: 10},
+		Security: SecurityConfig{IdentityKeyFile: "/run/secrets/identity"},
+	}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "path_mappings") {
+		t.Fatalf("Validate() = %v, want path mapping error", err)
+	}
+}
+
 func TestCIWorkflowYAMLIsValid(t *testing.T) {
 	filename := filepath.Join("..", "..", ".github", "workflows", "ci.yml")
 	contents, err := os.ReadFile(filename)

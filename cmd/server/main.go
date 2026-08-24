@@ -13,6 +13,8 @@ import (
 	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/httpapi"
+	"github.com/hope140/emby-strm-subtitle-manager/internal/inventory"
+	"github.com/hope140/emby-strm-subtitle-manager/internal/pathmap"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/version"
 )
 
@@ -31,8 +33,30 @@ func main() {
 		logger.Error("credential configuration rejected", "error", err.Error())
 		os.Exit(1)
 	}
-	if _, err := config.ReadIdentityKey(cfg.Security.IdentityKeyFile); err != nil {
+	identityKey, err := config.ReadIdentityKey(cfg.Security.IdentityKeyFile)
+	if err != nil {
 		logger.Error("identity configuration rejected", "error", err.Error())
+		os.Exit(1)
+	}
+	mappings := make([]pathmap.Mapping, 0, len(cfg.PathMappings))
+	localRoots := make([]string, 0, len(cfg.PathMappings))
+	for _, mapping := range cfg.PathMappings {
+		mappings = append(mappings, pathmap.Mapping{Emby: mapping.Emby, Local: mapping.Local})
+		localRoots = append(localRoots, mapping.Local)
+	}
+	mapper, err := pathmap.New(mappings)
+	if err != nil {
+		logger.Error("path mapping configuration rejected", "error", err.Error())
+		os.Exit(1)
+	}
+	guard, err := pathmap.NewPathGuard(localRoots)
+	if err != nil {
+		logger.Error("media root configuration rejected", "error", err.Error())
+		os.Exit(1)
+	}
+	inventoryService, err := inventory.New(inventory.Options{FileSystem: inventory.OSFileSystem{}, IdentityKey: identityKey, Mapper: mapper, Guard: guard})
+	if err != nil {
+		logger.Error("subtitle inventory configuration rejected", "error", err.Error())
 		os.Exit(1)
 	}
 	client, err := embyclient.New(embyclient.Config{
@@ -46,8 +70,10 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:              cfg.Server.ListenAddress,
-		Handler:           httpapi.NewServer(cfg, version.Current(), logger, client).Handler(),
+		Addr: cfg.Server.ListenAddress,
+		Handler: httpapi.NewServerWithServices(cfg, version.Current(), logger, httpapi.Services{
+			Emby: client, Mapper: mapper, Guard: guard, Inventory: inventoryService,
+		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		ReadTimeout:       30 * time.Second,
