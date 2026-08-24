@@ -1,6 +1,6 @@
 # Phase 2-D1 只读 Canary 验收定义
 
-状态：D1 代码切片、Linux 自动化门禁、C92 Docker Compose 部署及 Movie/Episode STRM Canary 已验收；真实多媒体源样本和 FRP 公网 HTTPS 尚未验收，因此 D1 的全部真实门禁仍未收口。
+状态：D1 代码切片、Linux 自动化门禁、C92 Docker Compose 部署、公网 HTTPS 及 Movie/Episode STRM Canary 已验收；真实多媒体源样本尚未验收，因此 D1 的全部真实门禁仍未收口。
 
 本文件定义 ADR-003 的 D1 范围和进入 D2 的门禁。它是实现和部署测试的契约，不把规划内容写成已完成事实。
 
@@ -73,6 +73,7 @@ Compose 部署必须满足：
 - API Key 使用 Secret 或权限受控文件注入，不能写入镜像、前端资源、响应、普通日志或 Git。应用还需要独立的 `security.identity_key_file`，仅用于 Inventory 的稳定本地标识，不能复用 Emby API Key；`security.api_auth_token_file` 提供管理 API 的 Bearer Token，也必须与这两类 Secret 分离。Docker file source 的 uid/gid/mode 在不同实现中不作为可信授权依据，宿主机启动前应实际将该文件设为 `10001:10001`、`0400`。
 - `write_enabled=false` 是默认且可验证的启动配置；D1 没有启用它的操作步骤。
 - 日志默认脱敏，不记录 Token、候选原始 ID、认证参数 URL、字幕正文或本机绝对路径。
+- 公网反代使用仓库提供的安全日志基线，只记录粗粒度路由和状态，不记录完整请求行、query、Authorization、Referer、原始 Item ID 或候选 ID；模板见 [OpenResty 公网入口基线](../deploy/openresty/README.md)。
 - Docker 默认只运行 D1 只读能力：`write_enabled=false`、`remote_search_enabled=false`，媒体挂载为只读，配置/Secret 与媒体目录分离，不默认公开管理端口。
 - `/livez` 与只返回极小状态的 `/readyz` 是公开探针；所有 `/v1/*` 必须携带 `Authorization: Bearer <token>`。缺失、错误或通过 query 传入 Token 均返回统一 401，不回显凭据。
 
@@ -117,7 +118,7 @@ Compose 部署必须满足：
 - 浏览器开发者工具、应用日志和容器环境导出中均不存在 API Key 或认证参数 URL。
 - 将 `write_enabled=false` 作为配置和运行时状态分别核对，不能只查看配置文件。
 
-D1 只有在自动化门禁、Movie/Episode STRM Canary 和真实多媒体源门禁都通过后，才允许进入 D2 搜索预览。当前多源自动化的 409 与显式 source 选择测试已通过，但真实 Item 尚未找到；FRP 公网 HTTPS 也不属于已完成验收。任何一项失败都保留证据并回到只读边界修复。
+D1 只有在自动化门禁、Movie/Episode STRM Canary 和真实多媒体源门禁都通过后，才允许进入 D2 搜索预览。当前多源自动化的 409 与显式 source 选择测试已通过，但真实 Item 尚未找到；FRP 公网 HTTPS 已通过独立部署验收。任何一项失败都保留证据并回到只读边界修复。
 
 ## 7. 非目标
 
@@ -130,4 +131,4 @@ D1 明确不包含：
 - STRM 内容读取、115/CD2 访问、媒体代理或第二套媒体索引
 - 公开互联网部署、账号系统、多实例锁和生产数据迁移
 
-本文件只确认已经完成的部署和 STRM Canary；在真实多媒体源样本及 FRP 公网 HTTPS 验收完成前，不得宣称 D1 全部真实门禁或公网部署已经通过。
+本文件只确认已经完成的部署、公网 HTTPS 和 STRM Canary；在真实多媒体源样本验收完成前，不得宣称 D1 全部真实门禁已经通过。

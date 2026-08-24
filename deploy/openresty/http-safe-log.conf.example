@@ -1,0 +1,18 @@
+# Load this file inside nginx's http context before the site server block.
+# It emits only coarse route names, never raw paths, query strings, referers,
+# Authorization headers, Emby item IDs, or subtitle candidate IDs.
+map $uri $embysm_route {
+    default                                      other;
+    /livez                                       livez;
+    /readyz                                      readyz;
+    /v1/health                                   health;
+    /v1/emby/libraries                           libraries;
+    /v1/emby/items                               items;
+    ~^/v1/media/[^/]+/subtitles$                 media_subtitles;
+    ~^/v1/media/[^/]+$                           media;
+}
+
+log_format emby_strm_subtitle_safe
+    '$remote_addr [$time_local] "$request_method $server_protocol" '
+    'route=$embysm_route status=$status bytes=$body_bytes_sent '
+    'request_time=$request_time';

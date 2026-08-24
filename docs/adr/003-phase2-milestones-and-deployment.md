@@ -39,4 +39,4 @@ Phase 2 采用以下顺序，前一阶段的真实验收通过后才能进入下
 - [Gate 0 实测报告](../../GATE0_REPORT.md)
 - [Phase 2 只读 Canary 验收定义](../phase2-readonly-canary.md)
 
-本 ADR 记录路线和默认边界；当前 D1 的代码、自动化、C92 部署和 Movie/Episode STRM Canary 已有验收证据，剩余真实多媒体源样本与 FRP 公网 HTTPS 门禁见 [D1 部署验收报告](../d1-deployment-acceptance.md)。该报告不改变本 ADR 对 D2、D3 及写能力的前置条件。
+本 ADR 记录路线和默认边界；当前 D1 的代码、自动化、C92 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已有验收证据，剩余真实多媒体源样本门禁见 [D1 部署验收报告](../d1-deployment-acceptance.md)。该报告不改变本 ADR 对 D2、D3 及写能力的前置条件。

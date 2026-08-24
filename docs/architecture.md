@@ -1,6 +1,6 @@
 # 当前架构
 
-本文只描述截至 2026 年 8 月 24 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署和 Movie/Episode STRM Canary 已验收；真实多媒体源样本与 FRP 公网 HTTPS 仍待验收。Installer、搜索预览和写入能力仍属于后续阶段。
+本文只描述截至 2026 年 8 月 24 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已验收；真实多媒体源样本仍待验收。Installer、搜索预览和写入能力仍属于后续阶段。
 
 ## D1 本地实现
 
@@ -26,7 +26,7 @@
 
 MediaContext 对单源自动选择，对多源要求显式 `media_source_id`，不会猜测列表第一项。STRM 的 Inventory 和 PathMapper 始终使用 Emby Item.Path；非 STRM 只有本地 MediaSource.Path 可用时才使用它，远程 source path 只作为内部播放定位事实，不参与本地映射、目录检查、响应或日志。STRM 的 IsStrm 判断只看 Item.Path。即使多源共用同一个 Item.Path 的 STRM sidecar 目录，字幕流仍按选中的 MediaSource 保持隔离。PathMapper 支持 POSIX、Windows drive 和 UNC 形式，采用规范化、最长前缀匹配及目录 containment 检查；路径不安全、未映射或目录不可用时返回降级状态和稳定 warning。Inventory 只枚举受控目录、读取文件元数据并合并 Emby MediaStreams，绝不读取 STRM 内容、媒体正文或字幕正文。
 
-本地 `scripts/verify.ps1` 和 Linux 全包测试均已通过且无 skip；C92 的 Docker Compose schema/build、启动安全边界、`/readyz`、Bearer 401 和版本标签另有部署证据。自动化与已验收的 STRM Canary 仍不能替代尚未完成的真实多媒体源和公网 HTTPS 验收。
+本地 `scripts/verify.ps1` 和 Linux 全包测试均已通过且无 skip；C92 的 Docker Compose schema/build、启动安全边界、`/readyz`、Bearer 认证和版本标签，以及 FRP 公网 HTTPS、单代理加密和公网应用端口防火墙边界另有部署证据。自动化与已验收的 STRM Canary 仍不能替代尚未完成的真实多媒体源验收。
 
 ## 当前系统边界
 
