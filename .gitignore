@@ -8,6 +8,8 @@ tmp/
 temp/
 .tmp/
 .cache/
+.gocache/
+.gomodcache/
 
 # Common local reports, backups, temporary files, and credentials.
 *.log
@@ -28,3 +30,5 @@ temp/
 
 # Local Emby credential file; never commit it.
 embyapi
+/server
+/server.exe

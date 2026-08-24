@@ -1,0 +1,15 @@
+server:
+  listen_address: 127.0.0.1:8080
+
+emby:
+  url: https://emby.example.invalid
+  api_key_file: /run/secrets/emby_api_key
+  timeout_seconds: 30
+
+features:
+  write_enabled: false
+  remote_search_enabled: false
+
+path_mappings:
+  - emby: /srv/emby/media
+    local: /media
