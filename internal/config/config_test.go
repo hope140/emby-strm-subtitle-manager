@@ -193,3 +193,28 @@ func TestCIWorkflowYAMLIsValid(t *testing.T) {
 		t.Fatalf(".github/workflows/ci.yml must contain one YAML document, got %v", err)
 	}
 }
+
+func TestDeploymentYAMLDocumentsAreValid(t *testing.T) {
+	for _, filename := range []string{
+		filepath.Join("..", "..", "deploy", "compose.example.yaml"),
+		filepath.Join("..", "..", "deploy", "compose.host-network.example.yaml"),
+		filepath.Join("..", "..", "deploy", "config.example.yaml"),
+		filepath.Join("..", "..", "deploy", "config.host-network.example.yaml"),
+	} {
+		t.Run(filepath.Base(filename), func(t *testing.T) {
+			contents, err := os.ReadFile(filename)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoder := yaml.NewDecoder(bytes.NewReader(contents))
+			var document any
+			if err := decoder.Decode(&document); err != nil {
+				t.Fatalf("invalid YAML: %v", err)
+			}
+			var extra any
+			if err := decoder.Decode(&extra); err != io.EOF {
+				t.Fatalf("expected one YAML document, got %v", err)
+			}
+		})
+	}
+}

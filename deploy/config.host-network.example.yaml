@@ -1,0 +1,21 @@
+server:
+  # Keep the management API on host loopback even though the container uses
+  # host networking.
+  listen_address: 127.0.0.1:18080
+
+emby:
+  # Replace the port only if the local Emby listener differs.
+  url: http://127.0.0.1:8096
+  api_key_file: /run/secrets/emby_api_key
+  timeout_seconds: 30
+
+security:
+  identity_key_file: /run/secrets/app_identity_key
+
+features:
+  write_enabled: false
+  remote_search_enabled: false
+
+path_mappings:
+  - emby: /replace/with/emby/media/root
+    local: /media

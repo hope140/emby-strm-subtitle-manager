@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:1.26.7-alpine3.22 AS build
+FROM golang:1.26.7-alpine3.24 AS build
 
 WORKDIR /src
 ENV CGO_ENABLED=0
@@ -14,7 +14,7 @@ COPY cmd ./cmd
 COPY internal ./internal
 RUN go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/emby-strm-subtitle-manager ./cmd/server
 
-FROM alpine:3.22
+FROM alpine:3.24.1
 
 RUN apk add --no-cache ca-certificates \
     && addgroup -S -g 10001 app \

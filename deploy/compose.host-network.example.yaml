@@ -1,0 +1,61 @@
+name: emby-strm-subtitle-manager
+
+# Use this topology when Emby already listens on the Docker host network.
+# The application also uses host networking, but its configured listener stays
+# on host loopback so no management port is exposed publicly.
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: emby-strm-subtitle-manager:d1
+    command:
+      - -config
+      - /etc/emby-strm-subtitle-manager/config.yaml
+    network_mode: host
+    user: "10001:10001"
+    read_only: true
+    init: true
+    restart: unless-stopped
+    configs:
+      - source: app_config
+        target: /etc/emby-strm-subtitle-manager/config.yaml
+        mode: 0444
+    secrets:
+      - source: emby_api_key
+        target: emby_api_key
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: app_identity_key
+        target: app_identity_key
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+    volumes:
+      - type: bind
+        source: /replace/with/host/media/root
+        target: /media
+        read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:18080/readyz"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+configs:
+  app_config:
+    file: ./config.host-network.yaml
+
+secrets:
+  emby_api_key:
+    file: ./secrets/emby_api_key
+  app_identity_key:
+    file: ./secrets/app_identity_key
