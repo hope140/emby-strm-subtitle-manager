@@ -34,7 +34,7 @@ function Invoke-Go {
 }
 
 $goFiles = Get-ChildItem -Path . -Recurse -File -Filter '*.go' |
-    Where-Object { $_.FullName -notmatch '[\\/](\.tools|\.git|\.gocache)[\\/]' }
+    Where-Object { $_.FullName -notmatch '[\\/](\.tools|\.git|\.gocache|\.gomodcache)[\\/]' }
 $formatOutput = foreach ($goFile in $goFiles) {
     & $gofmtPath -l $goFile.FullName
 }

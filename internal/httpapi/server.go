@@ -2,27 +2,63 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+	"unicode"
 
 	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
+	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
+	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/version"
 )
 
-type Server struct {
-	cfg    config.Config
-	ver    version.Info
-	logger *slog.Logger
+const (
+	readinessProbeTimeout = 3 * time.Second
+	readinessSuccessTTL   = 15 * time.Second
+	readinessFailureTTL   = 5 * time.Second
+	defaultStartIndex     = 0
+	defaultLimit          = 50
+	maxHTTPItemsLimit     = 200
+)
+
+// EmbyReader is the smallest interface needed by the HTTP layer. Keeping the
+// interface here allows a later Media/Inventory handler to use the same
+// client while keeping HTTP tests independent from a live Emby instance.
+type EmbyReader interface {
+	ListLibraries(context.Context) ([]domain.Library, error)
+	ListItems(context.Context, string, int, int) (domain.ItemPage, error)
 }
 
-func NewServer(cfg config.Config, ver version.Info, logger *slog.Logger) *Server {
+type Server struct {
+	cfg       config.Config
+	ver       version.Info
+	logger    *slog.Logger
+	emby      EmbyReader
+	readiness *readinessProbe
+}
+
+// NewServer creates a D1 HTTP server. The optional client keeps the small
+// constructor convenient for health-only callers; production always passes an
+// authenticated EmbyReader from cmd/server.
+func NewServer(cfg config.Config, ver version.Info, logger *slog.Logger, clients ...EmbyReader) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{cfg: cfg, ver: ver, logger: logger}
+	var client EmbyReader
+	if len(clients) > 0 {
+		client = clients[0]
+	}
+	return &Server{cfg: cfg, ver: ver, logger: logger, emby: client, readiness: &readinessProbe{client: client}}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -30,29 +66,197 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	allowed := r.Method == http.MethodGet
-	if !allowed {
+	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		s.writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	switch r.URL.Path {
 	case "/livez":
+		if !noQuery(r) {
+			s.writeError(w, r, http.StatusBadRequest, "invalid_query", "query parameters are not allowed")
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	case "/readyz":
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+		if !noQuery(r) {
+			s.writeError(w, r, http.StatusBadRequest, "invalid_query", "query parameters are not allowed")
+			return
+		}
+		if s.readiness != nil && s.readiness.check(r.Context()) {
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+			return
+		}
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
 	case "/v1/health":
+		if !noQuery(r) {
+			s.writeError(w, r, http.StatusBadRequest, "invalid_query", "query parameters are not allowed")
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"status":   "ok",
-			"version":  s.ver,
-			"features": s.cfg.Features,
+			"status":      "ok",
+			"version":     s.ver,
+			"features":    s.cfg.Features,
+			"emby_status": s.readinessStatus(),
 		})
-	case "/v1/version":
-		writeJSON(w, http.StatusOK, s.ver)
+	case "/v1/emby/libraries":
+		if !noQuery(r) {
+			s.writeError(w, r, http.StatusBadRequest, "invalid_query", "query parameters are not allowed")
+			return
+		}
+		s.handleLibraries(w, r)
+	case "/v1/emby/items":
+		s.handleItems(w, r)
 	default:
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		s.writeError(w, r, http.StatusNotFound, "not_found", "not found")
 	}
 }
+
+func (s *Server) handleLibraries(w http.ResponseWriter, r *http.Request) {
+	if s.emby == nil {
+		s.writeError(w, r, http.StatusServiceUnavailable, "emby_unavailable", "Emby is unavailable")
+		return
+	}
+	libraries, err := s.emby.ListLibraries(r.Context())
+	if err != nil {
+		s.writeEmbyError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, libraries)
+}
+
+func (s *Server) handleItems(w http.ResponseWriter, r *http.Request) {
+	query, err := parseItemsQuery(r)
+	if err != nil {
+		s.writeError(w, r, http.StatusBadRequest, "invalid_query", err.Error())
+		return
+	}
+	if s.emby == nil {
+		s.writeError(w, r, http.StatusServiceUnavailable, "emby_unavailable", "Emby is unavailable")
+		return
+	}
+	page, err := s.emby.ListItems(r.Context(), query.libraryID, query.startIndex, query.limit)
+	if err != nil {
+		s.writeEmbyError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
+type itemsQuery struct {
+	libraryID  string
+	startIndex int
+	limit      int
+}
+
+func parseItemsQuery(r *http.Request) (itemsQuery, error) {
+	q, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		return itemsQuery{}, errors.New("invalid query")
+	}
+	for key, values := range q {
+		if key != "library_id" && key != "start_index" && key != "limit" {
+			return itemsQuery{}, errors.New("unknown query parameter")
+		}
+		if len(values) != 1 || values[0] == "" {
+			return itemsQuery{}, errors.New("duplicate or empty query parameter")
+		}
+	}
+	libraryID := q.Get("library_id")
+	if !validID(libraryID) {
+		return itemsQuery{}, errors.New("invalid library_id")
+	}
+	startIndex := defaultStartIndex
+	if raw := q.Get("start_index"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			return itemsQuery{}, errors.New("invalid start_index")
+		}
+		startIndex = parsed
+	}
+	limit := defaultLimit
+	if raw := q.Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > maxHTTPItemsLimit {
+			return itemsQuery{}, errors.New("invalid limit")
+		}
+		limit = parsed
+	}
+	return itemsQuery{libraryID: libraryID, startIndex: startIndex, limit: limit}, nil
+}
+
+func validID(value string) bool {
+	return value != "" && value == strings.TrimSpace(value) && strings.IndexFunc(value, unicode.IsControl) < 0
+}
+
+func noQuery(r *http.Request) bool {
+	return r.URL.RawQuery == ""
+}
+
+func (s *Server) readinessStatus() string {
+	if s.readiness == nil {
+		return "unknown"
+	}
+	return s.readiness.status()
+}
+
+func (s *Server) writeEmbyError(w http.ResponseWriter, r *http.Request, err error) {
+	status, code, message := mapEmbyError(err)
+	s.writeError(w, r, status, code, message)
+}
+
+func mapEmbyError(err error) (int, string, string) {
+	var clientErr *embyclient.Error
+	if !errors.As(err, &clientErr) {
+		return http.StatusBadGateway, "emby_error", "Emby request failed"
+	}
+	switch clientErr.Code() {
+	case embyclient.ErrInvalidInput:
+		return http.StatusBadRequest, "invalid_request", "invalid request"
+	case embyclient.ErrNotFound:
+		return http.StatusNotFound, "not_found", "item not found"
+	case embyclient.ErrTimeout:
+		return http.StatusGatewayTimeout, "emby_timeout", "Emby request timed out"
+	case embyclient.ErrHTTP:
+		switch {
+		case clientErr.StatusCode() == http.StatusNotFound:
+			return http.StatusNotFound, "emby_not_found", "Emby resource not found"
+		case clientErr.StatusCode() >= 500:
+			return http.StatusBadGateway, "emby_upstream_error", "Emby returned an upstream error"
+		default:
+			return http.StatusServiceUnavailable, "emby_unavailable", "Emby is unavailable"
+		}
+	case embyclient.ErrTransport:
+		return http.StatusServiceUnavailable, "emby_unavailable", "Emby is unavailable"
+	case embyclient.ErrCanceled:
+		return http.StatusServiceUnavailable, "emby_unavailable", "Emby is unavailable"
+	case embyclient.ErrMalformedJSON, embyclient.ErrInvalidResponse, embyclient.ErrResponseTooLarge, embyclient.ErrRedirect:
+		return http.StatusBadGateway, "emby_invalid_response", "Emby response was invalid"
+	default:
+		return http.StatusBadGateway, "emby_error", "Emby request failed"
+	}
+}
+
+type errorBody struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type errorEnvelope struct {
+	Error     errorBody `json:"error"`
+	RequestID string    `json:"request_id"`
+}
+
+func (s *Server) writeError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	requestID := r.Context().Value(requestIDKey{})
+	id, _ := requestID.(string)
+	if id == "" {
+		id = w.Header().Get("X-Request-ID")
+	}
+	writeJSON(w, status, errorEnvelope{Error: errorBody{Code: code, Message: message}, RequestID: id})
+}
+
+type requestIDKey struct{}
 
 func requestMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -63,6 +267,7 @@ func requestMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'")
+		r = r.WithContext(context.WithValue(r.Context(), requestIDKey{}, requestID))
 		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(recorder, r)
 		logger.Info("http request", "request_id", requestID, "method", r.Method, "route", routeLabel(r.URL.Path), "status", recorder.status)
@@ -107,9 +312,76 @@ func newRequestID() string {
 
 func routeLabel(path string) string {
 	switch path {
-	case "/livez", "/readyz", "/v1/health", "/v1/version":
+	case "/livez", "/readyz", "/v1/health", "/v1/emby/libraries", "/v1/emby/items":
 		return path
 	default:
 		return "<unmatched>"
 	}
+}
+
+type readinessProbe struct {
+	client     EmbyReader
+	mu         sync.Mutex
+	validUntil time.Time
+	ready      bool
+	inFlight   chan struct{}
+}
+
+func (p *readinessProbe) check(parent context.Context) bool {
+	if p == nil || p.client == nil {
+		return false
+	}
+	for {
+		now := time.Now()
+		p.mu.Lock()
+		if now.Before(p.validUntil) {
+			ready := p.ready
+			p.mu.Unlock()
+			return ready
+		}
+		if p.inFlight != nil {
+			wait := p.inFlight
+			p.mu.Unlock()
+			select {
+			case <-wait:
+				continue
+			case <-parent.Done():
+				return false
+			}
+		}
+		p.inFlight = make(chan struct{})
+		flight := p.inFlight
+		p.mu.Unlock()
+
+		ctx, cancel := context.WithTimeout(parent, readinessProbeTimeout)
+		_, err := p.client.ListLibraries(ctx)
+		cancel()
+		ready := err == nil
+		p.mu.Lock()
+		p.ready = ready
+		if ready {
+			p.validUntil = time.Now().Add(readinessSuccessTTL)
+		} else {
+			p.validUntil = time.Now().Add(readinessFailureTTL)
+		}
+		close(flight)
+		p.inFlight = nil
+		p.mu.Unlock()
+		return ready
+	}
+}
+
+func (p *readinessProbe) status() string {
+	if p == nil {
+		return "unknown"
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if time.Now().After(p.validUntil) {
+		return "unknown"
+	}
+	if p.ready {
+		return "ready"
+	}
+	return "unavailable"
 }

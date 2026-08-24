@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
+	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/httpapi"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/version"
 )
@@ -25,7 +26,8 @@ func main() {
 		logger.Error("configuration rejected", "error", err.Error())
 		os.Exit(1)
 	}
-	if _, err := config.ReadAPIKey(cfg.Emby.APIKeyFile); err != nil {
+	apiKey, err := config.ReadAPIKey(cfg.Emby.APIKeyFile)
+	if err != nil {
 		logger.Error("credential configuration rejected", "error", err.Error())
 		os.Exit(1)
 	}
@@ -33,10 +35,19 @@ func main() {
 		logger.Error("identity configuration rejected", "error", err.Error())
 		os.Exit(1)
 	}
+	client, err := embyclient.New(embyclient.Config{
+		BaseURL: cfg.Emby.URL,
+		APIKey:  apiKey,
+		Timeout: time.Duration(cfg.Emby.TimeoutSeconds) * time.Second,
+	})
+	if err != nil {
+		logger.Error("Emby client configuration rejected", "error", err.Error())
+		os.Exit(1)
+	}
 
 	server := &http.Server{
 		Addr:              cfg.Server.ListenAddress,
-		Handler:           httpapi.NewServer(cfg, version.Current(), logger).Handler(),
+		Handler:           httpapi.NewServer(cfg, version.Current(), logger, client).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		ReadTimeout:       30 * time.Second,
