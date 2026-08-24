@@ -1,0 +1,26 @@
+# The image build needs only the Go module and server source.
+**
+!go.mod
+!go.sum
+!cmd/
+!cmd/**
+!internal/
+!internal/**
+
+# Never send local operations, credentials, generated binaries, or caches to
+# the Docker daemon, even if a future source allow-list is expanded.
+LOCAL_OPERATIONS.md
+embyapi
+.git/
+.tools/
+.gocache/
+.gomodcache/
+.tmp/
+*.key
+*.pem
+*.p12
+*.pfx
+*.secret
+*.secrets
+*.token
+*.credentials

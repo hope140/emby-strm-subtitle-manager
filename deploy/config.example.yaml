@@ -1,0 +1,22 @@
+server:
+  # Container-internal bind; the Compose ports entry keeps the host bind on
+  # loopback. Do not use the host's public interface here.
+  listen_address: 0.0.0.0:8080
+
+emby:
+  url: https://emby.example.invalid
+  api_key_file: /run/secrets/emby_api_key
+  timeout_seconds: 30
+
+security:
+  identity_key_file: /run/secrets/app_identity_key
+
+features:
+  write_enabled: false
+  remote_search_enabled: false
+
+path_mappings:
+  # Replace the placeholder with the exact Emby-reported media root. The
+  # local side must remain /media, which is mounted read-only by Compose.
+  - emby: /replace/with/emby/media/root
+    local: /media

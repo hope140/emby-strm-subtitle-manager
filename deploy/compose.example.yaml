@@ -1,0 +1,63 @@
+name: emby-strm-subtitle-manager
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: emby-strm-subtitle-manager:d1
+    command:
+      - -config
+      - /etc/emby-strm-subtitle-manager/config.yaml
+    user: "10001:10001"
+    read_only: true
+    init: true
+    restart: unless-stopped
+    ports:
+      # Host loopback only. Reach it remotely through an existing private path
+      # or SSH tunnel; do not replace this with a public bind by default.
+      - "127.0.0.1:18080:8080"
+    configs:
+      - source: app_config
+        target: /etc/emby-strm-subtitle-manager/config.yaml
+        mode: 0444
+    secrets:
+      - source: emby_api_key
+        target: emby_api_key
+        mode: 0440
+      - source: app_identity_key
+        target: app_identity_key
+        mode: 0440
+    volumes:
+      # Replace the source with the host media root that matches the Emby
+      # path mapping. The container sees media only at /media and cannot write.
+      - type: bind
+        source: /replace/with/host/media/root
+        target: /media
+        read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+configs:
+  app_config:
+    # Copy config.example.yaml to config.yaml and replace only deployment
+    # placeholders. Keep config.yaml local and out of Git.
+    file: ./config.yaml
+
+secrets:
+  emby_api_key:
+    # Create this one-line file locally with restrictive permissions.
+    file: ./secrets/emby_api_key
+  app_identity_key:
+    # Create this one-line file locally with restrictive permissions.
+    file: ./secrets/app_identity_key
