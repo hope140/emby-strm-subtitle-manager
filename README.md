@@ -12,9 +12,11 @@ V1 已决定使用 Emby Remote Subtitle Bridge。Native Provider 暂缓，单个
 
 D1 只读代码切片已经在本地建立，当前包含 Go 服务、Emby 只读客户端、MediaContext、跨平台 PathMapper、字幕 Inventory 和只读 HTTP API。相关单元测试、`go vet`、构建和 `scripts/verify.ps1` 已通过；这只代表本地代码与自动化检查通过，不代表 Docker 镜像、Docker Compose 或真实服务器已经验收。下一步是制作并验证安全默认的部署产物，再在私网或 SSH 隧道中完成真实 Movie、Episode 和多媒体源 Canary；在 D1 自动和真实验收都通过前不进入 D2。详见 [ADR-002](docs/adr/002-project-codebase-route.md)、[ADR-003](docs/adr/003-phase2-milestones-and-deployment.md)、[Phase 2 只读 Canary](docs/phase2-readonly-canary.md)、[Phase 1 基线报告](BASELINE.md) 和 [Phase 1 基线检查表](docs/phase1-baseline-checklist.md)。
 
-当前服务公开 7 个 GET 路由：3 个运维路由（`/livez`、`/readyz`、`/v1/health`）和 4 个业务路由（媒体库、媒体分页、单个媒体、字幕清单）。`/readyz` 会实际探测 Emby，不能只根据进程存活返回就绪。应用凭据与独立的 `security.identity_key_file` 分离，后者只用于本地字幕清单标识，不复用 Emby API Key。
+当前服务公开 7 个 GET 路由：3 个运维路由（`/livez`、`/readyz`、`/v1/health`）和 4 个业务路由（媒体库、媒体分页、单个媒体、字幕清单）。`/livez` 与只返回极小状态的 `/readyz` 公开；所有 `/v1/*` 要求独立 Bearer Token，Token 不接受 query 参数。`/readyz` 会实际探测 Emby，不能只根据进程存活返回就绪。应用凭据、`security.identity_key_file` 与 `security.api_auth_token_file` 三者分离，后两者不能复用 Emby API Key。
 
 部署入口包括根目录 [Dockerfile](Dockerfile)、通用 bridge 示例 [deploy/compose.example.yaml](deploy/compose.example.yaml)，以及 Emby 已使用 host 网络时的 [deploy/compose.host-network.example.yaml](deploy/compose.host-network.example.yaml)。所有示例默认保持写能力和远程搜索关闭，实际部署前必须替换占位路径并重新核对只读挂载。
+
+Compose 的 `IMAGE_TAG`、`BUILD_VERSION`、`BUILD_COMMIT`、`BUILD_TIME` 和 `BUILD_SOURCE` 用于固定镜像版本并写入 OCI 构建溯源标签。正式部署应使用不可变标签或摘要，并保留上一份已验收引用以便回滚。
 
 ## 文档入口
 

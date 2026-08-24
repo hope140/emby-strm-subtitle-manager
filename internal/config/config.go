@@ -40,7 +40,8 @@ type EmbyConfig struct {
 }
 
 type SecurityConfig struct {
-	IdentityKeyFile string `yaml:"identity_key_file"`
+	IdentityKeyFile  string `yaml:"identity_key_file"`
+	APIAuthTokenFile string `yaml:"api_auth_token_file"`
 }
 
 type FeatureConfig struct {
@@ -105,6 +106,12 @@ func (c Config) Validate() error {
 	}
 	if !isAbsolutePath(c.Security.IdentityKeyFile) {
 		return errors.New("security.identity_key_file must be an absolute path")
+	}
+	if strings.TrimSpace(c.Security.APIAuthTokenFile) == "" {
+		return errors.New("security.api_auth_token_file is required")
+	}
+	if !isAbsolutePath(c.Security.APIAuthTokenFile) {
+		return errors.New("security.api_auth_token_file must be an absolute path")
 	}
 	if c.Emby.TimeoutSeconds < 1 || c.Emby.TimeoutSeconds > maxTimeoutSeconds {
 		return fmt.Errorf("emby.timeout_seconds must be between 1 and %d", maxTimeoutSeconds)
@@ -176,4 +183,32 @@ func ReadIdentityKey(filename string) ([]byte, error) {
 		return nil, errors.New("invalid application identity key")
 	}
 	return key, nil
+}
+
+// ReadAPIAuthToken reads the application-facing Bearer token. It requires a
+// 256-bit-or-longer single-line token and rejects reuse of either the Emby API
+// key or the decoded identity key. Error text never contains a secret or path.
+func ReadAPIAuthToken(filename, embyAPIKey string, identityKey []byte) (string, error) {
+	contents, err := os.ReadFile(filename)
+	if err != nil {
+		return "", errors.New("unable to read API auth token file")
+	}
+	token := string(contents)
+	if strings.HasSuffix(token, "\r\n") {
+		token = strings.TrimSuffix(token, "\r\n")
+	} else if strings.HasSuffix(token, "\n") || strings.HasSuffix(token, "\r") {
+		token = token[:len(token)-1]
+	}
+	if len(token) < 32 || strings.IndexFunc(token, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+		return "", errors.New("invalid API auth token file")
+	}
+	if token == embyAPIKey || token == string(identityKey) || token == base64.StdEncoding.EncodeToString(identityKey) {
+		return "", errors.New("API auth token must be distinct from other secrets")
+	}
+	return token, nil
+}
+
+// ReadAPIToken is kept as a concise alias for callers using the older name.
+func ReadAPIToken(filename, embyAPIKey string, identityKey []byte) (string, error) {
+	return ReadAPIAuthToken(filename, embyAPIKey, identityKey)
 }

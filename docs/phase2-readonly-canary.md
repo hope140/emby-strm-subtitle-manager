@@ -51,6 +51,10 @@ emby:
   url: <EMBY_PRIVATE_URL>
   api_key_file: /run/secrets/emby_api_key
 
+security:
+  identity_key_file: /run/secrets/app_identity_key
+  api_auth_token_file: /run/secrets/app_api_auth_token
+
 server:
   listen_address: <APP_BIND_ADDRESS>
 
@@ -66,10 +70,15 @@ Compose 部署必须满足：
 
 - 应用容器加入 Emby 所在私网，或通过已存在的 SSH 隧道访问，不新增公网暴露。
 - 媒体目录挂载为只读；应用数据目录与媒体目录分离。
-- API Key 使用 Secret 或权限受控文件注入，不能写入镜像、前端资源、响应、普通日志或 Git。应用还需要独立的 `security.identity_key_file`，仅用于 Inventory 的稳定本地标识，不能复用 Emby API Key。
+- API Key 使用 Secret 或权限受控文件注入，不能写入镜像、前端资源、响应、普通日志或 Git。应用还需要独立的 `security.identity_key_file`，仅用于 Inventory 的稳定本地标识，不能复用 Emby API Key；`security.api_auth_token_file` 提供管理 API 的 Bearer Token，也必须与这两类 Secret 分离。Docker file source 的 uid/gid/mode 在不同实现中不作为可信授权依据，宿主机启动前应实际将该文件设为 `10001:10001`、`0400`。
 - `write_enabled=false` 是默认且可验证的启动配置；D1 没有启用它的操作步骤。
 - 日志默认脱敏，不记录 Token、候选原始 ID、认证参数 URL、字幕正文或本机绝对路径。
 - Docker 默认只运行 D1 只读能力：`write_enabled=false`、`remote_search_enabled=false`，媒体挂载为只读，配置/Secret 与媒体目录分离，不默认公开管理端口。
+- `/livez` 与只返回极小状态的 `/readyz` 是公开探针；所有 `/v1/*` 必须携带 `Authorization: Bearer <token>`。缺失、错误或通过 query 传入 Token 均返回统一 401，不回显凭据。
+
+文件型 Secret 的 `uid`、`gid`、`mode` 选项在不同 Docker 实现中不能作为授权依据。宿主机应先实际执行 `chown 10001:10001` 和 `chmod 0400`，再用应用用户做容器内可读性预检，例如 `docker compose run --rm --no-deps --entrypoint sh app -c 'test -r /run/secrets/app_api_auth_token && test -r /run/secrets/emby_api_key && test -r /run/secrets/app_identity_key'`。预检只返回成功/失败，不输出 Secret 内容。
+
+镜像构建使用 Compose 的 `IMAGE_TAG`、`BUILD_VERSION`、`BUILD_COMMIT`、`BUILD_TIME` 和 `BUILD_SOURCE` 参数。正式部署应将 `IMAGE_TAG` 固定为不可变发布标签或摘要，并在启动前用 `docker image inspect` 核对 `org.opencontainers.image.version`、`revision`、`created` 和 `source` 标签与构建记录一致；回滚时重新指定已验收的旧标签或摘要，不使用浮动标签覆盖当前版本。
 
 ## 4. 安全边界
 

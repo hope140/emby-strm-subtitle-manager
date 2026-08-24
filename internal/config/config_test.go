@@ -13,7 +13,7 @@ import (
 )
 
 func validYAML(keyFile string) string {
-	return "server:\n  listen_address: 127.0.0.1:8080\nemby:\n  url: https://emby.example.test\n  api_key_file: " + keyFile + "\n  timeout_seconds: 10\nsecurity:\n  identity_key_file: " + keyFile + "\nfeatures:\n  write_enabled: false\n  remote_search_enabled: false\npath_mappings:\n  - emby: /srv/media\n    local: /media\n"
+	return "server:\n  listen_address: 127.0.0.1:8080\nemby:\n  url: https://emby.example.test\n  api_key_file: " + keyFile + "\n  timeout_seconds: 10\nsecurity:\n  identity_key_file: " + keyFile + "\n  api_auth_token_file: " + keyFile + "\nfeatures:\n  write_enabled: false\n  remote_search_enabled: false\npath_mappings:\n  - emby: /srv/media\n    local: /media\n"
 }
 
 func TestLoadFileAndReadAPIKey(t *testing.T) {
@@ -147,6 +147,40 @@ func TestReadIdentityKeyRejectsInvalidValuesWithoutLeakage(t *testing.T) {
 	}
 }
 
+func TestReadAPIAuthTokenRequiresHighEntropyAndDistinctSecrets(t *testing.T) {
+	dir := t.TempDir()
+	identity := bytes.Repeat([]byte{0x5a}, 32)
+	embyKey := "emby-key-never-reused"
+	token := strings.Repeat("T", 32)
+	filename := filepath.Join(dir, "api-auth-token")
+	if err := os.WriteFile(filename, []byte(token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadAPIAuthToken(filename, embyKey, identity)
+	if err != nil || got != token {
+		t.Fatalf("ReadAPIAuthToken() = %q, %v", got, err)
+	}
+	identityEncoded := base64.StdEncoding.EncodeToString(identity)
+	for name, contents := range map[string]string{
+		"empty":        "\n",
+		"short":        strings.Repeat("s", 31),
+		"whitespace":   strings.Repeat("s", 31) + " x",
+		"emby-reuse":   embyKey,
+		"identity":     string(identity),
+		"identity-b64": identityEncoded,
+	} {
+		t.Run(name, func(t *testing.T) {
+			file := filepath.Join(dir, name)
+			if err := os.WriteFile(file, []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := ReadAPIAuthToken(file, embyKey, identity); err == nil || got != "" || strings.Contains(err.Error(), contents) || strings.Contains(err.Error(), file) {
+				t.Fatalf("unexpected token result: %q, %v", got, err)
+			}
+		})
+	}
+}
+
 func TestIsAbsolutePathPortable(t *testing.T) {
 	for _, path := range []string{"/srv/media", `C:\media`, `D:/media`, `\\server\share\media`, `//server/share/media`} {
 		if !isAbsolutePath(path) {
@@ -170,7 +204,7 @@ func TestValidateRequiresPathMapping(t *testing.T) {
 	cfg := Config{
 		Server:   ServerConfig{ListenAddress: "127.0.0.1:8080"},
 		Emby:     EmbyConfig{URL: "https://emby.example.test", APIKeyFile: "/run/secrets/emby", TimeoutSeconds: 10},
-		Security: SecurityConfig{IdentityKeyFile: "/run/secrets/identity"},
+		Security: SecurityConfig{IdentityKeyFile: "/run/secrets/identity", APIAuthTokenFile: "/run/secrets/api-auth-token"},
 	}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "path_mappings") {
 		t.Fatalf("Validate() = %v, want path mapping error", err)

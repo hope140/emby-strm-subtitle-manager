@@ -4,6 +4,7 @@ package httpapi
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -51,6 +52,7 @@ type Services struct {
 	Mapper    *pathmap.Mapper
 	Guard     *pathmap.PathGuard
 	Inventory *inventory.Service
+	AuthToken string
 }
 
 type Server struct {
@@ -62,6 +64,7 @@ type Server struct {
 	mapper    *pathmap.Mapper
 	guard     *pathmap.PathGuard
 	inventory *inventory.Service
+	authToken []byte
 }
 
 // NewServer creates a D1 HTTP server. The optional client keeps the small
@@ -86,7 +89,7 @@ func NewServerWithServices(cfg config.Config, ver version.Info, logger *slog.Log
 	return &Server{
 		cfg: cfg, ver: ver, logger: logger, emby: services.Emby,
 		readiness: &readinessProbe{client: services.Emby}, mapper: services.Mapper,
-		guard: services.Guard, inventory: services.Inventory,
+		guard: services.Guard, inventory: services.Inventory, authToken: []byte(services.AuthToken),
 	}
 }
 
@@ -95,6 +98,10 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	if requiresAuthentication(r.URL.Path) && !s.authorized(r) {
+		s.writeUnauthorized(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
 		s.writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
@@ -143,6 +150,26 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		s.writeError(w, r, http.StatusNotFound, "not_found", "not found")
 	}
+}
+
+func requiresAuthentication(path string) bool {
+	return path == "/v1" || strings.HasPrefix(path, "/v1/")
+}
+
+func (s *Server) authorized(r *http.Request) bool {
+	if s == nil || len(s.authToken) == 0 {
+		return false
+	}
+	parts := strings.Fields(r.Header.Get("Authorization"))
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(parts[1]), s.authToken) == 1
+}
+
+func (s *Server) writeUnauthorized(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("WWW-Authenticate", "Bearer")
+	s.writeError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 }
 
 func (s *Server) handleLibraries(w http.ResponseWriter, r *http.Request) {

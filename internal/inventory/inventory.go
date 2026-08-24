@@ -422,19 +422,34 @@ func baseName(value string) string {
 	return value
 }
 func safeBaseName(value string) string {
+	if value == "" || strings.ContainsAny(value, "?#") || strings.IndexFunc(value, unicode.IsControl) >= 0 || looksLikeURI(value) {
+		return ""
+	}
 	value = strings.TrimRight(value, `/\`)
 	value = value[strings.LastIndexAny(value, `/\`)+1:]
-	if value == "." || value == ".." || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+	if value == "." || value == ".." || strings.ContainsAny(value, `/\\`) || strings.Contains(value, ":") {
 		return ""
 	}
 	return value
 }
 func safeBaseFallback(value, base string) bool {
-	if value == "" || base == "" || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+	if value == "" || base == "" || strings.IndexFunc(value, unicode.IsControl) >= 0 || strings.ContainsAny(value, "?#") || looksLikeURI(value) {
 		return false
 	}
 	if value == "." || value == ".." || strings.ContainsAny(value, `/\`) || strings.Contains(value, ":") || base != value {
 		return false
+	}
+	return true
+}
+func looksLikeURI(value string) bool {
+	separator := strings.Index(value, "://")
+	if separator <= 0 {
+		return false
+	}
+	for _, r := range value[:separator] {
+		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '+' || r == '-' || r == '.') {
+			return false
+		}
 	}
 	return true
 }

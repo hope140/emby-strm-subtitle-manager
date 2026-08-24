@@ -10,6 +10,7 @@ emby:
 
 security:
   identity_key_file: /run/secrets/app_identity_key
+  api_auth_token_file: /run/secrets/app_api_auth_token
 
 features:
   write_enabled: false

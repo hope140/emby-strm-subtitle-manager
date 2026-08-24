@@ -38,6 +38,11 @@ func main() {
 		logger.Error("identity configuration rejected", "error", err.Error())
 		os.Exit(1)
 	}
+	authToken, err := config.ReadAPIAuthToken(cfg.Security.APIAuthTokenFile, apiKey, identityKey)
+	if err != nil {
+		logger.Error("API auth token configuration rejected", "error", err.Error())
+		os.Exit(1)
+	}
 	mappings := make([]pathmap.Mapping, 0, len(cfg.PathMappings))
 	localRoots := make([]string, 0, len(cfg.PathMappings))
 	for _, mapping := range cfg.PathMappings {
@@ -72,7 +77,7 @@ func main() {
 	server := &http.Server{
 		Addr: cfg.Server.ListenAddress,
 		Handler: httpapi.NewServerWithServices(cfg, version.Current(), logger, httpapi.Services{
-			Emby: client, Mapper: mapper, Guard: guard, Inventory: inventoryService,
+			Emby: client, Mapper: mapper, Guard: guard, Inventory: inventoryService, AuthToken: authToken,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,

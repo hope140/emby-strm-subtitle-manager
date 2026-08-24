@@ -198,6 +198,40 @@ func TestSafeBasenameFallbackRejectsDotNames(t *testing.T) {
 	}
 }
 
+func TestSafeBaseNameRejectsURLsQueriesFragmentsAndControls(t *testing.T) {
+	for _, value := range []string{
+		"https://media.example.invalid/Movie.zh.srt",
+		"https://media.example.invalid/Movie.zh.srt?download=1",
+		"Movie.zh.srt?download=1",
+		"Movie.zh.srt#fragment",
+		"Movie.zh.srt\x1f",
+	} {
+		if got := safeBaseName(value); got != "" {
+			t.Errorf("safeBaseName(%q) = %q, want rejected", value, got)
+		}
+	}
+	if got := safeBaseName("Movie.zh.srt"); got != "Movie.zh.srt" {
+		t.Fatalf("safeBaseName(local basename) = %q", got)
+	}
+}
+
+func TestBuildExternalURLNeverExposesURLAsFileName(t *testing.T) {
+	idx := 7
+	ctx := completeContext()
+	ctx.MediaStreams = &[]domain.MediaStream{{
+		Index: &idx, Type: "Subtitle", Language: "zh",
+		Path:       "https://media.example.invalid/Movie.zh.srt?download=1",
+		IsExternal: boolPtr(true),
+	}}
+	result, err := Build(ctx, Options{FileSystem: &recordingFS{}, IdentityKey: testKey()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Subtitles) != 1 || result.Subtitles[0].FileName != "" || strings.Contains(result.Subtitles[0].ID, "secret") {
+		t.Fatalf("unsafe URL projection = %#v", result.Subtitles)
+	}
+}
+
 func TestBuildDoesNotUsePathBasenameFallbackForRelativeSubpaths(t *testing.T) {
 	name := "Movie.zh.srt"
 	full := filepath.Join("/media", name)

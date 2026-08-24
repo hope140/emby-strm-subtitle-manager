@@ -2,6 +2,10 @@
 
 FROM golang:1.26.7-alpine3.24 AS build
 
+ARG BUILD_VERSION=dev
+ARG BUILD_COMMIT=unknown
+ARG BUILD_TIME=unknown
+
 WORKDIR /src
 ENV CGO_ENABLED=0
 
@@ -12,9 +16,19 @@ RUN go mod download
 
 COPY cmd ./cmd
 COPY internal ./internal
-RUN go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/emby-strm-subtitle-manager ./cmd/server
+RUN go build -trimpath -buildvcs=false -ldflags="-s -w -X github.com/hope140/emby-strm-subtitle-manager/internal/version.Version=${BUILD_VERSION} -X github.com/hope140/emby-strm-subtitle-manager/internal/version.Commit=${BUILD_COMMIT} -X github.com/hope140/emby-strm-subtitle-manager/internal/version.BuildTime=${BUILD_TIME}" -o /out/emby-strm-subtitle-manager ./cmd/server
 
 FROM alpine:3.24.1
+
+ARG BUILD_VERSION=dev
+ARG BUILD_COMMIT=unknown
+ARG BUILD_TIME=unknown
+ARG BUILD_SOURCE=unknown
+
+LABEL org.opencontainers.image.version="${BUILD_VERSION}" \
+      org.opencontainers.image.revision="${BUILD_COMMIT}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      org.opencontainers.image.source="${BUILD_SOURCE}"
 
 RUN apk add --no-cache ca-certificates \
     && addgroup -S -g 10001 app \

@@ -36,6 +36,8 @@ type fakeEmby struct {
 	entered   chan<- struct{}
 }
 
+const testAuthToken = "test-api-auth-token-01234567890123456789"
+
 func (f *fakeEmby) ListLibraries(ctx context.Context) ([]domain.Library, error) {
 	f.listCalls.Add(1)
 	if f.entered != nil {
@@ -67,7 +69,7 @@ func testServer(t *testing.T, fake EmbyReader, logs *bytes.Buffer) http.Handler 
 	t.Helper()
 	logger := slog.New(slog.NewJSONHandler(logs, nil))
 	cfg := config.Config{Features: config.FeatureConfig{WriteEnabled: false, RemoteSearchEnabled: false}}
-	return NewServer(cfg, version.Info{Version: "test", Commit: "abc", BuildTime: "now"}, logger, fake).Handler()
+	return NewServerWithServices(cfg, version.Info{Version: "test", Commit: "abc", BuildTime: "now"}, logger, Services{Emby: fake, AuthToken: testAuthToken}).Handler()
 }
 
 func TestLiveHealthAndVersionRouteRemoval(t *testing.T) {
@@ -243,6 +245,46 @@ func TestMethodRestrictionUnknownRouteAndQueryRejection(t *testing.T) {
 	}
 }
 
+func TestBearerAuthenticationProtectsReadinessAndV1WithoutQueryFallback(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	handler := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, logger, Services{Emby: &fakeEmby{}, AuthToken: testAuthToken}).Handler()
+	for _, test := range []struct {
+		name          string
+		path          string
+		authorization string
+		wantStatus    int
+	}{
+		{name: "missing", path: "/v1/health", wantStatus: http.StatusUnauthorized},
+		{name: "wrong", path: "/v1/health", authorization: "Bearer wrong-token", wantStatus: http.StatusUnauthorized},
+		{name: "query token", path: "/v1/health?token=" + testAuthToken, wantStatus: http.StatusUnauthorized},
+		{name: "ready public", path: "/readyz", wantStatus: http.StatusOK},
+		{name: "correct", path: "/v1/health", authorization: "Bearer " + testAuthToken, wantStatus: http.StatusOK},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rec := serveWithAuthorization(handler, http.MethodGet, test.path, test.authorization)
+			if rec.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d body=%s", rec.Code, test.wantStatus, rec.Body.String())
+			}
+			if test.wantStatus == http.StatusUnauthorized {
+				if rec.Header().Get("WWW-Authenticate") != "Bearer" {
+					t.Fatalf("WWW-Authenticate = %q", rec.Header().Get("WWW-Authenticate"))
+				}
+				assertErrorEnvelope(t, rec, "unauthorized")
+				if strings.Contains(rec.Body.String(), testAuthToken) {
+					t.Fatal("authentication token leaked in response")
+				}
+			}
+		})
+	}
+	if rec := serveWithAuthorization(handler, http.MethodGet, "/livez", ""); rec.Code != http.StatusOK {
+		t.Fatalf("livez status = %d, want 200", rec.Code)
+	}
+	if strings.Contains(logs.String(), testAuthToken) {
+		t.Fatal("authentication token leaked in logs")
+	}
+}
+
 func TestMediaMovieProjectionAndSubtitleInventory(t *testing.T) {
 	root, err := os.MkdirTemp(".", "httpapi-media-")
 	if err != nil {
@@ -271,7 +313,7 @@ func TestMediaMovieProjectionAndSubtitleInventory(t *testing.T) {
 		Path:        `C:\emby\media\Movie.strm`, ProviderIDs: map[string]string{"Imdb": "tt123", "Tmdb": "456", "Tvdb": "789", "private": "do-not-show"},
 		MediaSources: []domain.MediaSource{{ID: "source-1", Name: "Main", Container: "strm", Path: `C:\emby\media\Movie.strm`, MediaStreams: &emptyStreams}},
 	}}
-	server := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{Emby: fake, Mapper: mapper, Inventory: inventoryService})
+	server := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{Emby: fake, Mapper: mapper, Inventory: inventoryService, AuthToken: testAuthToken})
 	handler := server.Handler()
 	rec := serve(handler, http.MethodGet, "/v1/media/movie-1")
 	if rec.Code != 200 || strings.Contains(rec.Body.String(), `C:\emby\media`) || strings.Contains(rec.Body.String(), "private") {
@@ -292,7 +334,7 @@ func TestMediaMultipleSourcesRequireExplicitSafeSelection(t *testing.T) {
 		{ID: "source-a", Name: "A", Container: "mkv", Path: "/secret/a.mkv", MediaStreams: &first},
 		{ID: "source-b", Name: "B", Container: "strm", Path: "/secret/b.strm", MediaStreams: &second},
 	}}}
-	handler := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{Emby: fake}).Handler()
+	handler := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{Emby: fake, AuthToken: testAuthToken}).Handler()
 	rec := serve(handler, http.MethodGet, "/v1/media/episode-1")
 	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"media_sources"`) || !strings.Contains(rec.Body.String(), `"media_source_id":"source-a"`) || !strings.Contains(rec.Body.String(), `"media_source_id":"source-b"`) || strings.Contains(rec.Body.String(), `"source_options"`) || strings.Contains(rec.Body.String(), "/secret") {
 		t.Fatalf("source selection response = %d %s", rec.Code, rec.Body.String())
@@ -314,7 +356,7 @@ func TestMediaUnmappedDegradesSafelyAndRejectsBadQueriesMethods(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{Emby: fake, Mapper: mapper}).Handler()
+	handler := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{Emby: fake, Mapper: mapper, AuthToken: testAuthToken}).Handler()
 	rec := serve(handler, http.MethodGet, "/v1/media/movie-2")
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"mapping_status":"unmapped"`) || strings.Contains(rec.Body.String(), "/unmapped") {
 		t.Fatalf("unmapped response = %d %s", rec.Code, rec.Body.String())
@@ -340,7 +382,7 @@ func TestMediaRejectsContradictoryUpstreamSources(t *testing.T) {
 				ItemSummary:  domain.ItemSummary{ID: "movie-invalid", Name: "Movie", Type: "Movie"},
 				MediaSources: sources,
 			}}
-			handler := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{Emby: fake}).Handler()
+			handler := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{Emby: fake, AuthToken: testAuthToken}).Handler()
 			rec := serve(handler, http.MethodGet, "/v1/media/movie-invalid")
 			if rec.Code != http.StatusBadGateway {
 				t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
@@ -357,6 +399,17 @@ func intPtr(value int) *int { return &value }
 
 func serve(handler http.Handler, method, target string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, target, nil)
+	req.Header.Set("Authorization", "Bearer "+testAuthToken)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
+func serveWithAuthorization(handler http.Handler, method, target, authorization string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, target, nil)
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
+	}
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	return rec

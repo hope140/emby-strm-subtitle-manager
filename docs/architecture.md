@@ -22,6 +22,8 @@
 
 应用 API Key 与独立的 identity secret 分离。identity secret 由 Inventory 用于生成稳定、不可逆的本地字幕标识，不能替代或复用 Emby API Key，也不会进入响应和普通日志。
 
+管理 API 使用独立的 `security.api_auth_token_file` Bearer Token。`/livez` 与只返回极小状态的 `/readyz` 保持公开；所有 `/v1/*` 路由均要求 `Authorization: Bearer <token>`，缺失或错误统一返回 401、`WWW-Authenticate: Bearer` 和脱敏错误 envelope。Token 不接受 query 参数，也不写入日志或响应，并且不能复用 Emby API Key 或 identity secret。
+
 MediaContext 对单源自动选择，对多源要求显式 `media_source_id`，不会猜测列表第一项。PathMapper 支持 POSIX、Windows drive 和 UNC 形式，采用规范化、最长前缀匹配及目录 containment 检查；路径不安全、未映射或目录不可用时返回降级状态和稳定 warning。Inventory 只枚举受控目录、读取文件元数据并合并 Emby MediaStreams，绝不读取 STRM 内容、媒体正文或字幕正文。
 
 本地 `scripts/verify.ps1` 已覆盖格式化、`go vet`、全包测试和构建。该结果仅证明源码和自动化测试，不证明 Docker 镜像、Compose 配置或真实 Emby Canary 已通过。

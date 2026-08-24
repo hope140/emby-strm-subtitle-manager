@@ -5,7 +5,12 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
-    image: emby-strm-subtitle-manager:d1
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-dev}
+        BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+        BUILD_SOURCE: ${BUILD_SOURCE:-unknown}
+    image: emby-strm-subtitle-manager:${IMAGE_TAG:-local}
     command:
       - -config
       - /etc/emby-strm-subtitle-manager/config.yaml
@@ -28,6 +33,9 @@ services:
       - source: app_identity_key
         target: app_identity_key
         mode: 0440
+      - source: app_api_auth_token
+        target: app_api_auth_token
+        mode: 0440
     volumes:
       # Replace the source with the host media root that matches the Emby
       # path mapping. The container sees media only at /media and cannot write.
@@ -44,7 +52,7 @@ services:
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
       interval: 30s
-      timeout: 3s
+      timeout: 5s
       start_period: 5s
       retries: 3
 
@@ -56,8 +64,13 @@ configs:
 
 secrets:
   emby_api_key:
-    # Create this one-line file locally with restrictive permissions.
+    # File-source uid/gid/mode are not trusted across Docker setups. On the
+    # host, set every secret file owner to 10001:10001 and mode to 0400.
     file: ./secrets/emby_api_key
   app_identity_key:
-    # Create this one-line file locally with restrictive permissions.
+    # On the host, chown this file to 10001:10001 and chmod 0400 before start.
     file: ./secrets/app_identity_key
+  app_api_auth_token:
+    # File-source uid/gid/mode settings are not trusted across Docker setups.
+    # On the host, chown this file to 10001:10001 and chmod 0400 before start.
+    file: ./secrets/app_api_auth_token

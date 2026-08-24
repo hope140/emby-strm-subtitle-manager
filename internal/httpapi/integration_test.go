@@ -25,6 +25,7 @@ import (
 )
 
 const integrationAPIKey = "d1-integration-token-never-in-response"
+const integrationAuthToken = "d1-http-auth-token-01234567890123456789"
 
 type integrationRequest struct {
 	Method string
@@ -137,6 +138,7 @@ func TestD1FullReadonlyCanaryWithFakeEmby(t *testing.T) {
 		Mapper:    mapper,
 		Guard:     guard,
 		Inventory: inventoryService,
+		AuthToken: integrationAuthToken,
 	}).Handler()
 	app := httptest.NewServer(handler)
 	t.Cleanup(app.Close)
@@ -220,6 +222,7 @@ func integrationGET(t *testing.T, client *http.Client, target string) struct {
 	if err != nil {
 		t.Fatal(err)
 	}
+	request.Header.Set("Authorization", "Bearer "+integrationAuthToken)
 	response, err := client.Do(request)
 	if err != nil {
 		t.Fatal(err)
