@@ -1,4 +1,4 @@
-# Emby STRM 字幕管理器
+# SubBridge（SB，字幕桥）
 
 本项目为 Emby 与 STRM 媒体库提供中文字幕浏览、搜索、预览和安全管理能力。CMS 继续负责媒体整理，Emby 继续负责媒体索引与播放，第一阶段通过 MeiamSub 获取 Thunder 和 ASSRT 字幕候选。
 
@@ -12,7 +12,9 @@ V1 已决定使用 Emby Remote Subtitle Bridge。Native Provider 暂缓，单个
 
 D1 只读代码切片、Linux 全包自动化验证、C92 部署和 FRP 公网 HTTPS 验收已经完成：Docker Compose schema/build、host-network、UID 10001、只读 root、只读媒体、三份 Secret 权限、`/readyz`、Bearer 认证、版本溯源标签、公网 443 及应用 remote port 防火墙边界均已核对；真实库浏览中的 Movie 与 Episode STRM 也已确认 mapped、inventory complete、present 且无 warning。真实多媒体源样本尚未找到，自动化的 409 与显式 source 选择测试已通过但仍需真实 Item。`write_enabled=false` 和 `remote_search_enabled=false` 仍保持关闭，因此在多源真实样本补齐前不进入 D2。详见 [D1 部署验收报告](docs/d1-deployment-acceptance.md)、[OpenResty 公网入口基线](deploy/openresty/README.md)、[ADR-002](docs/adr/002-project-codebase-route.md)、[ADR-003](docs/adr/003-phase2-milestones-and-deployment.md)、[Phase 2 只读 Canary](docs/phase2-readonly-canary.md)、[Phase 1 基线报告](BASELINE.md) 和 [Phase 1 基线检查表](docs/phase1-baseline-checklist.md)。
 
-当前服务公开 7 个 GET 路由：3 个运维路由（`/livez`、`/readyz`、`/v1/health`）和 4 个业务路由（媒体库、媒体分页、单个媒体、字幕清单）。`/livez` 与只返回极小状态的 `/readyz` 公开；所有 `/v1/*` 要求独立 Bearer Token，Token 不接受 query 参数。`/readyz` 会实际探测 Emby，不能只根据进程存活返回就绪。应用凭据、`security.identity_key_file` 与 `security.api_auth_token_file` 三者分离，后两者不能复用 Emby API Key。
+D1.5 增加了同一 Go 服务内嵌的最小只读 Web UI。它只浏览既有媒体库、Movie/Episode 分页、媒体详情和字幕清单，不增加搜索或写能力；Token 只保存在当前页面内存。使用方式和公网 HTTP/HTTPS 边界见 [D1.5 最小只读 Web UI](docs/d1.5-readonly-ui.md)，部署前检查见 [D1.5 部署前预检](docs/d1.5-deployment-preflight.md)。
+
+当前服务还提供 `/` 与 `/assets/{asset}` 的内嵌只读 UI，以及 7 个 GET API/运维路由：3 个运维路由（`/livez`、`/readyz`、`/v1/health`）和 4 个业务路由（媒体库、媒体分页、单个媒体、字幕清单）。`/livez` 与只返回极小状态的 `/readyz` 公开；所有 `/v1/*` 要求独立 Bearer Token，Token 不接受 query 参数。`/readyz` 会实际探测 Emby，不能只根据进程存活返回就绪。应用凭据、`security.identity_key_file` 与 `security.api_auth_token_file` 三者分离，后两者不能复用 Emby API Key。
 
 部署入口包括根目录 [Dockerfile](Dockerfile)、通用 bridge 示例 [deploy/compose.example.yaml](deploy/compose.example.yaml)、Emby 已使用 host 网络时的 [deploy/compose.host-network.example.yaml](deploy/compose.host-network.example.yaml)，以及不会记录 query 或 Authorization 的 [OpenResty 公网入口基线](deploy/openresty/README.md)。所有示例默认保持写能力和远程搜索关闭，实际部署前必须替换占位路径并重新核对只读挂载。
 

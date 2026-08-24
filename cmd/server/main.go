@@ -13,6 +13,7 @@ import (
 	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/httpapi"
+	"github.com/hope140/emby-strm-subtitle-manager/internal/httpui"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/inventory"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/pathmap"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/version"
@@ -77,7 +78,7 @@ func main() {
 	server := &http.Server{
 		Addr: cfg.Server.ListenAddress,
 		Handler: httpapi.NewServerWithServices(cfg, version.Current(), logger, httpapi.Services{
-			Emby: client, Mapper: mapper, Guard: guard, Inventory: inventoryService, AuthToken: authToken,
+			Emby: client, Mapper: mapper, Guard: guard, Inventory: inventoryService, AuthToken: authToken, UI: httpui.NewHandler(),
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,

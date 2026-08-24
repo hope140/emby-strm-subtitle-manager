@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">SubBridge 字幕桥图标</title>
+  <desc id="desc">带播放符号与字幕横线的青绿色圆角方形图标</desc>
+  <defs>
+    <linearGradient id="background" x1="18" y1="12" x2="110" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1b9292"/>
+      <stop offset="1" stop-color="#0b4e62"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#background)"/>
+  <path d="M33 31c0-5.5 6-8.9 10.7-6.1l42.2 25.4c4.5 2.7 4.5 9.2 0 11.9L43.7 87.6C39 90.4 33 87 33 81.5V31Z" fill="#fff"/>
+  <path d="M43 95h42M43 105h27" fill="none" stroke="#a9f0e9" stroke-linecap="round" stroke-width="7"/>
+</svg>

@@ -4,11 +4,13 @@
 
 ## D1 本地实现
 
-当前代码由 `cmd/server` 和以下内部模块组成：`config`（非密配置与 Secret 读取）、`domain`（Emby 领域 DTO）、`embyclient`（仅只读 Emby 调用）、`media`（MediaContext 与 MediaSource 选择）、`pathmap`（跨平台路径映射和目录安全边界）、`inventory`（字幕清单）以及 `httpapi`（只读 HTTP 层）。
+当前代码由 `cmd/server` 和以下内部模块组成：`config`（非密配置与 Secret 读取）、`domain`（Emby 领域 DTO）、`embyclient`（仅只读 Emby 调用）、`media`（MediaContext 与 MediaSource 选择）、`pathmap`（跨平台路径映射和目录安全边界）、`inventory`（字幕清单）、`httpui`（内嵌只读页面）以及 `httpapi`（只读 HTTP 层）。
 
-服务公开 7 个 GET 路由，3 个运维路由和 4 个业务路由：
+服务还提供同源的内嵌 D1.5 只读 UI，并公开 7 个 GET API 路由，3 个运维路由和 4 个业务路由：
 
 ```text
+UI：  GET /
+      GET /assets/{asset}
 运维：GET /livez
       GET /readyz
       GET /v1/health
@@ -19,6 +21,8 @@
 ```
 
 `/livez` 只表示进程存活；`/readyz` 会对 Emby 发起受超时和缓存控制的真实只读探测；`/v1/health` 返回版本、功能开关和当前 Emby readiness 状态。业务路由始终由服务端使用 ItemID 重新查询 Emby。响应只投影展示字段，不暴露 Emby 绝对路径、字幕正文、认证参数或 STRM 内部地址。
+
+D1.5 UI 只浏览既有媒体库、Movie/Episode 混合分页、媒体详情和字幕清单，不增加搜索或写能力。Bearer Token 只存在当前页面内存，刷新后重新输入；UI、静态资源和 API 必须保持同源。访问方式和公网 HTTP/HTTPS 边界见 [D1.5 最小只读 Web UI](d1.5-readonly-ui.md)。
 
 应用 API Key 与独立的 identity secret 分离。identity secret 由 Inventory 用于生成稳定、不可逆的本地字幕标识，不能替代或复用 Emby API Key，也不会进入响应和普通日志。
 

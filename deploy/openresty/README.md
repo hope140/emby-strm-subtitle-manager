@@ -28,5 +28,6 @@ FRPC loopback --HTTP--> 应用
 - OpenResty 所在主机应能通过 loopback 访问 FRPS remote port。
 - FRPC 的该代理单独启用 `transport.useEncryption = true`，不因本应用改变共享 FRPC 的全局 TLS 设置。
 - `/livez` 与 `/readyz` 可以公开；所有 `/v1/*` 只接受 `Authorization: Bearer`，不接受 query token。
+- D1.5 的 `/`、`/assets/*` 和 `/v1/*` 必须由同一个根路径 location 原样转发，`Authorization` 原样转发但不进入日志；UI 与 API 必须保持同源。
 
 验收必须同时覆盖：证书严格校验、HTTP 跳转 HTTPS、公开探针 200、无或错误 Bearer 401、正确 Bearer 200、应用 remote port 的独立公网探测失败，以及反代日志中不存在认证参数和 Authorization 内容。面板重新生成站点配置后必须重复检查。

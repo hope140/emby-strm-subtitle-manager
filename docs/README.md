@@ -14,6 +14,8 @@
 | [Phase 1 基线检查表](phase1-baseline-checklist.md) | Phase 1 当前收口状态、基线任务和下一阶段门禁 | Phase 2 实现 |
 | [Phase 2 只读 Canary](phase2-readonly-canary.md) | D1 已实现切片的 API、配置、安全边界和自动/真实验收门禁 | D2 搜索预览和 D3 写入实现 |
 | [D1 部署验收报告](d1-deployment-acceptance.md) | 已验证的部署、真实 STRM Canary 和剩余门禁 | 私有部署细节、凭据和一次性操作记录 |
+| [D1.5 最小只读 Web UI](d1.5-readonly-ui.md) | 内嵌 UI、Token 内存边界和三种访问方式 | 真实部署验收和私有环境细节 |
+| [D1.5 部署前预检](d1.5-deployment-preflight.md) | 发布不变量、三种访问方式、目标主机预检、验收顺序和回滚准备 | 实际 Secret、私有路径和一次性部署操作 |
 | [Phase 1 基线报告](../BASELINE.md) | 上游快照、构建结果、失败清单和未验证范围 | 后续阶段实现 |
 | [OpenResty 公网入口基线](../deploy/openresty/README.md) | 面向所有部署者的安全反代日志、FRP 和公网端口边界 | 自动修改现有服务器配置 |
 | [ChineseSubFinder 复用矩阵](../CSF_REUSE_MATRIX.md) | 上游模块耦合证据和方案 B 的复用边界 | 新运行时实现 |

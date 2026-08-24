@@ -19,6 +19,7 @@ import (
 	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
+	"github.com/hope140/emby-strm-subtitle-manager/internal/httpui"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/inventory"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/pathmap"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/version"
@@ -69,7 +70,35 @@ func testServer(t *testing.T, fake EmbyReader, logs *bytes.Buffer) http.Handler 
 	t.Helper()
 	logger := slog.New(slog.NewJSONHandler(logs, nil))
 	cfg := config.Config{Features: config.FeatureConfig{WriteEnabled: false, RemoteSearchEnabled: false}}
-	return NewServerWithServices(cfg, version.Info{Version: "test", Commit: "abc", BuildTime: "now"}, logger, Services{Emby: fake, AuthToken: testAuthToken}).Handler()
+	return NewServerWithServices(cfg, version.Info{Version: "test", Commit: "abc", BuildTime: "now"}, logger, Services{Emby: fake, AuthToken: testAuthToken, UI: httpui.NewHandler()}).Handler()
+}
+
+func TestUIUsesSharedMiddlewareAndOnlyServesGET(t *testing.T) {
+	var logs bytes.Buffer
+	handler := testServer(t, &fakeEmby{}, &logs)
+	rec := serve(handler, http.MethodGet, "/")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("root status = %d", rec.Code)
+	}
+	if rec.Header().Get("X-Request-ID") == "" || rec.Header().Get("X-Content-Type-Options") != "nosniff" || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("root did not use shared request middleware")
+	}
+	wantCSP := "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'"
+	if rec.Header().Get("Content-Security-Policy") != wantCSP {
+		t.Fatalf("root CSP = %q", rec.Header().Get("Content-Security-Policy"))
+	}
+	if rec := serve(handler, http.MethodGet, "/assets/app.js"); rec.Code != http.StatusOK {
+		t.Fatalf("asset status = %d", rec.Code)
+	}
+	if rec := serve(handler, http.MethodPost, "/"); rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") != http.MethodGet {
+		t.Fatalf("POST root = %d allow=%q", rec.Code, rec.Header().Get("Allow"))
+	}
+	if rec := serve(handler, http.MethodGet, "/unknown"); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown route status = %d", rec.Code)
+	}
+	if !strings.Contains(logs.String(), `"route":"/"`) || strings.Contains(logs.String(), "/assets/app.js") {
+		t.Fatalf("UI logs did not use coarse route labels: %s", logs.String())
+	}
 }
 
 func TestLiveHealthAndVersionRouteRemoval(t *testing.T) {

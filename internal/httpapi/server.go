@@ -53,6 +53,7 @@ type Services struct {
 	Guard     *pathmap.PathGuard
 	Inventory *inventory.Service
 	AuthToken string
+	UI        http.Handler
 }
 
 type Server struct {
@@ -65,6 +66,7 @@ type Server struct {
 	guard     *pathmap.PathGuard
 	inventory *inventory.Service
 	authToken []byte
+	ui        http.Handler
 }
 
 // NewServer creates a D1 HTTP server. The optional client keeps the small
@@ -89,7 +91,7 @@ func NewServerWithServices(cfg config.Config, ver version.Info, logger *slog.Log
 	return &Server{
 		cfg: cfg, ver: ver, logger: logger, emby: services.Emby,
 		readiness: &readinessProbe{client: services.Emby}, mapper: services.Mapper,
-		guard: services.Guard, inventory: services.Inventory, authToken: []byte(services.AuthToken),
+		guard: services.Guard, inventory: services.Inventory, authToken: []byte(services.AuthToken), ui: services.UI,
 	}
 }
 
@@ -98,6 +100,10 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	if (r.URL.Path == "/" || strings.HasPrefix(r.URL.Path, "/assets/")) && s.ui != nil {
+		s.ui.ServeHTTP(w, r)
+		return
+	}
 	if requiresAuthentication(r.URL.Path) && !s.authorized(r) {
 		s.writeUnauthorized(w, r)
 		return
@@ -522,8 +528,11 @@ func newRequestID() string {
 
 func routeLabel(path string) string {
 	switch path {
-	case "/livez", "/readyz", "/v1/health", "/v1/emby/libraries", "/v1/emby/items":
+	case "/", "/livez", "/readyz", "/v1/health", "/v1/emby/libraries", "/v1/emby/items":
 		return path
+	}
+	if strings.HasPrefix(path, "/assets/") {
+		return "/assets/{asset}"
 	}
 	if strings.HasPrefix(path, "/v1/media/") {
 		parts := strings.Split(strings.TrimPrefix(path, "/v1/media/"), "/")

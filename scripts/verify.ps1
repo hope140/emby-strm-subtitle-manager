@@ -34,9 +34,13 @@ function Invoke-Go {
 }
 
 $goFiles = Get-ChildItem -Path . -Recurse -File -Filter '*.go' |
-    Where-Object { $_.FullName -notmatch '[\\/](\.tools|\.git|\.gocache|\.gomodcache)[\\/]' }
+    Where-Object { $_.FullName -notmatch '[\\/](\.tools|\.git|\.tmp|\.gocache|\.gomodcache)[\\/]' }
 $formatOutput = foreach ($goFile in $goFiles) {
-    & $gofmtPath -l $goFile.FullName
+    $gofmtResult = & $gofmtPath -l $goFile.FullName 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "gofmt failed for $($goFile.FullName): $($gofmtResult -join ' ')"
+    }
+    $gofmtResult
 }
 if (-not [string]::IsNullOrWhiteSpace(($formatOutput -join "`n"))) {
     Write-Error "gofmt reported unformatted files:`n$($formatOutput -join "`n")"

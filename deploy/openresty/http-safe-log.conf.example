@@ -3,6 +3,8 @@
 # Authorization headers, Emby item IDs, or subtitle candidate IDs.
 map $uri $embysm_route {
     default                                      other;
+    /                                            ui;
+    ~^/assets/                                   ui_assets;
     /livez                                       livez;
     /readyz                                      readyz;
     /v1/health                                   health;
