@@ -2,7 +2,7 @@
 
 这套文档把当前事实、长期决策、维护经验和本机信息分开保存。开发前按需要读取，任务结束后通过 Knowledge Review 决定是否更新。
 
-当前状态：Phase 1 已完成路线决策和文档收口，ADR-002 和 ADR-003 已接受并选择方案 B 及其 D1→D2→D3 里程碑。D1 代码切片和自动化验证已经完成，Docker 产物、真实服务器部署和真实 Canary 尚未验收。上游构建基线的失败和未验证项仍以 [Phase 1 基线报告](../BASELINE.md) 为准；它们不等同于新 Go 服务的本地验证结果。
+当前状态：Phase 1 已完成路线决策和文档收口，ADR-002 和 ADR-003 已接受并选择方案 B 及其 D1→D2→D3 里程碑。D1 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署和 Movie/Episode STRM 真实 Canary 已验收。真实多媒体源样本和 FRP 公网 HTTPS 仍未验收；在多源样本补齐前不进入 D2。上游构建基线的失败和未验证项仍以 [Phase 1 基线报告](../BASELINE.md) 为准；它们不等同于新 Go 服务的验证结果。
 
 ## 正式文档
 
@@ -13,6 +13,7 @@
 | [ADR](adr/README.md) | 长期架构选择、原因和代价 | 局部实现细节 |
 | [Phase 1 基线检查表](phase1-baseline-checklist.md) | Phase 1 当前收口状态、基线任务和下一阶段门禁 | Phase 2 实现 |
 | [Phase 2 只读 Canary](phase2-readonly-canary.md) | D1 已实现切片的 API、配置、安全边界和自动/真实验收门禁 | D2 搜索预览和 D3 写入实现 |
+| [D1 部署验收报告](d1-deployment-acceptance.md) | 已验证的部署、真实 STRM Canary 和剩余门禁 | 私有部署细节、凭据和一次性操作记录 |
 | [Phase 1 基线报告](../BASELINE.md) | 上游快照、构建结果、失败清单和未验证范围 | 后续阶段实现 |
 | [ChineseSubFinder 复用矩阵](../CSF_REUSE_MATRIX.md) | 上游模块耦合证据和方案 B 的复用边界 | 新运行时实现 |
 | [Knowledge Review 模板](knowledge-review-template.md) | 任务结束后的知识检查格式 | 实际任务结论 |

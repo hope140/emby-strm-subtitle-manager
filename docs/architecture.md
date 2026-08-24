@@ -1,6 +1,6 @@
 # 当前架构
 
-本文只描述截至 2026 年 8 月 24 日已经由官方接口、当前源码、自动化检查和 Gate 0 真实运行确认的内容。D1 的 Go 后端只读切片已在本地实现；Docker 镜像、Compose 和真实服务器部署仍未验收。Installer、搜索预览和写入能力仍属于后续阶段。
+本文只描述截至 2026 年 8 月 24 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署和 Movie/Episode STRM Canary 已验收；真实多媒体源样本与 FRP 公网 HTTPS 仍待验收。Installer、搜索预览和写入能力仍属于后续阶段。
 
 ## D1 本地实现
 
@@ -26,7 +26,7 @@
 
 MediaContext 对单源自动选择，对多源要求显式 `media_source_id`，不会猜测列表第一项。STRM 的 Inventory 和 PathMapper 始终使用 Emby Item.Path；非 STRM 只有本地 MediaSource.Path 可用时才使用它，远程 source path 只作为内部播放定位事实，不参与本地映射、目录检查、响应或日志。STRM 的 IsStrm 判断只看 Item.Path。即使多源共用同一个 Item.Path 的 STRM sidecar 目录，字幕流仍按选中的 MediaSource 保持隔离。PathMapper 支持 POSIX、Windows drive 和 UNC 形式，采用规范化、最长前缀匹配及目录 containment 检查；路径不安全、未映射或目录不可用时返回降级状态和稳定 warning。Inventory 只枚举受控目录、读取文件元数据并合并 Emby MediaStreams，绝不读取 STRM 内容、媒体正文或字幕正文。
 
-本地 `scripts/verify.ps1` 已覆盖格式化、`go vet`、全包测试和构建。该结果仅证明源码和自动化测试，不证明 Docker 镜像、Compose 配置或真实 Emby Canary 已通过。
+本地 `scripts/verify.ps1` 和 Linux 全包测试均已通过且无 skip；C92 的 Docker Compose schema/build、启动安全边界、`/readyz`、Bearer 401 和版本标签另有部署证据。自动化与已验收的 STRM Canary 仍不能替代尚未完成的真实多媒体源和公网 HTTPS 验收。
 
 ## 当前系统边界
 
@@ -104,7 +104,7 @@ V1 通过 Emby Bridge 使用 Meiam Provider。Native Thunder 和 Native ASSRT �
 
 ChineseSubFinder 的旧扫描器、Cloud/SubtitleBest 下载链、Provider Hub、Cron/PreJob、旧任务队列、按视频物理路径保存和视频 Hash 逻辑不进入新运行时。搜索、Installer 和写入能力仍属于后续阶段。
 
-Phase 2 的交付顺序和默认部署边界已记录在 [ADR-003](adr/003-phase2-milestones-and-deployment.md)：先做 D1 只读 Canary，再做 D2 搜索预览，最后对专用样本做 D3 Add。D1 的代码和自动化门禁已完成，Docker 产物和真实 Canary 仍待验收；具体 API、安全边界和门禁见 [只读 Canary 验收定义](phase2-readonly-canary.md)。
+Phase 2 的交付顺序和默认部署边界已记录在 [ADR-003](adr/003-phase2-milestones-and-deployment.md)：先做 D1 只读 Canary，再做 D2 搜索预览，最后对专用样本做 D3 Add。D1 的代码、自动化、部署和 Movie/Episode STRM Canary 已完成；真实多媒体源样本仍是进入 D2 前的门禁，具体 API、安全边界和剩余验收见 [只读 Canary 验收定义](phase2-readonly-canary.md) 与 [D1 部署验收报告](d1-deployment-acceptance.md)。
 
 ## 证据
 

@@ -10,7 +10,7 @@ V1 已决定使用 Emby Remote Subtitle Bridge。Native Provider 暂缓，单个
 
 项目路线决策已经完成；上游完整构建基线仍有环境阻断和未验证项，但因为项目不采用 CSF 整仓运行时，这些缺口不再阻塞方案 B。ADR-002 已接受，选择新建轻量 Go 后端并选择性复用 ChineseSubFinder。
 
-D1 只读代码切片已经在本地建立，当前包含 Go 服务、Emby 只读客户端、MediaContext、跨平台 PathMapper、字幕 Inventory 和只读 HTTP API。相关单元测试、`go vet`、构建和 `scripts/verify.ps1` 已通过；这只代表本地代码与自动化检查通过，不代表 Docker 镜像、Docker Compose 或真实服务器已经验收。下一步是制作并验证安全默认的部署产物，再在私网或 SSH 隧道中完成真实 Movie、Episode 和多媒体源 Canary；在 D1 自动和真实验收都通过前不进入 D2。详见 [ADR-002](docs/adr/002-project-codebase-route.md)、[ADR-003](docs/adr/003-phase2-milestones-and-deployment.md)、[Phase 2 只读 Canary](docs/phase2-readonly-canary.md)、[Phase 1 基线报告](BASELINE.md) 和 [Phase 1 基线检查表](docs/phase1-baseline-checklist.md)。
+D1 只读代码切片、Linux 全包自动化验证和 C92 部署验收已经完成：Docker Compose schema/build、host-network、UID 10001、只读 root、只读媒体、三份 Secret 权限、`/readyz`、Bearer 401 和版本溯源标签均已核对通过；真实库浏览中的 Movie 与 Episode STRM 也已确认 mapped、inventory complete、present 且无 warning。真实多媒体源样本尚未找到，自动化的 409 与显式 source 选择测试已通过但仍需真实 Item；FRP 公网 HTTPS 尚未验收。`write_enabled=false` 和 `remote_search_enabled=false` 仍保持关闭，因此在多源真实样本补齐前不进入 D2。详见 [D1 部署验收报告](docs/d1-deployment-acceptance.md)、[ADR-002](docs/adr/002-project-codebase-route.md)、[ADR-003](docs/adr/003-phase2-milestones-and-deployment.md)、[Phase 2 只读 Canary](docs/phase2-readonly-canary.md)、[Phase 1 基线报告](BASELINE.md) 和 [Phase 1 基线检查表](docs/phase1-baseline-checklist.md)。
 
 当前服务公开 7 个 GET 路由：3 个运维路由（`/livez`、`/readyz`、`/v1/health`）和 4 个业务路由（媒体库、媒体分页、单个媒体、字幕清单）。`/livez` 与只返回极小状态的 `/readyz` 公开；所有 `/v1/*` 要求独立 Bearer Token，Token 不接受 query 参数。`/readyz` 会实际探测 Emby，不能只根据进程存活返回就绪。应用凭据、`security.identity_key_file` 与 `security.api_auth_token_file` 三者分离，后两者不能复用 Emby API Key。
 
@@ -24,6 +24,7 @@ Compose 的 `IMAGE_TAG`、`BUILD_VERSION`、`BUILD_COMMIT`、`BUILD_TIME` 和 `B
 |---|---|
 | [总体规划](Emby_STRM_Subtitle_Manager_Master_Plan_Revised.md) | 产品范围、数据模型、阶段和验收条件 |
 | [Gate 0 实测报告](GATE0_REPORT.md) | 真实环境验证结果和证据边界 |
+| [D1 部署验收报告](docs/d1-deployment-acceptance.md) | C92 部署、真实 STRM Canary 和剩余门禁 |
 | [文档索引](docs/README.md) | 文档分层和读取顺序 |
 | [当前架构](docs/architecture.md) | 当前已经验证的系统边界与数据流 |
 | [维护经验](docs/lessons-learned.md) | 经过代码、日志或真实运行证明的高复用结论 |
