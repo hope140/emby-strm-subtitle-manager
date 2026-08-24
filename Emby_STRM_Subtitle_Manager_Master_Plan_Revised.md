@@ -448,6 +448,8 @@ Gate 0 通过后才能决定是否沿用 Emby Bridge。若 Fetch 不稳定或 Pr
 
 本阶段按 [ADR-003](docs/adr/003-phase2-milestones-and-deployment.md) 作为 D1 只读 Canary 执行。默认使用 Linux Docker Compose 单应用容器、媒体只读挂载和 `write_enabled=false`，通过私网或 SSH 隧道做实际验收。具体 API、安全边界和门禁见 [D1 验收定义](docs/phase2-readonly-canary.md)。
 
+当前进度：D1 的 Go 代码切片和自动化验证已完成，包含 Emby 只读客户端、MediaContext、跨平台 PathMapper、字幕 Inventory 和 7 个 GET 路由。Docker 镜像/Compose、真实服务器部署及 Movie、Episode、多媒体源 Canary 尚未验收；在这些门禁通过前不进入 Phase 3。
+
 - 实现 MediaContext 和 PathMapper
 - 从 Emby 浏览电影与剧集
 - 合并 MediaStreams 和 Sidecar Inventory

@@ -1,6 +1,6 @@
 # Phase 2-D1 只读 Canary 验收定义
 
-状态：验收定义已确定，应用代码尚未实现。
+状态：D1 代码切片和自动化门禁已完成；Docker 镜像、Compose、真实服务器部署和真实 Canary 尚未验收。
 
 本文件定义 ADR-003 的 D1 范围和进入 D2 的门禁。它是实现和部署测试的契约，不把规划内容写成已完成事实。
 
@@ -22,9 +22,11 @@ D1 只建立一个可部署的只读纵向切片：
 
 ## 2. D1 只读 API
 
-首个实现只需要提供以下领域 API，命名以总体规划为基准：
+当前 D1 实现提供 7 个 GET 路由，其中 3 个运维路由和 4 个业务路由：
 
 ```text
+GET /livez
+GET /readyz
 GET /v1/health
 GET /v1/emby/libraries
 GET /v1/emby/items
@@ -32,11 +34,13 @@ GET /v1/media/{itemId}
 GET /v1/media/{itemId}/subtitles
 ```
 
+`/livez` 只检查进程响应；`/readyz` 会实际调用 Emby 的只读库列表接口，并对结果做短时成功/失败缓存；`/v1/health` 返回版本、功能开关和 Emby readiness 状态。除上述 GET 外，D1 不提供业务路由。
+
 API 必须由服务端使用 `ItemID` 重新向 Emby 查询。客户端不能提交可直接访问的物理路径、STRM 内部地址或 Emby 原始候选 ID 作为可信写入依据。D1 响应只返回展示所需的脱敏领域字段。
 
-`MediaContext` 至少保留 `ItemID`、`MediaSourceID`、媒体类型、标题、季集信息、Provider IDs、EmbyPath、映射后的目录和 `IsStrm`。多媒体源选择规则必须显式记录，不能依赖列表顺序的偶然行为。
+`MediaContext` 至少保留 `ItemID`、`MediaSourceID`、媒体类型、标题、季集信息、Provider IDs、EmbyPath、映射后的目录和 `IsStrm`。多媒体源选择规则必须显式记录，不能依赖列表顺序的偶然行为。当前实现对单源自动选择，对多源要求显式 `media_source_id`，并校验空 ID、重复 ID 和多个 default。
 
-字幕清单需要区分 Embedded 与 External，记录发现来源、格式、语言、Forced/Default 状态和 `Manageable`。内嵌字幕永远不可管理；同一 Sidecar 同时被 Emby 和文件系统发现时只能展示一条。
+字幕清单需要区分 Embedded、External 和 Sidecar，记录发现来源、格式、语言、Forced/Default 状态和 `Manageable`。内嵌字幕永远不可管理；同一 Sidecar 同时被 Emby 和文件系统发现时只能展示一条。Inventory 只枚举受控目录和读取文件元数据，不读取 STRM、媒体或字幕正文；目录、映射或 MediaStreams 不完整且没有已知字幕时报告 `unknown`，已有字幕时报告 `present` 并保留不完整 warning，不能伪装成“没有字幕”。
 
 ## 3. 配置与默认部署
 
@@ -62,9 +66,10 @@ Compose 部署必须满足：
 
 - 应用容器加入 Emby 所在私网，或通过已存在的 SSH 隧道访问，不新增公网暴露。
 - 媒体目录挂载为只读；应用数据目录与媒体目录分离。
-- API Key 使用 Secret 或权限受控文件注入，不能写入镜像、前端资源、响应、普通日志或 Git。
+- API Key 使用 Secret 或权限受控文件注入，不能写入镜像、前端资源、响应、普通日志或 Git。应用还需要独立的 `security.identity_key_file`，仅用于 Inventory 的稳定本地标识，不能复用 Emby API Key。
 - `write_enabled=false` 是默认且可验证的启动配置；D1 没有启用它的操作步骤。
 - 日志默认脱敏，不记录 Token、候选原始 ID、认证参数 URL、字幕正文或本机绝对路径。
+- Docker 默认只运行 D1 只读能力：`write_enabled=false`、`remote_search_enabled=false`，媒体挂载为只读，配置/Secret 与媒体目录分离，不默认公开管理端口。
 
 ## 4. 安全边界
 
@@ -77,7 +82,7 @@ Compose 部署必须满足：
 
 ## 5. 自动化验收门禁
 
-实现 D1 后，至少执行并记录：
+本地实现已执行并通过：
 
 1. 格式化、静态检查、单元测试和构建均通过，且命令针对新后端实际包覆盖。
 2. Fake Emby 覆盖 Movie、Episode、多 MediaSource、分页、缺少字段、非 2xx、超时和空字幕流。
@@ -86,6 +91,8 @@ Compose 部署必须满足：
 5. Inventory 覆盖 Embedded/External 合并、重复 Sidecar、编码/扩展名边界和不可管理内嵌字幕。
 6. 请求和响应测试证明 API Key、认证参数、STRM 内容和本机绝对路径不会泄露。
 7. 使用受控测试夹具证明 D1 代码没有向 STRM 内部地址发起请求。
+
+上述结果证明 Go 源码和自动化检查通过。Docker 镜像/Compose 构建、容器启动和真实服务器访问仍属于下一步部署验证，不能从本地结果推断通过。
 
 这些自动化检查只能证明代码和受控环境行为，不能替代真实 Emby 验收。
 
@@ -114,4 +121,4 @@ D1 明确不包含：
 - STRM 内容读取、115/CD2 访问、媒体代理或第二套媒体索引
 - 公开互联网部署、账号系统、多实例锁和生产数据迁移
 
-完成 D1 文档和实现前，不得以此文件宣称应用已经可部署或真实验收通过。
+完成 Docker 产物验证以及真实 Canary 门禁前，不得以此文件宣称 D1 已部署或真实验收通过。

@@ -1,6 +1,30 @@
 # 当前架构
 
-本文只描述截至 2026 年 8 月 24 日已经由官方接口、当前源码和 Gate 0 真实运行确认的内容。应用代码尚未建立，规划中的 MediaContext、Inventory、Installer 和 Web UI 仍属于目标设计。
+本文只描述截至 2026 年 8 月 24 日已经由官方接口、当前源码、自动化检查和 Gate 0 真实运行确认的内容。D1 的 Go 后端只读切片已在本地实现；Docker 镜像、Compose 和真实服务器部署仍未验收。Installer、搜索预览和写入能力仍属于后续阶段。
+
+## D1 本地实现
+
+当前代码由 `cmd/server` 和以下内部模块组成：`config`（非密配置与 Secret 读取）、`domain`（Emby 领域 DTO）、`embyclient`（仅只读 Emby 调用）、`media`（MediaContext 与 MediaSource 选择）、`pathmap`（跨平台路径映射和目录安全边界）、`inventory`（字幕清单）以及 `httpapi`（只读 HTTP 层）。
+
+服务公开 7 个 GET 路由，3 个运维路由和 4 个业务路由：
+
+```text
+运维：GET /livez
+      GET /readyz
+      GET /v1/health
+业务：GET /v1/emby/libraries
+      GET /v1/emby/items
+      GET /v1/media/{itemId}
+      GET /v1/media/{itemId}/subtitles
+```
+
+`/livez` 只表示进程存活；`/readyz` 会对 Emby 发起受超时和缓存控制的真实只读探测；`/v1/health` 返回版本、功能开关和当前 Emby readiness 状态。业务路由始终由服务端使用 ItemID 重新查询 Emby。响应只投影展示字段，不暴露 Emby 绝对路径、字幕正文、认证参数或 STRM 内部地址。
+
+应用 API Key 与独立的 identity secret 分离。identity secret 由 Inventory 用于生成稳定、不可逆的本地字幕标识，不能替代或复用 Emby API Key，也不会进入响应和普通日志。
+
+MediaContext 对单源自动选择，对多源要求显式 `media_source_id`，不会猜测列表第一项。PathMapper 支持 POSIX、Windows drive 和 UNC 形式，采用规范化、最长前缀匹配及目录 containment 检查；路径不安全、未映射或目录不可用时返回降级状态和稳定 warning。Inventory 只枚举受控目录、读取文件元数据并合并 Emby MediaStreams，绝不读取 STRM 内容、媒体正文或字幕正文。
+
+本地 `scripts/verify.ps1` 已覆盖格式化、`go vet`、全包测试和构建。该结果仅证明源码和自动化测试，不证明 Docker 镜像、Compose 配置或真实 Emby Canary 已通过。
 
 ## 当前系统边界
 
@@ -76,9 +100,9 @@ V1 通过 Emby Bridge 使用 Meiam Provider。Native Thunder 和 Native ASSRT �
 
 项目路线决策已经完成；上游完整构建基线仍有环境阻断和未验证项，但因为项目不采用 CSF 整仓运行时，这些缺口不再阻塞方案 B。ADR-002 已接受，选择新建轻量 Go 后端，选择性复用 ASS/SRT Parser 核心、语言与命名处理经验、相关测试思路、Emby HTTP 调用经验和少量无状态前端组件。
 
-ChineseSubFinder 的旧扫描器、Cloud/SubtitleBest 下载链、Provider Hub、Cron/PreJob、旧任务队列、按视频物理路径保存和视频 Hash 逻辑不进入新运行时。该决策不等于已经开始编写应用代码；MediaContext、Inventory、Installer 和 Web UI 仍属于后续阶段。
+ChineseSubFinder 的旧扫描器、Cloud/SubtitleBest 下载链、Provider Hub、Cron/PreJob、旧任务队列、按视频物理路径保存和视频 Hash 逻辑不进入新运行时。搜索、Installer 和写入能力仍属于后续阶段。
 
-Phase 2 的交付顺序和默认部署边界已记录在 [ADR-003](adr/003-phase2-milestones-and-deployment.md)：先做 D1 只读 Canary，再做 D2 搜索预览，最后对专用样本做 D3 Add。D1 的具体 API、安全边界和验收门禁见 [只读 Canary 验收定义](phase2-readonly-canary.md)；当前仍未实现或验收。
+Phase 2 的交付顺序和默认部署边界已记录在 [ADR-003](adr/003-phase2-milestones-and-deployment.md)：先做 D1 只读 Canary，再做 D2 搜索预览，最后对专用样本做 D3 Add。D1 的代码和自动化门禁已完成，Docker 产物和真实 Canary 仍待验收；具体 API、安全边界和门禁见 [只读 Canary 验收定义](phase2-readonly-canary.md)。
 
 ## 证据
 
