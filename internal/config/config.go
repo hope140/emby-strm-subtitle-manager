@@ -2,6 +2,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -21,10 +22,11 @@ const (
 
 // Config is the complete non-secret runtime configuration.
 type Config struct {
-	Server       ServerConfig  `yaml:"server"`
-	Emby         EmbyConfig    `yaml:"emby"`
-	Features     FeatureConfig `yaml:"features"`
-	PathMappings []PathMapping `yaml:"path_mappings"`
+	Server       ServerConfig   `yaml:"server"`
+	Emby         EmbyConfig     `yaml:"emby"`
+	Security     SecurityConfig `yaml:"security"`
+	Features     FeatureConfig  `yaml:"features"`
+	PathMappings []PathMapping  `yaml:"path_mappings"`
 }
 
 type ServerConfig struct {
@@ -35,6 +37,10 @@ type EmbyConfig struct {
 	URL            string `yaml:"url"`
 	APIKeyFile     string `yaml:"api_key_file"`
 	TimeoutSeconds int    `yaml:"timeout_seconds"`
+}
+
+type SecurityConfig struct {
+	IdentityKeyFile string `yaml:"identity_key_file"`
 }
 
 type FeatureConfig struct {
@@ -94,6 +100,12 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Emby.APIKeyFile) == "" {
 		return errors.New("emby.api_key_file is required")
 	}
+	if strings.TrimSpace(c.Security.IdentityKeyFile) == "" {
+		return errors.New("security.identity_key_file is required")
+	}
+	if !isAbsolutePath(c.Security.IdentityKeyFile) {
+		return errors.New("security.identity_key_file must be an absolute path")
+	}
 	if c.Emby.TimeoutSeconds < 1 || c.Emby.TimeoutSeconds > maxTimeoutSeconds {
 		return fmt.Errorf("emby.timeout_seconds must be between 1 and %d", maxTimeoutSeconds)
 	}
@@ -135,6 +147,30 @@ func ReadAPIKey(filename string) (string, error) {
 	}
 	if key == "" || strings.IndexFunc(key, unicode.IsSpace) >= 0 {
 		return "", errors.New("invalid Emby API key file")
+	}
+	return key, nil
+}
+
+// ReadIdentityKey reads a persistent, application-specific identity key.
+// Keeping this separate from the Emby credential prevents credential rotation
+// from changing every public subtitle ID. Errors never include the filename or
+// secret contents.
+func ReadIdentityKey(filename string) ([]byte, error) {
+	contents, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, errors.New("unable to read application identity key")
+	}
+	encoded := strings.TrimSuffix(string(contents), "\r\n")
+	if encoded == string(contents) {
+		encoded = strings.TrimSuffix(encoded, "\n")
+		encoded = strings.TrimSuffix(encoded, "\r")
+	}
+	if encoded == "" || strings.IndexFunc(encoded, unicode.IsSpace) >= 0 {
+		return nil, errors.New("invalid application identity key")
+	}
+	key, err := base64.StdEncoding.Strict().DecodeString(encoded)
+	if err != nil || len(key) < 32 {
+		return nil, errors.New("invalid application identity key")
 	}
 	return key, nil
 }

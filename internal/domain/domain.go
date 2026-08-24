@@ -79,5 +79,7 @@ type EmbyItem struct {
 	Path         string            `json:"-"`
 	ProviderIDs  map[string]string `json:"-"`
 	MediaSources []MediaSource     `json:"-"`
-	MediaStreams []MediaStream     `json:"-"`
+	// MediaStreams is a pointer so callers can distinguish an omitted field
+	// (nil) from an explicitly returned empty stream list.
+	MediaStreams *[]MediaStream `json:"-"`
 }

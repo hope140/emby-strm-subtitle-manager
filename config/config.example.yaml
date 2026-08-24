@@ -6,6 +6,9 @@ emby:
   api_key_file: /run/secrets/emby_api_key
   timeout_seconds: 30
 
+security:
+  identity_key_file: /run/secrets/app_identity_key
+
 features:
   write_enabled: false
   remote_search_enabled: false

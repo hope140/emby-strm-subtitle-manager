@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"encoding/base64"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,7 +13,7 @@ import (
 )
 
 func validYAML(keyFile string) string {
-	return "server:\n  listen_address: 127.0.0.1:8080\nemby:\n  url: https://emby.example.test\n  api_key_file: " + keyFile + "\n  timeout_seconds: 10\nfeatures:\n  write_enabled: false\n  remote_search_enabled: false\npath_mappings:\n  - emby: /srv/media\n    local: /media\n"
+	return "server:\n  listen_address: 127.0.0.1:8080\nemby:\n  url: https://emby.example.test\n  api_key_file: " + keyFile + "\n  timeout_seconds: 10\nsecurity:\n  identity_key_file: " + keyFile + "\nfeatures:\n  write_enabled: false\n  remote_search_enabled: false\npath_mappings:\n  - emby: /srv/media\n    local: /media\n"
 }
 
 func TestLoadFileAndReadAPIKey(t *testing.T) {
@@ -46,14 +47,17 @@ func TestLoadFileRejectsUnknownFieldsAndFeatureGates(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, suffix := range map[string]string{
-		"unknown": "unknown_field: true\n",
-		"write":   "features:\n  write_enabled: true\n  remote_search_enabled: false\n",
-		"search":  "features:\n  write_enabled: false\n  remote_search_enabled: true\n",
+		"unknown":          "unknown_field: true\n",
+		"write":            "features:\n  write_enabled: true\n  remote_search_enabled: false\n",
+		"search":           "features:\n  write_enabled: false\n  remote_search_enabled: true\n",
+		"missing-identity": "",
 	} {
 		t.Run(name, func(t *testing.T) {
 			text := validYAML(keyFile)
 			if name == "unknown" {
 				text += suffix
+			} else if name == "missing-identity" {
+				text = strings.Replace(text, "security:\n  identity_key_file: "+keyFile+"\n", "", 1)
 			} else {
 				text = strings.Replace(text, "features:\n  write_enabled: false\n  remote_search_enabled: false\n", suffix, 1)
 			}
@@ -103,6 +107,43 @@ func TestReadAPIKeyRejectsWhitespaceAndMultipleLines(t *testing.T) {
 				t.Fatalf("ReadAPIKey() = %q, %v; expected a redacted validation error", key, err)
 			}
 		})
+	}
+}
+
+func TestReadIdentityKey(t *testing.T) {
+	dir := t.TempDir()
+	key := bytes.Repeat([]byte{0x5a}, 32)
+	filename := filepath.Join(dir, "identity-key")
+	if err := os.WriteFile(filename, []byte(base64.StdEncoding.EncodeToString(key)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadIdentityKey(filename)
+	if err != nil || !bytes.Equal(got, key) {
+		t.Fatalf("ReadIdentityKey() returned a different key or error: %v", err)
+	}
+}
+
+func TestReadIdentityKeyRejectsInvalidValuesWithoutLeakage(t *testing.T) {
+	dir := t.TempDir()
+	secret := "must-not-appear"
+	for name, contents := range map[string]string{
+		"plain":      secret,
+		"short":      base64.StdEncoding.EncodeToString([]byte("short")),
+		"whitespace": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)) + " \n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			filename := filepath.Join(dir, name)
+			if err := os.WriteFile(filename, []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if key, err := ReadIdentityKey(filename); err == nil || key != nil || strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), filename) {
+				t.Fatalf("unexpected identity key result: key length=%d error=%v", len(key), err)
+			}
+		})
+	}
+	missing := filepath.Join(dir, "missing-secret")
+	if key, err := ReadIdentityKey(missing); err == nil || key != nil || strings.Contains(err.Error(), missing) {
+		t.Fatalf("unexpected missing identity key result: key length=%d error=%v", len(key), err)
 	}
 }
 

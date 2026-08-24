@@ -66,7 +66,7 @@ func TestReadEndpointsHeadersQueryAndMapping(t *testing.T) {
 				return
 			}
 			q := r.URL.Query()
-			if q.Get("Ids") != "movie-1" || q.Get("Fields") != "Path,ProviderIds,MediaStreams" || q.Get("Limit") != "2" || q.Get("EnableImages") != "false" || q.Get("EnableUserData") != "false" || len(q) != 5 {
+			if q.Get("Ids") != "movie-1" || q.Get("Fields") != "Path,ProviderIds,MediaStreams,MediaSources" || q.Get("Limit") != "2" || q.Get("EnableImages") != "false" || q.Get("EnableUserData") != "false" || len(q) != 5 {
 				t.Errorf("get query = %v", q)
 			}
 			writeJSON(t, w, map[string]any{"Items": []map[string]any{{
@@ -89,7 +89,7 @@ func TestReadEndpointsHeadersQueryAndMapping(t *testing.T) {
 		t.Fatalf("items = %#v, err=%v", items, err)
 	}
 	item, err := client.GetItem(context.Background(), "movie-1")
-	if err != nil || item.Path == "" || item.ProviderIDs["Imdb"] != "tt123" || len(item.MediaSources) != 1 || item.MediaSources[0].Protocol != "file" || item.MediaSources[0].MediaStreams == nil || len(*item.MediaSources[0].MediaStreams) != 1 || (*item.MediaSources[0].MediaStreams)[0].Title != "中文" || len(item.MediaStreams) != 1 {
+	if err != nil || item.Path == "" || item.ProviderIDs["Imdb"] != "tt123" || len(item.MediaSources) != 1 || item.MediaSources[0].Protocol != "file" || item.MediaSources[0].MediaStreams == nil || len(*item.MediaSources[0].MediaStreams) != 1 || (*item.MediaSources[0].MediaStreams)[0].Title != "中文" || item.MediaStreams == nil || len(*item.MediaStreams) != 1 {
 		t.Fatalf("item = %#v, err=%v", item, err)
 	}
 	if calls.Load() != 3 {

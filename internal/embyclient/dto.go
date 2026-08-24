@@ -124,10 +124,11 @@ func (d itemDTO) toDomain() domain.EmbyItem {
 		}
 	}
 	if d.MediaStreams != nil {
-		item.MediaStreams = make([]domain.MediaStream, 0, len(*d.MediaStreams))
+		streams := make([]domain.MediaStream, 0, len(*d.MediaStreams))
 		for _, stream := range *d.MediaStreams {
-			item.MediaStreams = append(item.MediaStreams, mapMediaStream(stream))
+			streams = append(streams, mapMediaStream(stream))
 		}
+		item.MediaStreams = &streams
 	}
 	return item
 }

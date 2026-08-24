@@ -29,6 +29,10 @@ func main() {
 		logger.Error("credential configuration rejected", "error", err.Error())
 		os.Exit(1)
 	}
+	if _, err := config.ReadIdentityKey(cfg.Security.IdentityKeyFile); err != nil {
+		logger.Error("identity configuration rejected", "error", err.Error())
+		os.Exit(1)
+	}
 
 	server := &http.Server{
 		Addr:              cfg.Server.ListenAddress,
