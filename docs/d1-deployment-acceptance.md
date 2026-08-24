@@ -6,12 +6,15 @@
 
 ## 版本与归档
 
-- 验收代码提交：`a38b1f7ee39101e328813c0284976dbcc033866c`
-- 归档 SHA256：`E93CD043FC6BF4AD1626993B3870B2BF52E7410CAFC551B974FFE9E87F1DB342`
+- 验收代码提交：`95746a29b1466184e6db842c3412fefea4f379aa`
+- 归档 SHA256：`ACCB131ADC9B0E17C86CA1DE11A3738A44D2CAE61E114B087B984C5F595F4AB3`
+- 运行镜像 ID：`sha256:4641b78bb18a70ea4e7e27d60144fed755a036f5e052308717ae03d6b766c0b5`
+- GitHub Actions：[CI run 32702979650](https://github.com/hope140/emby-strm-subtitle-manager/actions/runs/32702979650)，格式化、Vet、Test 和 Build 全部通过。
 
 ## 已通过
 
 - Docker Compose schema、镜像构建和 host-network 变体通过。
+- 镜像 OCI `version`、`revision`、`created` 和 `source` 与公开 GitHub 提交及构建记录一致；历史重写前的旧镜像只保留为短期回滚件，不再作为发布验收镜像。
 - 容器 UID 10001、只读 root、媒体只读挂载和三份 Secret 权限检查通过。
 - `/readyz` readiness 检查、Bearer 认证错误时的 401 行为和版本溯源标签检查通过。
 - FRP 新代理启用单代理 payload 加密，原有 9 条代理与新增代理均保持 running；共享 FRPC 的全局 TLS 配置未变更。
