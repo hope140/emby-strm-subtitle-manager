@@ -1,0 +1,32 @@
+# D3 dedicated-sample Add overlay. Combine with the base topology and the D2
+# overlay. This is an explicitly authorized write window; the base Compose
+# remains read-only and cannot enable D3 by itself.
+services:
+  app:
+    # The root filesystem stays read-only. Only the mapped media root is made
+    # writable for this bounded Add window.
+    volumes:
+      - type: bind
+        source: /replace/with/host/media/root
+        target: /media
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d3-history
+        target: /var/lib/emby-strm-subtitle-manager/d3-history
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d3-quarantine
+        target: /var/lib/emby-strm-subtitle-manager/d3-quarantine
+        read_only: false
+    secrets:
+      - source: d3_canary_items
+        target: d3_canary_items
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+
+secrets:
+  d3_canary_items:
+    # Exact Movie/Episode IDs only, one per line, mode 0400 and owned by the
+    # container UID on the host. Keep this file outside every media mapping.
+    file: ./secrets/d3_canary_items

@@ -354,7 +354,7 @@ func TestAdminPasswordLoginIssuesHttpOnlySessionAndKeepsBearerAutomation(t *test
 	}
 
 	login := loginRequest(handler, `{"username":"operator","password":"correct horse battery staple"}`)
-	if login.Code != http.StatusOK || login.Body.String() != "{\"status\":\"ok\"}\n" {
+	if login.Code != http.StatusOK || !strings.Contains(login.Body.String(), `"status":"ok"`) || !strings.Contains(login.Body.String(), `"csrf_token":"`) {
 		t.Fatalf("login = %d %s", login.Code, login.Body.String())
 	}
 	cookies := login.Result().Cookies()
@@ -426,6 +426,58 @@ func TestAdminLoginHonorsSecureCookieConfiguration(t *testing.T) {
 	if len(cookies) != 1 || !cookies[0].Secure || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
 		t.Fatalf("secure session cookie = %#v", cookies)
 	}
+}
+
+func TestD3AddRequiresWriteScopeAndSessionCSRF(t *testing.T) {
+	admin, err := auth.New("operator", "correct horse battery staple", auth.Options{SessionTTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewServerWithServices(config.Config{Features: config.FeatureConfig{WriteEnabled: true}}, version.Info{Version: "test"}, slog.Default(), Services{
+		AuthToken: testAuthToken, AuthTokenScopes: []string{config.APIAuthScopeMediaRead, config.APIAuthScopeSubtitleWrite}, AdminAuth: admin,
+	}).Handler()
+	login := loginRequest(handler, `{"username":"operator","password":"correct horse battery staple"}`)
+	if login.Code != http.StatusOK {
+		t.Fatalf("login = %d %s", login.Code, login.Body.String())
+	}
+	var loginBody struct {
+		CSRFToken string `json:"csrf_token"`
+	}
+	if err := json.Unmarshal(login.Body.Bytes(), &loginBody); err != nil || loginBody.CSRFToken == "" {
+		t.Fatalf("login csrf = %q err=%v", loginBody.CSRFToken, err)
+	}
+	cookies := login.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatal("login did not issue one session cookie")
+	}
+	withoutCSRF := httptest.NewRequest(http.MethodPost, "/v1/media/movie-1/subtitles/add", strings.NewReader(`{"artifact_token":"opaque","media_source_id":"source-1","operation_id":"operation-1"}`))
+	withoutCSRF.Header.Set("Content-Type", "application/json")
+	withoutCSRF.AddCookie(cookies[0])
+	withoutCSRFResponse := httptest.NewRecorder()
+	handler.ServeHTTP(withoutCSRFResponse, withoutCSRF)
+	if withoutCSRFResponse.Code != http.StatusForbidden {
+		t.Fatalf("without CSRF = %d %s", withoutCSRFResponse.Code, withoutCSRFResponse.Body.String())
+	}
+	assertErrorEnvelope(t, withoutCSRFResponse, "csrf_required")
+	withCSRF := httptest.NewRequest(http.MethodPost, "/v1/media/movie-1/subtitles/add", strings.NewReader(`{"artifact_token":"opaque","media_source_id":"source-1","operation_id":"operation-1"}`))
+	withCSRF.Header.Set("Content-Type", "application/json")
+	withCSRF.Header.Set("X-CSRF-Token", loginBody.CSRFToken)
+	withCSRF.AddCookie(cookies[0])
+	withCSRFResponse := httptest.NewRecorder()
+	handler.ServeHTTP(withCSRFResponse, withCSRF)
+	if withCSRFResponse.Code != http.StatusForbidden {
+		t.Fatalf("with CSRF should reach disabled D3 = %d %s", withCSRFResponse.Code, withCSRFResponse.Body.String())
+	}
+	assertErrorEnvelope(t, withCSRFResponse, "write_disabled")
+	bearerRequest := httptest.NewRequest(http.MethodPost, "/v1/media/movie-1/subtitles/add", strings.NewReader(`{"artifact_token":"opaque","media_source_id":"source-1","operation_id":"operation-2"}`))
+	bearerRequest.Header.Set("Content-Type", "application/json")
+	bearerRequest.Header.Set("Authorization", "Bearer "+testAuthToken)
+	bearerRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(bearerRecorder, bearerRequest)
+	if bearerRecorder.Code != http.StatusForbidden {
+		t.Fatalf("bearer D3 = %d %s", bearerRecorder.Code, bearerRecorder.Body.String())
+	}
+	assertErrorEnvelope(t, bearerRecorder, "write_disabled")
 }
 
 func loginRequest(handler http.Handler, body string) *httptest.ResponseRecorder {

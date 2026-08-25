@@ -23,6 +23,11 @@
     previewOffsets: [0],
     previewLimit: 200
   };
+  const d3 = {
+    writeEnabled: false,
+    csrfToken: "",
+    addBusy: false
+  };
 
   const elements = {
     loginPanel: document.getElementById("login-panel"),
@@ -54,7 +59,10 @@
     d2PreviewNext: document.getElementById("d2-preview-next"),
     d2PreviewReset: document.getElementById("d2-preview-reset"),
     d2PreviewStatus: document.getElementById("d2-preview-status"),
-    d2Cues: document.getElementById("d2-cues")
+    d2Cues: document.getElementById("d2-cues"),
+    d3Add: document.getElementById("d3-add"),
+    d3AddButton: document.getElementById("d3-add-button"),
+    d3AddStatus: document.getElementById("d3-add-status")
   };
 
   const safeMessages = {
@@ -84,7 +92,14 @@
     emby_unavailable: "上游服务暂时不可用，请稍后重试。",
     preview_store_unavailable: "预览暂时不可用，请稍后重试。",
     invalid_request: "请求参数无效，请重新操作。",
-    media_source_required: "请先选择一个媒体源。"
+    media_source_required: "请先选择一个媒体源。",
+    write_disabled: "写入功能未启用，请联系管理员确认 D3 专用样本状态。",
+    csrf_required: "当前会话的安全校验已失效，请重新登录。",
+    csrf_origin_invalid: "请求来源未通过安全校验。",
+    d3_item_not_allowed: "当前媒体不是 D3 专用样本。",
+    emby_refresh_failed: "Emby 刷新失败，新文件已隔离。",
+    emby_subtitle_not_visible: "Emby 未识别新字幕，新文件已隔离。",
+    d3_history_unavailable: "写入记录失败，新文件已隔离。"
   };
 
   function setText(element, value) {
@@ -153,6 +168,9 @@
     detailRequestID += 1;
     selectedLibrary = "";
     d2.remoteSearchEnabled = false;
+    d3.writeEnabled = false;
+    d3.csrfToken = "";
+    d3.addBusy = false;
     fillLibraries([]);
     resetPage();
     resetD2ForItem("", false);
@@ -193,11 +211,11 @@
   }
 
   async function apiPost(resource, body) {
+    const headers = {"Content-Type": "application/json"};
+    if (d3.csrfToken) headers["X-CSRF-Token"] = d3.csrfToken;
     const response = await fetch(resource, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers,
       credentials: "same-origin",
       body: JSON.stringify(body),
       cache: "no-store"
@@ -468,6 +486,9 @@
     clearText(elements.d2PreviewStatus);
     clear(elements.d2Cues);
     setVisible(elements.d2Preview, false);
+    setVisible(elements.d3Add, false);
+    clearText(elements.d3AddStatus);
+    elements.d3AddButton.disabled = false;
     elements.d2PreviewPrevious.disabled = true;
     elements.d2PreviewNext.disabled = true;
   }
@@ -605,6 +626,34 @@
     setText(elements.d2ArtifactMeta, "Provider：" + (artifact.provider || "—") + " · 语言：" + (artifact.language || "—") + " · 格式：" + (artifact.format || "—") + " · 字节：" + Number(artifact.byte_length || 0) + " · Cue：" + Number(artifact.cue_count || 0) + " · 过期：" + formatDate(artifact.expires_at));
     clear(elements.d2Cues);
     setText(elements.d2PreviewStatus, "准备预览…");
+    setVisible(elements.d3Add, d3.writeEnabled && Boolean(d2.media && d2.media.media_source_id));
+    clearText(elements.d3AddStatus);
+  }
+
+  function newOperationID() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID();
+    return "op-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+  }
+
+  async function addD3() {
+    if (d3.addBusy || !d3.writeEnabled || !d2.artifact || !d2.itemID || !d2.media || !d2.media.media_source_id) return;
+    d3.addBusy = true;
+    elements.d3AddButton.disabled = true;
+    clearError(elements.d3AddStatus);
+    setText(elements.d3AddStatus, "正在写入、刷新并核验…");
+    try {
+      await apiPost("/v1/media/" + encodeURIComponent(d2.itemID) + "/subtitles/add", {
+        artifact_token: d2.artifact.artifact_token,
+        media_source_id: d2.media.media_source_id,
+        operation_id: newOperationID()
+      });
+      setText(elements.d3AddStatus, "已添加，Emby 已刷新并确认字幕可见。请重新打开详情查看清单。 ");
+    } catch (error) {
+      setError(elements.d3AddStatus, error);
+    } finally {
+      d3.addBusy = false;
+      elements.d3AddButton.disabled = false;
+    }
   }
 
   function formatCueTime(value) {
@@ -764,6 +813,7 @@
   function setRemoteSearchFeature(health) {
     const features = health && health.features ? health.features : {};
     d2.remoteSearchEnabled = features.remote_search_enabled === true;
+    d3.writeEnabled = features.write_enabled === true;
   }
 
   async function login(event) {
@@ -777,7 +827,8 @@
       return;
     }
     try {
-      await apiPost("/v1/auth/login", { username, password });
+      const loginResponse = await apiPost("/v1/auth/login", { username, password });
+      d3.csrfToken = loginResponse && typeof loginResponse.csrf_token === "string" ? loginResponse.csrf_token : "";
       const health = await apiGet("/v1/health");
       setRemoteSearchFeature(health);
       const libraries = await apiGet("/v1/emby/libraries");
@@ -816,4 +867,5 @@
   elements.d2PreviewPrevious.addEventListener("click", () => previewPrevious());
   elements.d2PreviewNext.addEventListener("click", () => previewNext());
   elements.d2PreviewReset.addEventListener("click", () => previewReset());
+  elements.d3AddButton.addEventListener("click", () => addD3());
 })();

@@ -98,6 +98,27 @@ func TestReadEndpointsHeadersQueryAndMapping(t *testing.T) {
 	}
 }
 
+func TestRefreshItemUsesBoundedPostEndpoint(t *testing.T) {
+	client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/Items/movie-1/Refresh" {
+			t.Fatalf("refresh request = %s %s", r.Method, r.URL.Path)
+		}
+		if r.URL.Query().Get("Recursive") != "false" || len(r.URL.Query()) != 1 {
+			t.Fatalf("refresh query = %#v", r.URL.Query())
+		}
+		if r.Header.Get("X-Emby-Token") != testToken {
+			t.Fatal("refresh did not use the Emby token header")
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	if err := client.RefreshItem(context.Background(), "movie-1"); err != nil {
+		t.Fatalf("RefreshItem error = %v", err)
+	}
+	if err := client.RefreshItem(context.Background(), "../unsafe"); err == nil {
+		t.Fatal("RefreshItem accepted an unsafe item ID")
+	}
+}
+
 func TestListItemsValidation(t *testing.T) {
 	client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("invalid input made a request")

@@ -13,6 +13,7 @@ import (
 	"github.com/hope140/emby-strm-subtitle-manager/internal/auth"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/d2"
+	"github.com/hope140/emby-strm-subtitle-manager/internal/d3"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/httpapi"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/httpui"
@@ -101,11 +102,22 @@ func main() {
 		}
 		allowlist = preview.NewAllowlist(items)
 	}
+	var artifactStore *preview.ArtifactStore
+	if cfg.Features.RemoteSearchEnabled {
+		artifactStore, err = preview.NewArtifactStore(preview.ArtifactStoreOptions{
+			Directory: cfg.D2.CacheDir, TTL: time.Duration(cfg.D2.ArtifactTTLSeconds) * time.Second,
+			MaxBytes: cfg.D2.MaxSubtitleBytes,
+		})
+		if err != nil {
+			logger.Error("D2 preview cache rejected", "error", err.Error())
+			os.Exit(1)
+		}
+	}
 	d2Service, err := d2.New(d2.Options{
 		Config: cfg.D2, RemoteSearchEnabled: cfg.Features.RemoteSearchEnabled,
 		CanaryEnabled: cfg.D2.Canary.Enabled, Allowlist: allowlist, Emby: client,
-		Provider:    subtitleprovider.NewEmbyRemoteSubtitleProvider(client),
-		AuthContext: d2.AuthContextFromToken(authToken),
+		Provider:      subtitleprovider.NewEmbyRemoteSubtitleProvider(client),
+		ArtifactStore: artifactStore, AuthContext: d2.AuthContextFromToken(authToken),
 	})
 	if err != nil {
 		logger.Error("D2 configuration rejected", "error", err.Error())
@@ -114,11 +126,29 @@ func main() {
 	cleanupContext, stopCleanup := context.WithCancel(context.Background())
 	defer stopCleanup()
 	go d2Service.RunCleanup(cleanupContext)
+	var d3Allowlist *preview.Allowlist
+	if cfg.D3.Canary.Enabled {
+		items, err := config.ReadItemAllowlist(cfg.D3.Canary.ItemAllowlistFile)
+		if err != nil {
+			logger.Error("D3 Canary allowlist rejected", "error", err.Error())
+			os.Exit(1)
+		}
+		d3Allowlist = preview.NewAllowlist(items)
+	}
+	d3Service, err := d3.New(d3.Options{
+		Config: cfg.D3, WriteEnabled: cfg.Features.WriteEnabled, Canary: d3Allowlist,
+		Emby: client, Refresher: client, Mapper: mapper, Guard: guard, Artifacts: artifactStore,
+		AuthContext: d2.AuthContextFromToken(authToken),
+	})
+	if err != nil {
+		logger.Error("D3 configuration rejected", "error", err.Error())
+		os.Exit(1)
+	}
 
 	server := &http.Server{
 		Addr: cfg.Server.ListenAddress,
 		Handler: httpapi.NewServerWithServices(cfg, version.Current(), logger, httpapi.Services{
-			Emby: client, D2: d2Service, Mapper: mapper, Guard: guard, Inventory: inventoryService,
+			Emby: client, D2: d2Service, D3: d3Service, Mapper: mapper, Guard: guard, Inventory: inventoryService,
 			AuthToken: authToken, AuthTokenScopes: cfg.Security.EffectiveAPIAuthScopes(), AdminAuth: adminAuth, UI: httpui.NewHandler(),
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,

@@ -1,4 +1,4 @@
-// Package httpui serves the embedded D1.5 and D2 read-only browser UI.
+// Package httpui serves the embedded D1.5 browser UI and its gated D2/D3 controls.
 package httpui
 
 import (

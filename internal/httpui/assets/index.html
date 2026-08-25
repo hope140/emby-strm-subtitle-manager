@@ -12,7 +12,7 @@
     <div class="brand">
       <img class="brand-mark" src="/assets/subtitle-steward.svg" alt="">
       <div>
-      <p class="eyebrow">D1.5 · READ ONLY</p>
+      <p class="eyebrow">D1.5 · D3 CONTROLLED ADD</p>
       <h1>SubBridge <span class="brand-short">SB · 字幕桥</span></h1>
       </div>
     </div>
@@ -104,6 +104,11 @@
                 <span id="d2-preview-status" class="muted" role="status"></span>
               </div>
               <div id="d2-cues" class="cue-list"></div>
+              <div id="d3-add" class="d2-actions hidden">
+                <span class="muted">已通过校验的字幕只会写入当前专用样本，并触发一次 Emby 刷新。</span>
+                <button id="d3-add-button" type="button">添加到当前媒体</button>
+                <span id="d3-add-status" class="muted" role="status"></span>
+              </div>
             </section>
           </section>
         </section>

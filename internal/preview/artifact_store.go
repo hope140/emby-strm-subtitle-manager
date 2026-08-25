@@ -190,38 +190,46 @@ func (s *ArtifactStore) Create(binding Binding, format, language string, content
 }
 
 func (s *ArtifactStore) Get(token string, binding Binding) (Artifact, error) {
+	artifact, _, err := s.GetContent(token, binding)
+	return artifact, err
+}
+
+// GetContent returns a validated artifact and its canonical bytes for the
+// explicitly gated D3 Add flow. The binding and integrity checks are exactly
+// the same as Get; callers must not use it as an arbitrary file reader.
+func (s *ArtifactStore) GetContent(token string, binding Binding) (Artifact, []byte, error) {
 	if s == nil || token == "" {
-		return Artifact{}, ErrArtifactInvalid
+		return Artifact{}, nil, ErrArtifactInvalid
 	}
 	digest := sha256.Sum256([]byte(token))
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entry, ok := s.entries[digest]
 	if !ok {
-		return Artifact{}, ErrArtifactInvalid
+		return Artifact{}, nil, ErrArtifactInvalid
 	}
 	if !s.now().Before(entry.ExpiresAt) {
 		delete(s.entries, digest)
 		_ = os.Remove(entry.Filename)
-		return Artifact{}, ErrArtifactExpired
+		return Artifact{}, nil, ErrArtifactExpired
 	}
 	if !sameBinding(entry.Binding, binding) {
-		return Artifact{}, ErrArtifactInvalid
+		return Artifact{}, nil, ErrArtifactInvalid
 	}
 	file, err := os.Open(entry.Filename)
 	if err != nil {
-		return Artifact{}, ErrArtifactUnavailable
+		return Artifact{}, nil, ErrArtifactUnavailable
 	}
 	content, readErr := io.ReadAll(io.LimitReader(file, s.maxBytes+1))
 	closeErr := file.Close()
 	if readErr != nil || closeErr != nil || int64(len(content)) > s.maxBytes {
-		return Artifact{}, ErrArtifactUnavailable
+		return Artifact{}, nil, ErrArtifactUnavailable
 	}
 	hash := sha256.Sum256(content)
 	if len(content) != entry.ByteLength || hex.EncodeToString(hash[:]) != entry.ContentHash {
-		return Artifact{}, ErrArtifactUnavailable
+		return Artifact{}, nil, ErrArtifactUnavailable
 	}
-	return cloneArtifact(entry.Artifact), nil
+	return cloneArtifact(entry.Artifact), append([]byte(nil), content...), nil
 }
 
 func (s *ArtifactStore) RemoveExpired() {

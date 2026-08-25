@@ -1,4 +1,4 @@
-// Package httpapi exposes the intentionally small, read-only D1 HTTP surface.
+// Package httpapi exposes the intentionally small, gated D1/D2/D3 HTTP surface.
 package httpapi
 
 import (
@@ -23,6 +23,7 @@ import (
 	"github.com/hope140/emby-strm-subtitle-manager/internal/auth"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/d2"
+	"github.com/hope140/emby-strm-subtitle-manager/internal/d3"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/inventory"
@@ -51,12 +52,14 @@ type EmbyReader interface {
 	GetItem(context.Context, string) (domain.EmbyItem, error)
 }
 
-// Services contains the dependencies needed by the D1 media slice. The
+// Services contains the dependencies needed by the D1 media slice and gated
+// D2/D3 operations. The
 // fields are interfaces/pointers so HTTP tests can inject a fake Emby client
 // without creating a filesystem or exposing server paths.
 type Services struct {
 	Emby            EmbyReader
 	D2              *d2.Service
+	D3              *d3.Service
 	Mapper          *pathmap.Mapper
 	Guard           *pathmap.PathGuard
 	Inventory       *inventory.Service
@@ -72,6 +75,7 @@ type Server struct {
 	logger          *slog.Logger
 	emby            EmbyReader
 	d2              *d2.Service
+	d3              *d3.Service
 	readiness       *readinessProbe
 	mapper          *pathmap.Mapper
 	guard           *pathmap.PathGuard
@@ -96,7 +100,7 @@ func NewServer(cfg config.Config, ver version.Info, logger *slog.Logger, clients
 	return &Server{cfg: cfg, ver: ver, logger: logger, emby: client, readiness: &readinessProbe{client: client}}
 }
 
-// NewServerWithServices constructs the full D1 read-only server.
+// NewServerWithServices constructs the full D1/D2/D3 server.
 func NewServerWithServices(cfg config.Config, ver version.Info, logger *slog.Logger, services Services) *Server {
 	if logger == nil {
 		logger = slog.Default()
@@ -111,7 +115,7 @@ func NewServerWithServices(cfg config.Config, ver version.Info, logger *slog.Log
 	}
 	return &Server{
 		cfg: cfg, ver: ver, logger: logger, emby: services.Emby,
-		d2:        services.D2,
+		d2: services.D2, d3: services.D3,
 		readiness: &readinessProbe{client: services.Emby}, mapper: services.Mapper,
 		guard: services.Guard, inventory: services.Inventory, authToken: []byte(services.AuthToken),
 		authTokenScopes: authTokenScopes, adminAuth: services.AdminAuth, ui: services.UI,
@@ -134,7 +138,12 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if requiresAuthentication(r.URL.Path) {
 		switch s.authorization(r) {
 		case authorizationGranted:
-			// Continue to the read-only route.
+			if d3Operation(r.URL.Path) != "" && !s.bearerAuthorized(r) {
+				if ok, code := s.validWriteSession(r); !ok {
+					s.writeError(w, r, http.StatusForbidden, code, "a valid CSRF token and same-origin request are required")
+					return
+				}
+			}
 		case authorizationInsufficientScope:
 			s.writeInsufficientScope(w, r, requiredAuthScope(r))
 			return
@@ -150,6 +159,15 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.handleD2(w, r, d2Operation(r.URL.Path))
+		return
+	}
+	if d3Operation(r.URL.Path) != "" {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			s.writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		s.handleD3(w, r)
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -218,6 +236,17 @@ func d2Operation(path string) string {
 	}
 }
 
+func d3Operation(path string) string {
+	if !strings.HasPrefix(path, "/v1/media/") {
+		return ""
+	}
+	parts := strings.Split(strings.TrimPrefix(path, "/v1/media/"), "/")
+	if len(parts) == 3 && parts[1] == "subtitles" && parts[2] == "add" {
+		return "add"
+	}
+	return ""
+}
+
 func requiresAuthentication(path string) bool {
 	return path == "/v1" || strings.HasPrefix(path, "/v1/")
 }
@@ -265,6 +294,45 @@ func (s *Server) authorization(r *http.Request) authorizationResult {
 	return authorizationDenied
 }
 
+func (s *Server) bearerAuthorized(r *http.Request) bool {
+	if s == nil || r == nil || len(s.authToken) == 0 {
+		return false
+	}
+	if _, exists := r.URL.Query()["token"]; exists {
+		return false
+	}
+	parts := strings.Fields(r.Header.Get("Authorization"))
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || subtle.ConstantTimeCompare([]byte(parts[1]), s.authToken) != 1 {
+		return false
+	}
+	scope := requiredAuthScope(r)
+	if scope == "" {
+		return true
+	}
+	_, ok := s.authTokenScopes[scope]
+	return ok
+}
+
+func (s *Server) validWriteSession(r *http.Request) (bool, string) {
+	if s == nil || s.adminAuth == nil || r == nil {
+		return false, "csrf_required"
+	}
+	cookie, err := r.Cookie(adminSessionCookie)
+	if err != nil || !s.adminAuth.ValidSessionCSRF(cookie.Value, r.Header.Get("X-CSRF-Token")) {
+		return false, "csrf_required"
+	}
+	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
+		u, err := url.Parse(origin)
+		if err != nil || u.Host == "" || !strings.EqualFold(u.Host, r.Host) || (u.Scheme != "" && r.URL.Scheme != "" && !strings.EqualFold(u.Scheme, r.URL.Scheme)) {
+			return false, "csrf_origin_invalid"
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")), "cross-site") {
+		return false, "csrf_origin_invalid"
+	}
+	return true, ""
+}
+
 func requiredAuthScope(r *http.Request) string {
 	if r == nil {
 		return ""
@@ -274,6 +342,11 @@ func requiredAuthScope(r *http.Request) string {
 		return config.APIAuthScopeSubtitleSearch
 	case "fetch", "preview":
 		return config.APIAuthScopeSubtitlePreview
+	case "":
+		if d3Operation(r.URL.Path) == "add" {
+			return config.APIAuthScopeSubtitleWrite
+		}
+		return config.APIAuthScopeMediaRead
 	default:
 		return config.APIAuthScopeMediaRead
 	}
@@ -307,7 +380,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, http.StatusBadRequest, "invalid_request", "username and password are required")
 		return
 	}
-	token, err := s.adminAuth.Login(remoteClientKey(r), body.Username, body.Password)
+	token, csrfToken, err := s.adminAuth.LoginWithCSRF(remoteClientKey(r), body.Username, body.Password)
 	if errors.Is(err, auth.ErrRateLimited) {
 		w.Header().Set("Retry-After", "60")
 		s.writeError(w, r, http.StatusTooManyRequests, "login_rate_limited", "too many login attempts")
@@ -326,7 +399,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Secure: s.cfg.Security.SessionCookieSecure, SameSite: http.SameSiteLaxMode,
 		MaxAge: int(s.adminAuth.SessionTTL().Seconds()),
 	})
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "csrf_token": csrfToken})
 }
 
 func remoteClientKey(r *http.Request) string {
@@ -496,6 +569,44 @@ func (s *Server) handleD2(w http.ResponseWriter, r *http.Request, operation stri
 		}
 		writeJSON(w, http.StatusOK, response)
 	}
+}
+
+type d3AddBody struct {
+	ArtifactToken string `json:"artifact_token"`
+	MediaSourceID string `json:"media_source_id"`
+	OperationID   string `json:"operation_id"`
+}
+
+func (s *Server) handleD3(w http.ResponseWriter, r *http.Request) {
+	if r.URL.RawQuery != "" {
+		s.writeError(w, r, http.StatusBadRequest, "invalid_request", "query parameters are not allowed")
+		return
+	}
+	if s.d3 == nil || !s.d3.Enabled() {
+		s.writeError(w, r, http.StatusForbidden, "write_disabled", "D3 Add is disabled")
+		return
+	}
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/v1/media/"), "/")
+	if len(parts) != 3 || !validID(parts[0]) || strings.ContainsAny(parts[0], `/\\`) {
+		s.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid item id")
+		return
+	}
+	var body d3AddBody
+	if err := decodeJSONBody(r, &body, maxD2RequestBody); err != nil {
+		s.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid JSON request")
+		return
+	}
+	response, err := s.d3.Add(r.Context(), parts[0], d3.AddRequest{ArtifactToken: body.ArtifactToken, MediaSourceID: body.MediaSourceID, OperationID: body.OperationID})
+	if err != nil {
+		var d3Err *d3.Error
+		if errors.As(err, &d3Err) && d3Err != nil {
+			s.writeError(w, r, d3Err.Status, d3Err.Code, d3Err.Message)
+			return
+		}
+		s.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 type d2SearchBody struct {
@@ -833,7 +944,7 @@ func routeLabel(path string) string {
 		}
 		if len(parts) == 3 && parts[1] == "subtitles" {
 			switch parts[2] {
-			case "search", "fetch", "preview":
+			case "search", "fetch", "preview", "add":
 				return "/v1/media/{itemId}/subtitles/" + parts[2]
 			}
 		}

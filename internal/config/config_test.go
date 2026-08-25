@@ -413,6 +413,39 @@ func TestD2EnabledRequiresStableCacheDirectory(t *testing.T) {
 	}
 }
 
+func TestD3WriteRequiresD2AndDedicatedPrivateDirectories(t *testing.T) {
+	baseDir := t.TempDir()
+	mediaRoot := filepath.Join(baseDir, "media")
+	history := filepath.Join(baseDir, "history")
+	quarantine := filepath.Join(baseDir, "quarantine")
+	cache := filepath.Join(baseDir, "cache")
+	allowlist := filepath.Join(baseDir, "d3-items")
+	for _, directory := range []string{mediaRoot, history, quarantine, cache} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(allowlist, []byte("movie-1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	base := Config{
+		Server:       ServerConfig{ListenAddress: "127.0.0.1:8080"},
+		Emby:         EmbyConfig{URL: "https://emby.example.test", APIKeyFile: "/run/secrets/emby", TimeoutSeconds: 10},
+		Security:     SecurityConfig{IdentityKeyFile: "/run/secrets/identity", APIAuthTokenFile: "/run/secrets/api-auth-token", APIAuthScopes: []string{APIAuthScopeMediaRead, APIAuthScopeSubtitlePreview, APIAuthScopeSubtitleWrite}},
+		Features:     FeatureConfig{WriteEnabled: true, RemoteSearchEnabled: true},
+		D2:           D2Config{CacheDir: cache, Canary: D2CanaryConfig{Enabled: true, ItemAllowlistFile: allowlist}},
+		D3:           D3Config{HistoryDir: history, QuarantineDir: quarantine, Canary: D3CanaryConfig{Enabled: true, ItemAllowlistFile: allowlist}},
+		PathMappings: []PathMapping{{Emby: "/srv/media", Local: mediaRoot}},
+	}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("valid D3 configuration rejected: %v", err)
+	}
+	base.D3.HistoryDir = filepath.Join(mediaRoot, "history")
+	if err := base.Validate(); err == nil {
+		t.Fatal("D3 history path overlapping media was accepted")
+	}
+}
+
 func TestD2CacheDirectoryMustNotOverlapOrUseFilesystemRoot(t *testing.T) {
 	base := t.TempDir()
 	mediaRoot := filepath.Join(base, "media")
@@ -498,6 +531,7 @@ func TestDeploymentYAMLDocumentsAreValid(t *testing.T) {
 		filepath.Join("..", "..", "deploy", "compose.example.yaml"),
 		filepath.Join("..", "..", "deploy", "compose.host-network.example.yaml"),
 		filepath.Join("..", "..", "deploy", "compose.d2-canary.example.yaml"),
+		filepath.Join("..", "..", "deploy", "compose.d3-canary.example.yaml"),
 		filepath.Join("..", "..", "deploy", "config.example.yaml"),
 		filepath.Join("..", "..", "deploy", "config.host-network.example.yaml"),
 	} {
@@ -671,5 +705,46 @@ func TestD2ComposeOverlayAddsDedicatedWritableCacheAndAllowlistSecret(t *testing
 				t.Fatalf("base+overlay D2 contract missing: cache=%v media_read_only=%v allowlist=%v", mergedCache, mergedMediaReadOnly, mergedAllowlist)
 			}
 		})
+	}
+}
+
+func TestD3ComposeOverlayAddsOnlyDedicatedWritableMediaAndRecoveryMounts(t *testing.T) {
+	overlay := readComposeTestDocument(t, filepath.Join("..", "..", "deploy", "compose.d3-canary.example.yaml"))
+	app, ok := overlay.Services["app"]
+	if !ok {
+		t.Fatal("D3 overlay is missing app service")
+	}
+	var media, history, quarantine bool
+	for _, mount := range app.Volumes {
+		switch mount.Target {
+		case "/media":
+			if mount.Source != "/replace/with/host/media/root" || mount.ReadOnly {
+				t.Fatalf("D3 media mount = %#v", mount)
+			}
+			media = true
+		case "/var/lib/emby-strm-subtitle-manager/d3-history":
+			if mount.ReadOnly {
+				t.Fatalf("D3 history mount is read-only")
+			}
+			history = true
+		case "/var/lib/emby-strm-subtitle-manager/d3-quarantine":
+			if mount.ReadOnly {
+				t.Fatalf("D3 quarantine mount is read-only")
+			}
+			quarantine = true
+		}
+	}
+	if !media || !history || !quarantine {
+		t.Fatalf("D3 mounts missing: media=%v history=%v quarantine=%v", media, history, quarantine)
+	}
+	allowlistRef := false
+	for _, ref := range app.Secrets {
+		if ref.Source == "d3_canary_items" && ref.Target == "d3_canary_items" {
+			allowlistRef = true
+		}
+	}
+	allowlist, ok := overlay.Secrets["d3_canary_items"]
+	if !allowlistRef || !ok || allowlist.File != "./secrets/d3_canary_items" {
+		t.Fatalf("D3 allowlist is not a file source: ref=%v definition=%#v", allowlistRef, allowlist)
 	}
 }

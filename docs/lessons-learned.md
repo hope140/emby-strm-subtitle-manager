@@ -87,3 +87,7 @@ Emby 的版本组在列表查询中可能表现为多个关联 Item，并且默�
 ## 17. 自动化 Bearer 的只读 scope 应在路由边界执行
 
 只有在配置层写一个“只读 Token”还不够，HTTP 层必须按路由检查 `media:read`、`subtitle:search` 和 `subtitle:preview`，缺少权限稳定返回 403；未来 `subtitle:write` 在写能力关闭时直接拒绝。这样可以保持单 Token 和简单 Compose 配置，同时避免未来新增写路由时意外继承当前的全路由 Bearer 放行。管理员 HttpOnly 会话与自动化 Bearer 是两种不同认证主体，写入能力仍需单独的 CSRF、scope 和真实验收门禁。
+
+## 18. D3 Add 的成功必须是一条完整证据链
+
+D3 首次写入不能把“文件存在”或“Refresh 返回 2xx”当作完成。服务端必须先用 Artifact 和 Item/source 重新绑定，再以临时文件、同目录非覆盖原子提交生成版本化 sidecar；随后 Refresh、轮询 MediaStreams、直接 Hash 读取和实际字幕流/客户端读取分别记录。Refresh、轮询或 history 失败时，新文件移动到媒体库外 quarantine，避免失败副本再次被 Emby 识别。操作 ID 需要同时保存在内存和 history，重放不能创建额外副本。

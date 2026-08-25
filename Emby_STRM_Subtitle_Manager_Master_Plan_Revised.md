@@ -490,6 +490,8 @@ Phase 3 完成后暂停。只有真实 Movie、Episode 和 STRM 验收都通过�
 
 ### Phase 4　安全写入
 
+D3 专用样本 Add 的代码与本地自动化现已完成，包含会话 CSRF、写 scope、独立 allowlist、Artifact 绑定、原子非覆盖版本文件、Emby Refresh/轮询和 history/quarantine。真实 C92 Add、MediaStreams、字幕流及客户端读取仍需本轮独立验收；Replace、Delete、Upload 和批量写入继续保持关闭。实现契约见 [D3 专用样本 Add 契约](docs/d3-dedicated-add-contract.md)。
+
 本阶段先以 ADR-003 的 D3 专用样本 Add 作为第一步，并要求 D2.5 管理员会话、CSRF 和写入 scope 门禁已经通过。Replace、Delete、Upload、批量处理和其他写操作必须在专用样本验收证据充分后另行开放。
 
 - Add、Replace、Delete、Upload

@@ -43,6 +43,7 @@ type Config struct {
 	Security     SecurityConfig `yaml:"security"`
 	Features     FeatureConfig  `yaml:"features"`
 	D2           D2Config       `yaml:"d2"`
+	D3           D3Config       `yaml:"d3"`
 	PathMappings []PathMapping  `yaml:"path_mappings"`
 }
 
@@ -91,6 +92,20 @@ type D2CanaryConfig struct {
 	ItemAllowlistFile string `yaml:"item_allowlist_file"`
 }
 
+// D3Config contains the deliberately narrow first write capability. Zero
+// values keep D3 disabled and preserve the D1/D2 read-only deployment.
+type D3Config struct {
+	HistoryDir            string         `yaml:"history_dir"`
+	QuarantineDir         string         `yaml:"quarantine_dir"`
+	RefreshTimeoutSeconds int            `yaml:"refresh_timeout_seconds"`
+	Canary                D3CanaryConfig `yaml:"canary"`
+}
+
+type D3CanaryConfig struct {
+	Enabled           bool   `yaml:"enabled"`
+	ItemAllowlistFile string `yaml:"item_allowlist_file"`
+}
+
 // WithDefaults returns the bounded D2 configuration used by the runtime.
 func (c D2Config) WithDefaults() D2Config {
 	if c.DefaultLanguage == "" {
@@ -119,6 +134,13 @@ func (c D2Config) WithDefaults() D2Config {
 	}
 	if c.MaxConcurrent == 0 {
 		c.MaxConcurrent = 4
+	}
+	return c
+}
+
+func (c D3Config) WithDefaults() D3Config {
+	if c.RefreshTimeoutSeconds == 0 {
+		c.RefreshTimeoutSeconds = 10
 	}
 	return c
 }
@@ -155,6 +177,7 @@ func LoadFile(filename string) (Config, error) {
 		cfg.Emby.TimeoutSeconds = defaultTimeoutSeconds
 	}
 	cfg.D2 = cfg.D2.WithDefaults()
+	cfg.D3 = cfg.D3.WithDefaults()
 	cfg.Security.APIAuthScopes = cfg.Security.EffectiveAPIAuthScopes()
 	if err := cfg.Validate(); err != nil {
 		return cfg, err
@@ -200,9 +223,11 @@ func (c Config) Validate() error {
 		seenScopes[scope] = struct{}{}
 		switch scope {
 		case APIAuthScopeMediaRead, APIAuthScopeSubtitleSearch, APIAuthScopeSubtitlePreview:
-			// These are the only scopes available while the service is read-only.
+			// Read-only scopes are always available.
 		case APIAuthScopeSubtitleWrite:
-			return errors.New("security.api_auth_scopes cannot include subtitle:write while write_enabled is false")
+			if !c.Features.WriteEnabled || !c.D3.Canary.Enabled {
+				return errors.New("security.api_auth_scopes cannot include subtitle:write while D3 writes are disabled")
+			}
 		default:
 			return fmt.Errorf("security.api_auth_scopes contains unsupported scope %q", scope)
 		}
@@ -216,8 +241,12 @@ func (c Config) Validate() error {
 	if c.Emby.TimeoutSeconds < 1 || c.Emby.TimeoutSeconds > maxTimeoutSeconds {
 		return fmt.Errorf("emby.timeout_seconds must be between 1 and %d", maxTimeoutSeconds)
 	}
-	if c.Features.WriteEnabled {
-		return errors.New("features.write_enabled must be false in D1")
+	d3 := c.D3.WithDefaults()
+	if c.Features.WriteEnabled && (!d3.Canary.Enabled || strings.TrimSpace(d3.Canary.ItemAllowlistFile) == "") {
+		return errors.New("features.write_enabled requires an enabled D3 Canary allowlist")
+	}
+	if c.Features.WriteEnabled && !c.Features.RemoteSearchEnabled {
+		return errors.New("features.write_enabled requires remote_search_enabled for the validated D2 artifact")
 	}
 	d2 := c.D2.WithDefaults()
 	if !validD2Language(d2.DefaultLanguage) {
@@ -296,6 +325,39 @@ func (c Config) Validate() error {
 			return errors.New("d2.canary.item_allowlist_file must be outside media path mappings")
 		}
 	}
+	if d3.RefreshTimeoutSeconds < 1 || d3.RefreshTimeoutSeconds > 20 {
+		return errors.New("d3.refresh_timeout_seconds must be between 1 and 20")
+	}
+	if d3.Canary.Enabled && strings.TrimSpace(d3.Canary.ItemAllowlistFile) == "" {
+		return errors.New("d3.canary.item_allowlist_file is required when D3 Canary is enabled")
+	}
+	if d3.Canary.ItemAllowlistFile != "" && !isAbsolutePath(d3.Canary.ItemAllowlistFile) {
+		return errors.New("d3.canary.item_allowlist_file must be an absolute path")
+	}
+	for name, value := range map[string]string{
+		"d3.history_dir": d3.HistoryDir, "d3.quarantine_dir": d3.QuarantineDir,
+		"d3.canary.item_allowlist_file": d3.Canary.ItemAllowlistFile,
+	} {
+		if value == "" {
+			continue
+		}
+		if usesSymlink, inspectErr := pathsecurity.UsesSymlink(value); inspectErr != nil {
+			return errors.New(name + " path cannot be safely inspected")
+		} else if usesSymlink {
+			return errors.New(name + " must not use a symlinked path")
+		}
+		if pathOverlapsMappings(value, c.PathMappings) {
+			return errors.New(name + " must be outside media path mappings")
+		}
+	}
+	if c.Features.WriteEnabled {
+		if strings.TrimSpace(d3.HistoryDir) == "" || strings.TrimSpace(d3.QuarantineDir) == "" {
+			return errors.New("d3.history_dir and d3.quarantine_dir are required when writes are enabled")
+		}
+		if pathsecurity.IsFilesystemRoot(d3.HistoryDir) || pathsecurity.IsFilesystemRoot(d3.QuarantineDir) {
+			return errors.New("d3 private directories must be dedicated non-root directories")
+		}
+	}
 	return nil
 }
 
@@ -306,8 +368,8 @@ func DefaultAPIAuthScopes() []string {
 }
 
 // EffectiveAPIAuthScopes returns a defensive copy of the configured scopes or
-// the safe read-only default. Write scopes are reserved for a later release
-// and are rejected by Validate while write_enabled is disabled.
+// the safe read-only default. The write scope is accepted only by a validated
+// D3-enabled configuration.
 func (c SecurityConfig) EffectiveAPIAuthScopes() []string {
 	if len(c.APIAuthScopes) == 0 {
 		return DefaultAPIAuthScopes()
@@ -334,20 +396,20 @@ func pathOverlapsMappings(candidate string, mappings []PathMapping) bool {
 }
 
 // ReadItemAllowlist reads exact item IDs from a protected, one-ID-per-line
-// file. The values are returned only to the in-process allowlist and are never
-// included in errors or logs.
+// file for a D2 or D3 Canary. The values are returned only to the in-process
+// allowlist and are never included in errors or logs.
 func ReadItemAllowlist(filename string) ([]string, error) {
 	if strings.TrimSpace(filename) == "" || !isAbsolutePath(filename) {
-		return nil, errors.New("invalid D2 Canary allowlist configuration")
+		return nil, errors.New("invalid Canary allowlist configuration")
 	}
 	contents, err := os.ReadFile(filename)
 	if err != nil || len(contents) > maxAllowlistBytes {
-		return nil, errors.New("unable to read D2 Canary allowlist")
+		return nil, errors.New("unable to read Canary allowlist")
 	}
 	if runtime.GOOS != "windows" {
 		info, statErr := os.Stat(filename)
 		if statErr != nil || info.Mode().Perm()&0o077 != 0 {
-			return nil, errors.New("D2 Canary allowlist permissions are too broad")
+			return nil, errors.New("Canary allowlist permissions are too broad")
 		}
 	}
 	seen := make(map[string]struct{})
@@ -358,10 +420,10 @@ func ReadItemAllowlist(filename string) ([]string, error) {
 			continue
 		}
 		if len([]byte(item)) > 512 || strings.ContainsAny(item, `/\\`) || strings.IndexFunc(item, func(r rune) bool { return unicode.IsControl(r) || unicode.IsSpace(r) }) >= 0 {
-			return nil, errors.New("invalid D2 Canary allowlist")
+			return nil, errors.New("invalid Canary allowlist")
 		}
 		if len(items) >= maxAllowlistEntries {
-			return nil, errors.New("D2 Canary allowlist is too large")
+			return nil, errors.New("Canary allowlist is too large")
 		}
 		if _, exists := seen[item]; exists {
 			continue
@@ -370,7 +432,7 @@ func ReadItemAllowlist(filename string) ([]string, error) {
 		items = append(items, item)
 	}
 	if len(items) == 0 {
-		return nil, errors.New("D2 Canary allowlist is empty")
+		return nil, errors.New("Canary allowlist is empty")
 	}
 	return items, nil
 }

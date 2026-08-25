@@ -52,6 +52,11 @@ type failureState struct {
 	blockedUntil time.Time
 }
 
+type sessionState struct {
+	expires  time.Time
+	csrfHash [sha256.Size]byte
+}
+
 // Authenticator verifies one deployment-owned administrator credential and
 // stores only salted password-derived material and hashed session tokens.
 type Authenticator struct {
@@ -63,7 +68,7 @@ type Authenticator struct {
 	random       io.Reader
 
 	mu       sync.Mutex
-	sessions map[[sha256.Size]byte]time.Time
+	sessions map[[sha256.Size]byte]sessionState
 	failures map[string]failureState
 }
 
@@ -97,7 +102,7 @@ func New(username, password string, options Options) (*Authenticator, error) {
 	return &Authenticator{
 		username: username, passwordSalt: salt, passwordKey: key,
 		sessionTTL: options.SessionTTL, now: options.Now, random: options.Random,
-		sessions: make(map[[sha256.Size]byte]time.Time), failures: make(map[string]failureState),
+		sessions: make(map[[sha256.Size]byte]sessionState), failures: make(map[string]failureState),
 	}, nil
 }
 
@@ -105,8 +110,20 @@ func New(username, password string, options Options) (*Authenticator, error) {
 // clientKey should be a server-derived remote address, not an untrusted
 // forwarded header. Failure state is bounded and never logged.
 func (a *Authenticator) Login(clientKey, username, password string) (string, error) {
+	token, _, err := a.login(clientKey, username, password)
+	return token, err
+}
+
+// LoginWithCSRF issues a browser session and a separate, non-cookie CSRF
+// token. The caller returns the CSRF token in the login response and keeps it
+// only in page memory; the session verifier stores only its hash.
+func (a *Authenticator) LoginWithCSRF(clientKey, username, password string) (string, string, error) {
+	return a.login(clientKey, username, password)
+}
+
+func (a *Authenticator) login(clientKey, username, password string) (string, string, error) {
 	if a == nil {
-		return "", ErrInvalidCredentials
+		return "", "", ErrInvalidCredentials
 	}
 	now := a.now()
 	clientKey = normalizeClientKey(clientKey)
@@ -115,37 +132,42 @@ func (a *Authenticator) Login(clientKey, username, password string) (string, err
 	state := a.failures[clientKey]
 	if now.Before(state.blockedUntil) {
 		a.mu.Unlock()
-		return "", ErrRateLimited
+		return "", "", ErrRateLimited
 	}
 	a.mu.Unlock()
 
 	if len([]byte(password)) > 256 {
 		a.recordFailure(clientKey, now)
-		return "", ErrInvalidCredentials
+		return "", "", ErrInvalidCredentials
 	}
 	validUser := hmac.Equal([]byte(username), []byte(a.username))
 	derived := pbkdf2SHA256([]byte(password), a.passwordSalt, passwordIterations, passwordKeyBytes)
 	validPassword := hmac.Equal(derived, a.passwordKey)
 	if !validUser || !validPassword {
 		a.recordFailure(clientKey, now)
-		return "", ErrInvalidCredentials
+		return "", "", ErrInvalidCredentials
 	}
 
 	tokenBytes := make([]byte, sessionTokenBytes)
 	if _, err := io.ReadFull(a.random, tokenBytes); err != nil {
-		return "", ErrSessionUnavailable
+		return "", "", ErrSessionUnavailable
+	}
+	csrfBytes := make([]byte, sessionTokenBytes)
+	if _, err := io.ReadFull(a.random, csrfBytes); err != nil {
+		return "", "", ErrSessionUnavailable
 	}
 	var tokenHash [sha256.Size]byte
 	tokenHash = sha256.Sum256(tokenBytes)
+	csrfHash := sha256.Sum256(csrfBytes)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.pruneLocked(now)
 	if len(a.sessions) >= maxSessions {
-		return "", ErrSessionUnavailable
+		return "", "", ErrSessionUnavailable
 	}
 	delete(a.failures, clientKey)
-	a.sessions[tokenHash] = now.Add(a.sessionTTL)
-	return base64.RawURLEncoding.EncodeToString(tokenBytes), nil
+	a.sessions[tokenHash] = sessionState{expires: now.Add(a.sessionTTL), csrfHash: csrfHash}
+	return base64.RawURLEncoding.EncodeToString(tokenBytes), base64.RawURLEncoding.EncodeToString(csrfBytes), nil
 }
 
 // ValidSession checks a token without extending its fixed expiry.
@@ -161,15 +183,40 @@ func (a *Authenticator) ValidSession(token string) bool {
 	now := a.now()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	expires, ok := a.sessions[hash]
+	state, ok := a.sessions[hash]
 	if !ok {
 		return false
 	}
-	if !now.Before(expires) {
+	if !now.Before(state.expires) {
 		delete(a.sessions, hash)
 		return false
 	}
 	return true
+}
+
+// ValidSessionCSRF validates a session and its one-page-memory CSRF token.
+// It uses a constant-time comparison and never extends the fixed session TTL.
+func (a *Authenticator) ValidSessionCSRF(sessionToken, csrfToken string) bool {
+	if !a.ValidSession(sessionToken) || csrfToken == "" {
+		return false
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(csrfToken)
+	if err != nil || len(decoded) != sessionTokenBytes {
+		return false
+	}
+	sessionBytes, err := base64.RawURLEncoding.DecodeString(sessionToken)
+	if err != nil || len(sessionBytes) != sessionTokenBytes {
+		return false
+	}
+	sessionHash := sha256.Sum256(sessionBytes)
+	csrfHash := sha256.Sum256(decoded)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	state, ok := a.sessions[sessionHash]
+	if !ok || !a.now().Before(state.expires) {
+		return false
+	}
+	return hmac.Equal(state.csrfHash[:], csrfHash[:])
 }
 
 // SessionTTL reports the fixed lifetime used when issuing browser sessions.
@@ -199,8 +246,8 @@ func (a *Authenticator) recordFailure(clientKey string, now time.Time) {
 }
 
 func (a *Authenticator) pruneLocked(now time.Time) {
-	for hash, expires := range a.sessions {
-		if !now.Before(expires) {
+	for hash, state := range a.sessions {
+		if !now.Before(state.expires) {
 			delete(a.sessions, hash)
 		}
 	}

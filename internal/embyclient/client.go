@@ -1,6 +1,6 @@
-// Package embyclient implements the intentionally small, read-only Emby API
-// facade used by D1 and the D2 Remote Subtitle Bridge. It does not expose
-// Save, Refresh, playback or other write operations.
+// Package embyclient implements the deliberately bounded Emby API facade
+// used by D1, D2 and the gated D3 Add flow. Write access is limited to the
+// item Refresh endpoint; subtitle bytes are written locally by D3.
 package embyclient
 
 import (
@@ -110,13 +110,13 @@ func (e *Error) StatusCode() int {
 
 var errRedirect = errors.New("redirect rejected")
 
-// NewClient creates a read-only client. It validates the base URL and clones
+// NewClient creates a bounded client. It validates the base URL and clones
 // the supplied HTTP client so redirect policy cannot be weakened by callers.
 func NewClient(baseURL, apiKey string, httpClient *http.Client) (*Client, error) {
 	return New(Config{BaseURL: baseURL, APIKey: apiKey, HTTPClient: httpClient})
 }
 
-// New creates a read-only client from Config.
+// New creates a bounded client from Config.
 func New(cfg Config) (*Client, error) {
 	base, err := url.Parse(strings.TrimSpace(cfg.BaseURL))
 	if err != nil || base.Host == "" || (base.Scheme != "http" && base.Scheme != "https") || base.User != nil || base.RawQuery != "" || base.Fragment != "" {
@@ -142,7 +142,7 @@ func New(cfg Config) (*Client, error) {
 	return &Client{baseURL: *base, apiKey: cfg.APIKey, httpClient: &client, maxBodyBytes: cfg.MaxResponseBody}, nil
 }
 
-// Client provides only the three D1 read operations.
+// Client provides D1/D2 reads and the explicitly gated item Refresh call.
 type Client struct {
 	baseURL      url.URL
 	apiKey       string
@@ -307,6 +307,18 @@ func (c *Client) FetchRemoteSubtitle(ctx context.Context, subtitleID string) ([]
 	return c.getBytesSegments(ctx, nil, remoteFetchMaxBody, "Providers", "Subtitles", "Subtitles", subtitleID)
 }
 
+// RefreshItem asks Emby to rescan one item after a D3 local Add. It does not
+// accept arbitrary refresh query flags; the server supplies a bounded,
+// non-recursive refresh request.
+func (c *Client) RefreshItem(ctx context.Context, itemID string) error {
+	itemID, err := normalizePathSegment(itemID)
+	if err != nil {
+		return &Error{Kind: ErrInvalidInput}
+	}
+	query := url.Values{"Recursive": []string{"false"}}
+	return c.postSegments(ctx, query, "Items", itemID, "Refresh")
+}
+
 func normalizeID(value string) (string, error) {
 	if value == "" || strings.IndexFunc(value, unicode.IsControl) >= 0 {
 		return "", errors.New("invalid id")
@@ -440,6 +452,42 @@ func (c *Client) getBytesSegments(ctx context.Context, query url.Values, limit i
 		return nil, &Error{Kind: ErrTransport}
 	}
 	return body, nil
+}
+
+func (c *Client) postSegments(ctx context.Context, query url.Values, segments ...string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpointSegments(query, segments...), nil)
+	if err != nil {
+		return &Error{Kind: ErrTransport}
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Emby-Token", c.apiKey)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		if errors.Is(err, errRedirect) {
+			return &Error{Kind: ErrRedirect}
+		}
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+			return &Error{Kind: ErrTimeout}
+		}
+		if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
+			return &Error{Kind: ErrCanceled}
+		}
+		return &Error{Kind: ErrTransport}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return &Error{Kind: ErrHTTP, Status: resp.StatusCode}
+	}
+	if _, err := readLimited(resp.Body, 64<<10); err != nil {
+		if errors.Is(err, errBodyTooLarge) {
+			return &Error{Kind: ErrResponseTooLarge}
+		}
+		return &Error{Kind: ErrTransport}
+	}
+	return nil
 }
 
 var errBodyTooLarge = errors.New("body too large")
