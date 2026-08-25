@@ -1,6 +1,6 @@
 # D2 搜索预览契约与安全设计
 
-- 状态　D2 后端、内嵌只读 UI 与 D2.5-A/B/C 管理员会话和只读 scope 已在本地实现；C92 已找到真实版本组并完成完整 source 字段及应用/API 对应核对，真实 UI 显式 source 选择和完整多源 Canary 仍待独立授权
+- 状态　D2 后端、内嵌只读 UI 与 D2.5-A/B/C 管理员会话和只读 scope 已在本地实现；C92 已找到真实版本组并完成完整 source 字段、应用/API 对应和 D2 409 安全拒绝 Canary，真实浏览器 UI 显式 source 点击和多源正向支持仍待独立任务
 - 日期　2026-08-24
 - 适用范围　ADR-003 的 D2、ADR-005 规定的单源条件入口
 - 当前实现　后端、安全门禁、内嵌 UI、Compose environment 管理员登录和 Fake Emby 测试已实现；真实 Provider Canary、部署和重启不在本轮范围
@@ -479,7 +479,7 @@ Canary 只允许 allowlist 中已批准的单源 Movie/Episode，且必须验证
 
 D2 代码和 Fake Emby 通过后，才可在独立授权下对服务端 allowlist 中批准的单源 Movie/Episode 做有界真实 Canary。必须分别记录静态检查、Fake Emby、Emby 直连和真实客户端结果；D2 只需要证明搜索、Fetch、校验和预览的只读链路，不把 Refresh 或客户端写入作为 D2 通过条件。
 
-真实多 MediaSource 样本已出现，下一步需进行脱敏的 API/UI/source 对应验收并更新 ADR-005 支持范围；在完整门禁前仍不能用合成 Fake、自动化 409 或单源 Canary 宣称多源支持。
+真实多 MediaSource 样本已出现；C92 的真实 API/source 对应和 D2 409 安全拒绝已记录在 [D2 多源真实 API Canary](d2-multisource-c92-canary-acceptance-20260825.md)。在浏览器 UI source 点击和多源正向实现/Canary 完成前，仍不能用本次安全拒绝、合成 Fake 或单源 Canary 宣称多源支持。
 
 ## 13. Knowledge Review
 
@@ -519,4 +519,4 @@ Knowledge Findings
 
 - 真实单源 Emby/Provider Search/Fetch/Preview 和真实客户端读取未在本轮运行；Fake Emby 证据不能替代真实 Canary。
 - 4 MiB、TTL、并发和频率是本设计的初始安全预算，需在代码压力测试和授权 Canary 中按证据调整，不能当作当前运行时能力。
-- 真实版本组样本已找到；在客户端字段修正、API/UI/source 对应验收和独立授权完成前，多源搜索、Fetch 和预览继续不可用。
+- 真实版本组样本已找到，API/source 对应和多源安全拒绝 Canary 已完成；在浏览器 UI source 点击以及多源正向实现/独立 Canary 完成前，多源搜索、Fetch 和预览继续不可用。

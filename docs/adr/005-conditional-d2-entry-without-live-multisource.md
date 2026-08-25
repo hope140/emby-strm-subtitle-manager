@@ -1,6 +1,6 @@
 # ADR-005　在缺少真实多源样本时有条件进入 D2
 
-- 状态　accepted（真实样本已发现；客户端字段修正已完成，多源支持门禁仍待完整 Canary）
+- 状态　accepted（真实样本已发现；客户端字段修正、真实 API/source 对应和 D2 安全拒绝 Canary 已完成，多源正向支持门禁仍待完整实现与 Canary）
 - 日期　2026-08-24
 - 相关组件　D1 真实验收、D2 搜索预览、多 MediaSource、功能开关
 
@@ -8,7 +8,7 @@
 
 C92 已提供一个真实 Movie 版本组。只读复核发现：列表或详情请求若不在 `Fields` 中包含 `AlternateMediaSources`，每个关联 Item 可能只返回默认 `MediaSource`；加入该字段后，每个详情 Item 返回两个完整 `MediaSources`。因此原 ADR 的“真实样本尚未找到”背景已结束，但“完成 API、UI 和 source 对应验收前保持多源 fail closed”的决策仍然有效。
 
-本轮已在 `internal/embyclient` 详情请求中固定加入 `AlternateMediaSources`，并补充完整 source 列表的 DTO 合并、去重边界和 D2 409 回归测试。该事实更新不授权真实 Search、Fetch、Preview、部署、重启或任何写入。
+本轮已在 `internal/embyclient` 详情请求中固定加入 `AlternateMediaSources`，并补充完整 source 列表的 DTO 合并、去重边界和 D2 409 回归测试。随后 C92 对两个真实多源 Movie Item 完成了 API/source 对应和 D2 Search、Fetch、Preview 的真实 409 安全拒绝验收，证据见 [D2 多源真实 API Canary](../d2-multisource-c92-canary-acceptance-20260825.md)。该事实更新不授权多源正向搜索、部署常开、重启或任何写入。
 
 ## 背景
 
@@ -48,14 +48,14 @@ D1 的代码、自动化、C92 Docker Compose 部署、公网 HTTPS 和真实 Mo
 ## 已知代价
 
 - D2 首轮不能服务多源 Item；用户遇到此类 Item 时会收到明确的安全拒绝。
-- 真实多源搜索的 API/UI 对应关系仍需后续样本验收，项目不能把已有 D1 浏览测试扩大成 D2 支持结论。
+- 真实多源正向搜索的 API/UI 对应关系仍需后续实现和样本验收；本次只证明真实 API/source 对应和安全拒绝，不能把它扩大成 D2 正向支持结论。
 - D1 的“全部真实样本齐备”和“足以有条件进入 D2”成为两个不同状态，阶段报告必须明确区分。
 
 ## 后续影响
 
 - 下一项工作是先完成 [D2 搜索预览契约](../d2-search-preview-contract.md) 中的 API、状态模型、Token/Artifact 生命周期、候选级失败、安全日志和资源上限设计，再开始代码实现。
 - D2 实现必须默认关闭功能开关，并为单源成功、多源拒绝、候选局部失败、超时和无结果建立自动化测试。
-- 真实多源样本出现后，只做有界、脱敏、只读验收；验收通过后再以新的证据更新支持范围。
+- 真实多源样本出现后，只做有界、脱敏、只读验收；本次安全拒绝证据已记录，正向支持仍需新的实现、授权和 Canary 证据。
 
 ## 验证依据
 

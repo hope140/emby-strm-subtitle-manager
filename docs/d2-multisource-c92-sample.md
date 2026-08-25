@@ -2,7 +2,7 @@
 
 - 日期：2026-08-25（香港时间）
 - 范围：C92 Emby，只读 API 核对
-- 结论：已找到可用于多源门禁的真实 Movie 版本组；此前“只有一个 MediaSource”的判断是因为请求遗漏了 `AlternateMediaSources` 字段。客户端字段请求、DTO 合并和回归测试现已完成；当前仍未重新开启 D2 Search、Fetch、Preview，也未宣称多源能力已验收。
+- 结论：已找到可用于多源门禁的真实 Movie 版本组；此前“只有一个 MediaSource”的判断是因为请求遗漏了 `AlternateMediaSources` 字段。客户端字段请求、DTO 合并和回归测试现已完成，后续真实 API/source 对应及 D2 409 安全拒绝 Canary 见 [D2 多源真实 API Canary](d2-multisource-c92-canary-acceptance-20260825.md)；多源正向能力仍未宣称或开放。
 
 ## 1. 执行边界
 
@@ -39,15 +39,15 @@
 - 直接 Emby 详情请求固定使用 `Path,ProviderIds,MediaStreams,MediaSources,AlternateMediaSources`。应用响应中的 source ID 集合与 Emby 完整 source ID 集合逐项相等，脱敏探针结果为 `checked=2 corresponding_source_sets=2`。
 - 只调用了应用只读媒体详情和 Emby `GET /Items`；没有调用 Search、Fetch、Preview、Save、Refresh 或任何媒体写接口。
 
-这证明 a70bf89 的 `AlternateMediaSources` 修正已经进入实际 C92 应用，并且真实多源 Item 会被服务端安全拒绝而不是猜测第一 source；它不等于多源 Search、Fetch、Preview 已经开放或通过真实 Canary。
+这证明 a70bf89 的 `AlternateMediaSources` 修正已经进入实际 C92 应用，并且真实多源 Item 会被服务端安全拒绝而不是猜测第一 source。随后 784ad32 的真实 API Canary 又核对了显式 source 的详情/字幕清单对应，并证明 Search、Fetch、Preview 均返回稳定 409；这些证据仍不等于多源正向能力已开放。
 
 ## 4. 对 D2 的影响
 
 1. `internal/embyclient.Client.GetItem` 的详情请求已固定包含 `AlternateMediaSources`。
 2. DTO 边界已保留完整 `MediaSources`；如果某个 Emby 版本把备用源单独返回为 `AlternateMediaSources`，客户端会合并，并只抑制两个字段之间重复的非空 source ID；同一字段内部的重复仍保留给源校验拒绝。
 3. D2 的多源前置检查继续以服务端详情中的完整 source 列表为准；数量大于一时保持 `409 d2_multisource_unsupported`，不能选择第一项或默认项。
-4. 当前样本只证明真实 API 能提供完整的两个 source，不等于真实 Search → Fetch → Preview、UI 显式选择和 source 对应门禁已经通过。
-5. `remote_search_enabled=false`、`d2.canary.enabled=false` 和 `write_enabled=false` 继续保持；完成真实 API/UI/source 对应验收和独立授权前不部署或开启真实多源搜索。
+4. 当前样本和后续 Canary 已证明真实 API 能提供完整的两个 source、显式 source API 对应以及 D2 安全拒绝；不等于多源正向 Search → Fetch → Preview 或真实浏览器 UI 点击已经通过。
+5. `remote_search_enabled=false`、`d2.canary.enabled=false` 和 `write_enabled=false` 继续保持；完成真实浏览器 UI source 点击、多源正向实现和独立授权前不部署或开启真实多源搜索。
 
 ## Knowledge Review
 
@@ -60,7 +60,7 @@ Knowledge Findings
 - 新增约束：D2 的 Emby 详情读取必须显式请求 `AlternateMediaSources`，否则版本组可能只返回默认 `MediaSource`。
 - 隐蔽坑：列表查询返回多个关联 Item 或单 source 不能证明版本组没有完整多源；必须用按 Item 详情读取并带完整字段。
 - 被证明错误的假设：此前“当前真实样本仍缺失”以及“同目录版本组只能是两个各一 source”不成立；真实样本已获得，问题在客户端请求字段遗漏。
-- 建议沉淀项：更新 `embyclient` 请求字段、DTO 合并去重测试和 D2 文档门禁；多源 Search/Fetch/Preview 仍需独立 Canary。
+- 建议沉淀项：更新 `embyclient` 请求字段、DTO 合并去重测试和 D2 文档门禁；多源正向 Search/Fetch/Preview 和浏览器 UI source 点击仍需独立实现与 Canary。
 
 证据
 
@@ -82,6 +82,6 @@ Knowledge Findings
 
 未验证范围与残余风险
 
-- 客户端字段请求和 DTO 修正已合并到公开 `main` 的 `a70bf89`，并以 `d2.5-a70bf89` 镜像完成 C92 app-only 重建；两个真实 Item 的 source 集合对应核对已通过，尚未进行真实 Search、Fetch、Preview 多源 Canary。
-- 尚未在 D2 真实 Canary 中执行 Search、Fetch、Preview，也未验证 UI 的显式 source 选择；本轮只验证了 UI 公共登录表单存在。
+- 客户端字段请求和 DTO 修正已合并到公开 `main` 的 `a70bf89`，并以 `d2.5-a70bf89` 镜像完成 C92 app-only 重建；随后 784ad32 的 C92 app-only 多源 API Canary 完成了两个真实 Item 的 source 集合、显式 source API 对应和三路 409 安全拒绝核对。
+- 尚未验证真实浏览器 UI 的显式 source 点击，也未实现或验收多源正向 Search、Fetch、Preview；本轮 Canary 只证明服务端 API 对应和 fail-closed 边界。
 - 版本组的两个详情 Item 都能返回两个 source，但应用需要按绑定的 Item/source 做一致性检查，不能只依赖列表结果。
