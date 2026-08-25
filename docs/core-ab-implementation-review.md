@@ -62,5 +62,5 @@ Core B 已完成 Upload→PreviewArtifact→Add/Replace、Replace、可恢复 De
 ### 未验证范围与残余风险
 
 - 未部署或连接 C92、SH 或 Emby；真实 Movie、Episode、单源、多 source、字幕流和实际客户端综合验收仍需独立授权后完成。
-- 本机已安装并启用 GCC 后，`go test -race ./...` 已通过。OpenResty/nginx 二进制未安装，因此本轮只完成模板的标签与脱敏静态检查；真实入口配置解析仍需在独立部署授权中执行。
+- 本机 MSYS2 GCC 位于 `C:\msys64\ucrt64\bin`；仅在测试进程中把该目录临时加入 `PATH` 后，`go test -race ./...` 已通过，未修改系统环境变量。OpenResty/nginx 二进制未安装，因此本轮只完成模板的标签与脱敏静态检查；真实入口配置解析仍需在独立部署授权中执行。
 - archive/trash 的保留期清理、批量、自动下载、定时扫描、评分和永久删除均未实现。

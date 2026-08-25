@@ -72,7 +72,7 @@ Core A 与 Core B 已在同一核心开发会话连续完成，中间只做本�
 ## 暂不作为阻断项
 
 - UI 信息架构和视觉重构不阻断 Core A、Core B；核心阶段只保留最小可测试入口。
-- Windows 本机缺少 CGO/GCC，`go test -race` 尚未取得通过证据；普通全包测试、vet、build 和真实 C92 验收已有证据。发布前应在具备 race 工具链的 Linux CI 或构建环境补齐。
+- Windows 本机已安装 MSYS2 GCC；仅在测试进程中把 `C:\msys64\ucrt64\bin` 临时加入 `PATH` 后，`go test -race ./...` 已通过，未修改系统环境变量。发布流水线仍应在固定工具链的 CI 中保留 race 检查。
 - 批量和自动下载不属于当前核心收口路径，不应提前占用 Core A、Core B 和 UI/V1 的实现范围。
 
 ## Knowledge Review
