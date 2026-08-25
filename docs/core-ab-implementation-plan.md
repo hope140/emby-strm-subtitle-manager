@@ -52,8 +52,8 @@ Core B：
 ### 4.1 source 选择
 
 - 每次 Search 都重新读取包含 `AlternateMediaSources` 的 Item 详情。
-- 一个 source 时允许省略 `media_source_id`，也允许提交精确匹配的 ID。
-- 多个 source 时必须提交非空且精确匹配的 `media_source_id`；省略返回稳定 `409 media_source_selection_required`，错误 ID 返回 `409 media_source_mismatch`。
+- Search 在一个 source 时允许省略 `media_source_id`，也允许提交精确匹配的 ID；Fetch/Preview 只从已绑定 Token 取得 source。
+- Upload 与所有 D3 写入在单源和多源时都必须提交非空且精确匹配的 `media_source_id`；缺失或错误 ID 安全拒绝，不自动选择默认 source。
 - Fetch 和 Preview 从 Candidate/Artifact 绑定中取得 source，重新读取 Item 后确认该 source 仍存在，不选择默认 source。
 - Add 请求中的 source 必须同时匹配 Artifact 绑定和最新 Item；Item/source 变化后旧 Artifact 不可写入。
 - source 的播放路径、URL、完整本地路径和原始 Provider ID不进入响应或日志。
@@ -136,7 +136,7 @@ POST /v1/media/{item_id}/subtitles/{subtitle_id}/delete
 
 ### 5.5 History 与 Restore API
 
-history 记录扩展为 `add`、`replace`、`upload`、`delete`、`restore` 类型，并保存恢复需要的服务端私有事实。公共响应只包含操作 ID、类型、Item/source 安全绑定、字幕 ID、安全 basename、Hash、状态和时间。
+history 记录 `add`、`replace`、`delete`、`restore` 类型，并保存恢复需要的服务端私有事实。Upload 只生成短期 Artifact，不写持久 history。公共响应只包含操作 ID、类型、Item/source 安全绑定、字幕 ID、安全 basename、Hash、状态和时间；History 查询使用有界 limit。
 
 至少提供：
 
@@ -200,7 +200,7 @@ d3:
 
 Core A：
 
-- 单源省略/显式 source 均通过。
+- 单源 Search 省略/显式 source 均通过；Upload 和所有写入缺失 source 均安全拒绝。
 - 多源显式选择每一个 source 均可 Search、Fetch、Preview、Add；省略、错误、重复和变化 source 安全拒绝。
 - Candidate/Artifact 不能跨 Item、source、认证上下文、gate generation 或服务实例使用。
 - 两种多版本组织方式都覆盖：一个 Item 多 source、多个独立 Item。
@@ -209,7 +209,7 @@ Core A：
 Core B：
 
 - Replace 成功、旧字幕归档、Refresh 两阶段核验和幂等重放。
-- Replace 在新文件创建、首次 Refresh、归档复制、旧文件删除、第二次 Refresh、history 任一点失败时均恢复旧字幕。
+- Replace 在新文件创建、首次 Refresh、归档复制、旧文件删除、第二次 Refresh、history 任一点失败时均恢复旧字幕并隔离新版本；Delete/Restore 同样执行补偿。补偿后必须重新核对 Hash 和 Emby MediaStreams，恢复、移除、quarantine、Refresh 或 history 补偿失败统一返回 `subtitle_rollback_failed`，保留 archive/trash/quarantine 供人工恢复。
 - Upload 的 SRT/ASS/SSA、UTF-8/UTF-16、BOM、空文件、HTML/JSON、二进制、超限和恶意文件名。
 - Delete 成功进入 trash；失败恢复；重复操作不产生第二份；内嵌或不可管理字幕拒绝。
 - Restore 成功、目标冲突、Hash 不符、Item/source 变化和重复恢复。

@@ -28,9 +28,13 @@ type OperationType string
 const (
 	OperationAdd     OperationType = "add"
 	OperationReplace OperationType = "replace"
-	OperationUpload  OperationType = "upload"
 	OperationDelete  OperationType = "delete"
 	OperationRestore OperationType = "restore"
+)
+
+const (
+	defaultHistoryLimit = 50
+	maxHistoryLimit     = 100
 )
 
 type ReplaceRequest struct {
@@ -47,18 +51,6 @@ type DeleteRequest struct {
 type RestoreRequest struct {
 	MediaSourceID string
 	OperationID   string
-}
-
-// UploadRecordRequest records the safe artifact summary after D2 has already
-// validated and bound a multipart upload. The raw filename, MIME type and
-// artifact token never enter history.
-type UploadRecordRequest struct {
-	MediaSourceID string
-	OperationID   string
-	Language      string
-	Format        string
-	ByteLength    int
-	ContentHash   string
 }
 
 // OperationResponse is the safe public result shared by the recovery APIs.
@@ -83,6 +75,26 @@ type OperationSummary = OperationResponse
 type operationMemory struct {
 	fingerprint string
 	response    OperationResponse
+}
+
+// rollbackHooks are intentionally package-private test seams. Production
+// behavior always uses the checked filesystem and history operations below.
+type rollbackHooks struct {
+	restore      func(destination, source, expectedHash string) error
+	remove       func(path string) error
+	quarantine   func(source, operationID, expectedHash string) error
+	writeHistory func(record recoveryRecord) error
+}
+
+type rollbackPlan struct {
+	itemID, sourceID string
+
+	restorePath, recoveryPath, restoreHash string
+	verifyPath, verifyHash, verifyFormat   string
+	verifyVisible                          bool
+
+	quarantinePath, quarantineHash, operationID string
+	removePath                                  string
 }
 
 // recoveryRecord is private state in history_dir. Its recovery locator is a
@@ -161,33 +173,28 @@ func (s *Service) Replace(ctx context.Context, itemID, subtitleID string, reques
 		return OperationResponse{}, err
 	}
 	newPath := filepath.Join(target.LocalDirectory, newName)
+	newRollback := rollbackPlan{itemID: item.ID, sourceID: mediaCtx.MediaSourceID, verifyPath: resolved.Path(), verifyHash: oldHash, verifyFormat: resolved.Subtitle.Format, verifyVisible: true,
+		quarantinePath: newPath, quarantineHash: artifact.ContentHash, operationID: request.OperationID}
 	if err := verifyFile(newPath, content); err != nil {
-		s.quarantine(newPath, request.OperationID, newName)
-		return OperationResponse{}, writeVerificationError()
+		return OperationResponse{}, s.rollbackOrOriginal(newRollback, writeVerificationError())
 	}
 	if err := s.refreshAndRequire(ctx, item.ID, mediaCtx.MediaSourceID, newPath, true); err != nil {
-		s.quarantine(newPath, request.OperationID, newName)
-		return OperationResponse{}, err
+		return OperationResponse{}, s.rollbackOrOriginal(newRollback, err)
 	}
 
 	opHash := sha256.Sum256([]byte(request.OperationID))
 	recoveryName := recoveryName("archive", opHash)
 	recoveryPath := filepath.Join(s.settings.ArchiveDir, recoveryName)
 	if err := s.moveToRecovery(resolved.Path(), recoveryPath, oldHash); err != nil {
-		s.quarantine(newPath, request.OperationID, newName)
-		return OperationResponse{}, recoveryError("subtitle_archive_failed", "old subtitle could not be archived")
+		return OperationResponse{}, s.rollbackOrOriginal(newRollback, recoveryError("subtitle_archive_failed", "old subtitle could not be archived"))
 	}
+	fullRollback := newRollback
+	fullRollback.restorePath, fullRollback.recoveryPath, fullRollback.restoreHash = resolved.Path(), recoveryPath, oldHash
 	if err := s.refreshAndRequire(ctx, item.ID, mediaCtx.MediaSourceID, newPath, true); err != nil || !s.pollAbsent(ctx, item.ID, mediaCtx.MediaSourceID, resolved.Path()) {
-		// The old filename must remain available if the second verification did
-		// not prove that the new sidecar is the only current version.
-		_ = s.restoreRecovery(resolved.Path(), recoveryPath, oldHash)
-		_ = s.refreshAndRequire(ctx, item.ID, mediaCtx.MediaSourceID, resolved.Path(), true)
-		s.quarantine(newPath, request.OperationID, newName)
-		_ = s.refreshAndRequire(ctx, item.ID, mediaCtx.MediaSourceID, newPath, false)
 		if err != nil {
-			return OperationResponse{}, err
+			return OperationResponse{}, s.rollbackOrOriginal(fullRollback, err)
 		}
-		return OperationResponse{}, &Error{Status: 502, Code: "emby_subtitle_not_visible", Message: "Emby did not verify the replacement subtitle", Cause: ErrNotVisible}
+		return OperationResponse{}, s.rollbackOrOriginal(fullRollback, &Error{Status: 502, Code: "emby_subtitle_not_visible", Message: "Emby did not verify the replacement subtitle", Cause: ErrNotVisible})
 	}
 
 	response := OperationResponse{OperationID: request.OperationID, Type: OperationReplace, ItemID: item.ID, MediaSourceID: mediaCtx.MediaSourceID,
@@ -197,12 +204,8 @@ func (s *Service) Replace(ctx context.Context, itemID, subtitleID string, reques
 		Fingerprint: fingerprint, ItemID: item.ID, MediaSourceID: mediaCtx.MediaSourceID, SubtitleID: subtitleID, FileName: newName,
 		Language: artifact.Language, Format: artifact.Format, ByteLength: artifact.ByteLength, ContentHash: artifact.ContentHash, Status: "verified", CreatedAt: response.CreatedAt,
 		RecoveryKind: "archive", RecoveryFile: recoveryName, OriginalFileName: resolved.Subtitle.FileName, OriginalLocation: originalLocation, OriginalHash: oldHash, OriginalFormat: resolved.Subtitle.Format}
-	if err := s.writeRecoveryHistory(record); err != nil {
-		_ = s.restoreRecovery(resolved.Path(), recoveryPath, oldHash)
-		_ = s.refreshAndRequire(ctx, item.ID, mediaCtx.MediaSourceID, resolved.Path(), true)
-		s.quarantine(newPath, request.OperationID, newName)
-		_ = s.refreshAndRequire(ctx, item.ID, mediaCtx.MediaSourceID, newPath, false)
-		return OperationResponse{}, &Error{Status: 503, Code: "d3_history_unavailable", Message: "subtitle operation history could not be recorded", Cause: ErrHistory}
+	if err := s.persistRecoveryHistory(record); err != nil {
+		return OperationResponse{}, s.rollbackOrOriginal(fullRollback, &Error{Status: 503, Code: "d3_history_unavailable", Message: "subtitle operation history could not be recorded", Cause: ErrHistory})
 	}
 	s.rememberRecovery(opHash, fingerprint, response)
 	return response, nil
@@ -245,10 +248,10 @@ func (s *Service) Delete(ctx context.Context, itemID, subtitleID string, request
 	if err := s.moveToRecovery(resolved.Path(), recoveryPath, oldHash); err != nil {
 		return OperationResponse{}, recoveryError("subtitle_trash_failed", "subtitle could not be moved to trash")
 	}
+	rollback := rollbackPlan{itemID: item.ID, sourceID: mediaCtx.MediaSourceID, restorePath: resolved.Path(), recoveryPath: recoveryPath, restoreHash: oldHash,
+		verifyPath: resolved.Path(), verifyHash: oldHash, verifyFormat: resolved.Subtitle.Format, verifyVisible: true}
 	if err := s.refreshAndRequire(ctx, item.ID, mediaCtx.MediaSourceID, resolved.Path(), false); err != nil {
-		_ = s.restoreRecovery(resolved.Path(), recoveryPath, oldHash)
-		_ = s.refreshAndRequire(ctx, item.ID, mediaCtx.MediaSourceID, resolved.Path(), true)
-		return OperationResponse{}, err
+		return OperationResponse{}, s.rollbackOrOriginal(rollback, err)
 	}
 	response := OperationResponse{OperationID: request.OperationID, Type: OperationDelete, ItemID: item.ID, MediaSourceID: mediaCtx.MediaSourceID,
 		SubtitleID: subtitleID, FileName: resolved.Subtitle.FileName, Format: resolved.Subtitle.Format, ContentHash: oldHash, Status: "verified", CreatedAt: s.now().UTC()}
@@ -256,10 +259,8 @@ func (s *Service) Delete(ctx context.Context, itemID, subtitleID string, request
 		Fingerprint: fingerprint, ItemID: item.ID, MediaSourceID: mediaCtx.MediaSourceID, SubtitleID: subtitleID, FileName: resolved.Subtitle.FileName,
 		Format: resolved.Subtitle.Format, ContentHash: oldHash, Status: "verified", CreatedAt: response.CreatedAt,
 		RecoveryKind: "trash", RecoveryFile: recoveryName, OriginalFileName: resolved.Subtitle.FileName, OriginalLocation: originalLocation, OriginalHash: oldHash, OriginalFormat: resolved.Subtitle.Format}
-	if err := s.writeRecoveryHistory(record); err != nil {
-		_ = s.restoreRecovery(resolved.Path(), recoveryPath, oldHash)
-		_ = s.refreshAndRequire(ctx, item.ID, mediaCtx.MediaSourceID, resolved.Path(), true)
-		return OperationResponse{}, &Error{Status: 503, Code: "d3_history_unavailable", Message: "subtitle operation history could not be recorded", Cause: ErrHistory}
+	if err := s.persistRecoveryHistory(record); err != nil {
+		return OperationResponse{}, s.rollbackOrOriginal(rollback, &Error{Status: 503, Code: "d3_history_unavailable", Message: "subtitle operation history could not be recorded", Cause: ErrHistory})
 	}
 	s.rememberRecovery(opHash, fingerprint, response)
 	return response, nil
@@ -328,10 +329,9 @@ func (s *Service) Restore(ctx context.Context, sourceOperationID string, request
 		}
 		return OperationResponse{}, recoveryError("restore_failed", "subtitle could not be restored")
 	}
+	rollback := rollbackPlan{itemID: item.ID, sourceID: mediaCtx.MediaSourceID, verifyPath: targetPath, verifyHash: sourceRecord.OriginalHash, verifyFormat: sourceRecord.OriginalFormat, removePath: targetPath}
 	if err := s.refreshAndRequire(ctx, item.ID, mediaCtx.MediaSourceID, targetPath, true); err != nil {
-		_ = os.Remove(targetPath)
-		_ = s.refreshAndRequire(ctx, item.ID, mediaCtx.MediaSourceID, targetPath, false)
-		return OperationResponse{}, err
+		return OperationResponse{}, s.rollbackOrOriginal(rollback, err)
 	}
 	opHash := sha256.Sum256([]byte(request.OperationID))
 	response := OperationResponse{OperationID: request.OperationID, Type: OperationRestore, ItemID: item.ID, MediaSourceID: mediaCtx.MediaSourceID,
@@ -339,21 +339,25 @@ func (s *Service) Restore(ctx context.Context, sourceOperationID string, request
 	record := recoveryRecord{Version: 2, OperationHash: hex.EncodeToString(opHash[:]), OperationID: request.OperationID, Type: OperationRestore,
 		Fingerprint: fingerprint, ItemID: item.ID, MediaSourceID: mediaCtx.MediaSourceID, SubtitleID: sourceRecord.SubtitleID, FileName: sourceRecord.OriginalFileName,
 		Format: sourceRecord.OriginalFormat, ContentHash: sourceRecord.OriginalHash, Status: "verified", CreatedAt: response.CreatedAt, RestoresOperation: sourceRecord.OperationID}
-	if err := s.writeRecoveryHistory(record); err != nil {
-		_ = os.Remove(targetPath)
-		_ = s.refreshAndRequire(ctx, item.ID, mediaCtx.MediaSourceID, targetPath, false)
-		return OperationResponse{}, &Error{Status: 503, Code: "d3_history_unavailable", Message: "subtitle operation history could not be recorded", Cause: ErrHistory}
+	if err := s.persistRecoveryHistory(record); err != nil {
+		return OperationResponse{}, s.rollbackOrOriginal(rollback, &Error{Status: 503, Code: "d3_history_unavailable", Message: "subtitle operation history could not be recorded", Cause: ErrHistory})
 	}
 	s.rememberRecovery(opHash, fingerprint, response)
 	return response, nil
 }
 
-func (s *Service) ListOperations(itemID string) ([]OperationSummary, error) {
+func (s *Service) ListOperations(itemID string, limit int) ([]OperationSummary, error) {
 	if s == nil || !s.Enabled() {
 		return nil, &Error{Status: 403, Code: "write_disabled", Message: "subtitle operations are disabled", Cause: ErrDisabled}
 	}
 	if !validID(itemID) {
 		return nil, invalidD3Request("invalid subtitle operation query")
+	}
+	if limit == 0 {
+		limit = defaultHistoryLimit
+	}
+	if limit < 1 || limit > maxHistoryLimit {
+		return nil, invalidD3Request("invalid subtitle operation limit")
 	}
 	if allowed, _ := s.gate.Allows(itemID); !allowed {
 		return nil, &Error{Status: 403, Code: "d3_item_not_allowed", Message: "item is not allowed for subtitle operations", Cause: ErrItemNotAllowed}
@@ -378,37 +382,83 @@ func (s *Service) ListOperations(itemID string) ([]OperationSummary, error) {
 		result = append(result, record.summary())
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.After(result[j].CreatedAt) })
+	if len(result) > limit {
+		result = result[:limit]
+	}
 	return result, nil
 }
 
-func (s *Service) RecordUpload(ctx context.Context, itemID string, request UploadRecordRequest) (OperationResponse, error) {
-	if err := s.validateWriteRequest(itemID, request.MediaSourceID, request.OperationID); err != nil || request.Language == "" || request.ContentHash == "" || request.ByteLength < 1 || (request.Format != "srt" && request.Format != "ass" && request.Format != "ssa") {
-		return OperationResponse{}, invalidD3Request("invalid subtitle upload record")
+// rollbackOrOriginal retains every recovery copy and reports a stable error
+// when compensation itself cannot be proven. A canceled client context must
+// not prevent the server from attempting its recovery transaction.
+func (s *Service) rollbackOrOriginal(plan rollbackPlan, original error) error {
+	if err := s.rollback(context.Background(), plan); err != nil {
+		return &Error{Status: 503, Code: "subtitle_rollback_failed", Message: "subtitle rollback could not be verified; manual recovery is required", Cause: ErrWrite}
 	}
-	unlock := s.lockItem(itemID)
-	defer unlock()
-	item, mediaCtx, _, _, err := s.loadWritableItem(ctx, itemID, request.MediaSourceID)
-	if err != nil {
-		return OperationResponse{}, err
-	}
-	fingerprint := operationFingerprint(OperationUpload, item.ID, mediaCtx.MediaSourceID, "", request.ContentHash)
-	if replay, found, conflict := s.replayRecovery(request.OperationID, fingerprint); found {
-		if conflict {
-			return OperationResponse{}, operationConflict()
+	return original
+}
+
+func (s *Service) rollback(ctx context.Context, plan rollbackPlan) error {
+	if plan.restorePath != "" {
+		if err := s.restoreForRollback(plan.restorePath, plan.recoveryPath, plan.restoreHash); err != nil {
+			return err
 		}
-		return replay, nil
 	}
-	opHash := sha256.Sum256([]byte(request.OperationID))
-	response := OperationResponse{OperationID: request.OperationID, Type: OperationUpload, ItemID: item.ID, MediaSourceID: mediaCtx.MediaSourceID,
-		Language: request.Language, Format: request.Format, ByteLength: request.ByteLength, ContentHash: request.ContentHash, Status: "validated", CreatedAt: s.now().UTC()}
-	record := recoveryRecord{Version: 2, OperationHash: hex.EncodeToString(opHash[:]), OperationID: request.OperationID, Type: OperationUpload,
-		Fingerprint: fingerprint, ItemID: item.ID, MediaSourceID: mediaCtx.MediaSourceID, Language: request.Language, Format: request.Format,
-		ByteLength: request.ByteLength, ContentHash: request.ContentHash, Status: "validated", CreatedAt: response.CreatedAt}
-	if err := s.writeRecoveryHistory(record); err != nil {
-		return OperationResponse{}, &Error{Status: 503, Code: "d3_history_unavailable", Message: "subtitle operation history could not be recorded", Cause: ErrHistory}
+	if plan.verifyPath != "" {
+		if _, _, err := s.readManagedFile(plan.verifyPath, plan.verifyFormat, plan.verifyHash); err != nil {
+			return err
+		}
+		if plan.verifyVisible {
+			if err := s.refreshAndRequire(ctx, plan.itemID, plan.sourceID, plan.verifyPath, true); err != nil {
+				return err
+			}
+		}
 	}
-	s.rememberRecovery(opHash, fingerprint, response)
-	return response, nil
+	if plan.quarantinePath != "" {
+		if err := s.quarantineForRollback(plan.quarantinePath, plan.operationID, plan.quarantineHash); err != nil {
+			return err
+		}
+		if err := s.refreshAndRequire(ctx, plan.itemID, plan.sourceID, plan.quarantinePath, false); err != nil {
+			return err
+		}
+	}
+	if plan.removePath != "" {
+		if err := s.removeForRollback(plan.removePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		if err := s.refreshAndRequire(ctx, plan.itemID, plan.sourceID, plan.removePath, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) restoreForRollback(destination, source, expectedHash string) error {
+	if s.rollbackHooks.restore != nil {
+		return s.rollbackHooks.restore(destination, source, expectedHash)
+	}
+	return s.restoreRecovery(destination, source, expectedHash)
+}
+
+func (s *Service) removeForRollback(path string) error {
+	if s.rollbackHooks.remove != nil {
+		return s.rollbackHooks.remove(path)
+	}
+	return os.Remove(path)
+}
+
+func (s *Service) quarantineForRollback(source, operationID, expectedHash string) error {
+	if s.rollbackHooks.quarantine != nil {
+		return s.rollbackHooks.quarantine(source, operationID, expectedHash)
+	}
+	return s.quarantine(source, operationID, expectedHash)
+}
+
+func (s *Service) persistRecoveryHistory(record recoveryRecord) error {
+	if s.rollbackHooks.writeHistory != nil {
+		return s.rollbackHooks.writeHistory(record)
+	}
+	return s.writeRecoveryHistory(record)
 }
 
 func (s *Service) validateWriteRequest(itemID, sourceID, operationID string) error {
@@ -849,7 +899,7 @@ func validOperationRecord(record recoveryRecord) bool {
 		return false
 	}
 	switch record.Type {
-	case OperationReplace, OperationDelete, OperationRestore, OperationUpload, OperationAdd:
+	case OperationReplace, OperationDelete, OperationRestore, OperationAdd:
 	default:
 		return false
 	}

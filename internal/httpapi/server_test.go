@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -656,6 +657,43 @@ func TestMediaRejectsContradictoryUpstreamSources(t *testing.T) {
 				t.Fatalf("response leaked a source path: %s", rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestSubtitleOperationQueryUsesBoundedLimit(t *testing.T) {
+	for raw, wantID := range map[string]struct {
+		id    string
+		limit int
+		ok    bool
+	}{
+		"item_id=movie-1":            {"movie-1", defaultHistoryLimit, true},
+		"item_id=movie-1&limit=3":    {"movie-1", 3, true},
+		"item_id=movie-1&limit=101":  {"", 0, false},
+		"item_id=movie-1&limit=zero": {"", 0, false},
+		"item_id=movie-1&extra=x":    {"", 0, false},
+	} {
+		query, err := url.ParseQuery(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gotID, gotLimit, gotOK := subtitleOperationQuery(query)
+		if gotID != wantID.id || gotLimit != wantID.limit || gotOK != wantID.ok {
+			t.Fatalf("query %q = (%q, %d, %t), want (%q, %d, %t)", raw, gotID, gotLimit, gotOK, wantID.id, wantID.limit, wantID.ok)
+		}
+	}
+}
+
+func TestRouteLabelCoversCoreABOperations(t *testing.T) {
+	for path, want := range map[string]string{
+		"/v1/media/movie-1/subtitles/upload":                     "/v1/media/{itemId}/subtitles/upload",
+		"/v1/media/movie-1/subtitles/sub_v1_example/replace":     "/v1/media/{itemId}/subtitles/{subtitleId}/replace",
+		"/v1/media/movie-1/subtitles/sub_v1_example/delete":      "/v1/media/{itemId}/subtitles/{subtitleId}/delete",
+		"/v1/subtitle-operations":                                "/v1/subtitle-operations",
+		"/v1/subtitle-operations/operation-example-0001/restore": "/v1/subtitle-operations/{operationId}/restore",
+	} {
+		if got := routeLabel(path); got != want {
+			t.Fatalf("routeLabel(%q) = %q, want %q", path, got, want)
+		}
 	}
 }
 

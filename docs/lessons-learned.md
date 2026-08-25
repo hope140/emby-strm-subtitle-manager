@@ -101,3 +101,7 @@ D3 首次写入不能把“文件存在”或“Refresh 返回 2xx”当作完�
 STRM 的 Item.Path 和选中 MediaSource.Path 可以拥有不同的 basename 或目录。Inventory 因此只能在两个受 PathGuard 约束的范围内扫描；若同一个 sidecar basename 出现在不同安全位置，必须标记冲突并拒绝修改。
 
 Replace/Delete 的 history 若只在 Restore 时使用当前 source 的写入目录，会把原先位于 Item 目录的 sidecar 恢复到错误位置。Core A/B 的恢复记录只保存 `item` 或 `source` 目录类别，不保存媒体路径；Restore 重新读取当前 Item/source、核对 Hash 和无覆盖目标后才恢复。该规则由 `internal/inventory`、`internal/d3` 的回归测试和本地 Fake Emby 流程覆盖，真实多 source 客户端验收仍需单独完成。
+
+## 21. 可恢复事务的补偿失败必须成为公开的人工恢复边界
+
+Replace、Delete、Restore 或 Add 的失败分支不能把恢复旧文件、移除新文件、quarantine、Refresh 或 history 补偿写成 best-effort 后继续返回原错误。补偿步骤必须统一执行，恢复后重新读取并核对文件 Hash，再通过 Refresh/MediaStreams 验证最终可见性；任一步无法验证时返回稳定 `subtitle_rollback_failed`，并保留 archive、trash 或 quarantine，不删除可用于人工恢复的副本。该边界由 `internal/d3` 的 restore、remove、quarantine、rollback Refresh 和 history 失败注入测试覆盖。

@@ -43,6 +43,8 @@ const (
 	maxD2RequestBody      = 8 << 10
 	maxUploadRequestBody  = (4 << 20) + (64 << 10)
 	maxUploadFieldBytes   = 1024
+	defaultHistoryLimit   = 50
+	maxHistoryLimit       = 100
 	adminSessionCookie    = "subbridge_admin_session"
 )
 
@@ -274,8 +276,8 @@ func subtitleOperationRoute(path string) (string, string) {
 
 func isWriteOperation(path string) bool {
 	// Upload only creates a short-lived PreviewArtifact, but it accepts a
-	// browser-supplied body and can create a history summary. Treat it as CSRF
-	// sensitive for administrator sessions just like media write operations.
+	// browser-supplied body. Treat it as CSRF sensitive for administrator
+	// sessions just like media write operations.
 	if d2Operation(path) == "upload" {
 		return true
 	}
@@ -621,14 +623,6 @@ func (s *Server) handleD2(w http.ResponseWriter, r *http.Request, operation stri
 			s.writeD2Error(w, r, err)
 			return
 		}
-		if s.d3 != nil && s.d3.Enabled() {
-			record, recordErr := s.d3.RecordUpload(r.Context(), itemID, d3.UploadRecordRequest{MediaSourceID: body.MediaSourceID, OperationID: newRequestID(), Language: response.Language, Format: response.Format, ByteLength: response.ByteLength, ContentHash: response.ContentHash})
-			if recordErr != nil {
-				s.writeD3Error(w, r, recordErr)
-				return
-			}
-			response.OperationID = record.OperationID
-		}
 		writeJSON(w, http.StatusOK, response)
 	}
 }
@@ -701,6 +695,34 @@ type restoreBody struct {
 	OperationID   string `json:"operation_id"`
 }
 
+func subtitleOperationQuery(query url.Values) (string, int, bool) {
+	itemValues, ok := query["item_id"]
+	if !ok || len(itemValues) != 1 || !validID(itemValues[0]) {
+		return "", 0, false
+	}
+	limit := defaultHistoryLimit
+	for key, values := range query {
+		switch key {
+		case "item_id":
+			if len(values) != 1 {
+				return "", 0, false
+			}
+		case "limit":
+			if len(values) != 1 {
+				return "", 0, false
+			}
+			parsed, err := strconv.Atoi(values[0])
+			if err != nil || parsed < 1 || parsed > maxHistoryLimit {
+				return "", 0, false
+			}
+			limit = parsed
+		default:
+			return "", 0, false
+		}
+	}
+	return itemValues[0], limit, true
+}
+
 func (s *Server) handleSubtitleOperations(w http.ResponseWriter, r *http.Request, route, sourceOperationID string) {
 	if s.d3 == nil || !s.d3.Enabled() {
 		s.writeError(w, r, http.StatusForbidden, "write_disabled", "subtitle operations are disabled")
@@ -713,13 +735,12 @@ func (s *Server) handleSubtitleOperations(w http.ResponseWriter, r *http.Request
 			s.writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
-		query := r.URL.Query()
-		values, ok := query["item_id"]
-		if !ok || len(values) != 1 || !validID(values[0]) || len(query) != 1 {
+		itemID, limit, valid := subtitleOperationQuery(r.URL.Query())
+		if !valid {
 			s.writeError(w, r, http.StatusBadRequest, "invalid_query", "item_id is required")
 			return
 		}
-		response, err := s.d3.ListOperations(values[0])
+		response, err := s.d3.ListOperations(itemID, limit)
 		if err != nil {
 			s.writeD3Error(w, r, err)
 			return
@@ -1142,7 +1163,7 @@ func newRequestID() string {
 
 func routeLabel(path string) string {
 	switch path {
-	case "/", "/livez", "/readyz", "/v1/health", "/v1/auth/login", "/v1/emby/libraries", "/v1/emby/items":
+	case "/", "/livez", "/readyz", "/v1/health", "/v1/auth/login", "/v1/emby/libraries", "/v1/emby/items", "/v1/subtitle-operations":
 		return path
 	}
 	if strings.HasPrefix(path, "/assets/") {
@@ -1158,9 +1179,18 @@ func routeLabel(path string) string {
 		}
 		if len(parts) == 3 && parts[1] == "subtitles" {
 			switch parts[2] {
-			case "search", "fetch", "preview", "add":
+			case "search", "fetch", "preview", "upload", "add":
 				return "/v1/media/{itemId}/subtitles/" + parts[2]
 			}
+		}
+		if len(parts) == 4 && parts[1] == "subtitles" && (parts[3] == "replace" || parts[3] == "delete") {
+			return "/v1/media/{itemId}/subtitles/{subtitleId}/" + parts[3]
+		}
+	}
+	if strings.HasPrefix(path, "/v1/subtitle-operations/") && strings.HasSuffix(path, "/restore") {
+		parts := strings.Split(strings.TrimPrefix(path, "/v1/subtitle-operations/"), "/")
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "restore" {
+			return "/v1/subtitle-operations/{operationId}/restore"
 		}
 	}
 	return "<unmatched>"

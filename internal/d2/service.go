@@ -105,7 +105,6 @@ type FetchRequest struct {
 
 type FetchResponse struct {
 	ArtifactToken string    `json:"artifact_token"`
-	OperationID   string    `json:"operation_id,omitempty"`
 	Provider      string    `json:"provider"`
 	Language      string    `json:"language"`
 	Format        string    `json:"format"`

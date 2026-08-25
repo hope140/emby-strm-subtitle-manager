@@ -106,9 +106,9 @@ Gate 0 已经验证 Emby 能把成功 Fetch 的 Thunder 候选写入 STRM 同目
 
 ## Core A/B 字幕操作
 
-Core A/B 的当前实现由 [ADR-008](adr/008-core-ab-daily-source-bound-recovery.md) 固定。D2 Search、Fetch、Preview、Upload 与 D3 Add、Replace、Delete、History、Restore 共同使用显式 Item/source 绑定、统一 Item gate、管理员认证、scope/CSRF、Artifact、PathMapper/PathGuard 和 Item 锁。多 source 的所有操作重新读取当前 Item 并选择精确 source；单 source 可以省略 source。D3 只从 Inventory resolver 接收当前可管理字幕的 opaque ID，先验证 Hash 与文件状态，再进行非覆盖原子提交、Refresh/轮询、history 和 quarantine。
+Core A/B 的当前实现由 [ADR-008](adr/008-core-ab-daily-source-bound-recovery.md) 固定。D2 Search、Fetch、Preview、Upload 与 D3 Add、Replace、Delete、History、Restore 共同使用显式 Item/source 绑定、统一 Item gate、管理员认证、scope/CSRF、Artifact、PathMapper/PathGuard 和 Item 锁。仅 Search 可在单 source 时省略 source；Fetch/Preview 只从绑定 Token 取得 source；Upload 和所有 D3 写入无论 source 数量都必须显式选择精确 source。D3 只从 Inventory resolver 接收当前可管理字幕的 opaque ID，先验证 Hash 与文件状态，再进行非覆盖原子提交、Refresh/轮询、history 和 quarantine。
 
-Replace 仅在新版本可见后才归档旧版本，后续失败时恢复旧版本并隔离新版本。Delete 仅转移到媒体外 trash；Restore 在当前 Item/source 下重新解析目录、复核 archive/trash Hash、拒绝同名覆盖后恢复。Upload 只生成 PreviewArtifact，不直接落盘。私有 history 不保存媒体路径或上传原文件名；恢复位置以受限目录类别表示。默认 `remote_search_enabled=false`、`write_enabled=false` 仍保持关闭，日常模式与 Canary 都需要独立写入 overlay 和目录权限预检。
+Replace 仅在新版本可见后才归档旧版本，后续失败时恢复旧版本并隔离新版本。Delete 仅转移到媒体外 trash；Restore 在当前 Item/source 下重新解析目录、复核 archive/trash Hash、拒绝同名覆盖后恢复。每次补偿都会重新核对文件 Hash 和 Emby MediaStreams；补偿任一步无法验证时返回稳定 `subtitle_rollback_failed`，保留 archive/trash/quarantine 并明确需要人工恢复。Upload 只生成 PreviewArtifact，不直接落盘或写持久 history。History 使用默认值及最大值均受限的 `limit` 查询。私有 history 不保存媒体路径或上传原文件名；恢复位置以受限目录类别表示。默认 `remote_search_enabled=false`、`write_enabled=false` 仍保持关闭，日常模式与 Canary 都需要独立写入 overlay 和目录权限预检。
 
 该实现通过本地单元、Fake Emby 和浏览器 E2E 验证，尚未替代真实 C92 的多 source、文件系统权限、MediaStreams、字幕流和客户端综合验收。
 

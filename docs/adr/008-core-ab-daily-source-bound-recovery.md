@@ -25,11 +25,11 @@ ADR-003 的 D3.1 只覆盖一个受 allowlist 约束的单源 Add Canary。Core 
 选择方案 3，并固定以下规则。
 
 1. `canary.enabled=true` 时保留 allowlist 与 generation 绑定；关闭 Canary 时使用允许有效 Movie/Episode 的日常 Item gate，并提供稳定 generation。模式变化和服务重启均使内存 Candidate/Artifact 失效。
-2. 多 source Item 的 Search、Fetch、Preview、Upload、Add、Replace、Delete 与 Restore 都要求明确且精确的 `media_source_id`。History 的最小查询按 Item 读取，但每条返回记录均携带不可变的 Item/source 绑定，UI 仅显示当前已选 source 的记录。每一步重新读取 Item，重新选择 source；缺失、错误、重复或变化的 source 一律安全拒绝。
+2. Search 可在单 source Item 时省略 `media_source_id`；Fetch/Preview 只从已绑定 Token 取得 source。Upload、Add、Replace、Delete 与 Restore 在单源和多源时都要求明确且精确的 `media_source_id`。History 的最小查询按 Item 读取，但每条返回记录均携带不可变的 Item/source 绑定，UI 仅显示当前已选 source 的记录。每一步重新读取 Item，重新选择 source；缺失、错误、重复或变化的 source 一律安全拒绝。
 3. Add 的目标 basename 只来自当前选中 source 已安全映射的媒体路径。Inventory 对 STRM 同时有界扫描 Item.Path 和当前 source 的安全路径；重复位置或不完整清单不允许修改。
 4. Replace、Delete 与 Restore 只接收服务端 Inventory 签发的 opaque `subtitle_id`。它在 Item 锁内重新解析为私有路径事实，绝不从 HTTP 请求、history 公共字段或日志接收路径或文件名。
 5. Replace 先核验新版本，再归档旧文件；Delete 只移动到私有 trash；Restore 从 archive/trash 重新核验 Hash，并以不覆盖方式恢复。恢复 history 只保存 `item`/`source` 目录类别，不保存媒体绝对路径，因而可在重新解析后回到原有安全目录。没有永久删除或批量写入接口。
-6. Upload 只通过现有 Validator 生成已绑定的 PreviewArtifact，忽略客户端文件名和 MIME 类型；Add/Replace 复用该 Artifact，不另建写入链。
+6. Upload 只通过现有 Validator 生成已绑定、短期的 PreviewArtifact，忽略客户端文件名和 MIME 类型；Add/Replace 复用该 Artifact，不另建写入链，也不写持久 history。
 7. 默认 `remote_search_enabled=false`、`write_enabled=false` 不变。日常写入使用单独的最小 Compose overlay，仍要求认证 scope、CSRF、PathMapper、PathGuard、私有目录与精确可写挂载；本 ADR 不授权部署、重启或改变 C92/SH/Emby。
 
 ## 选择原因

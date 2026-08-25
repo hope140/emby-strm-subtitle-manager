@@ -262,9 +262,8 @@ func TestCoreABHTTPFakeEmbyDailyMultiSourceFlow(t *testing.T) {
 	}
 	var uploadArtifact struct {
 		ArtifactToken string `json:"artifact_token"`
-		OperationID   string `json:"operation_id"`
 	}
-	if err := json.Unmarshal(uploaded.Body.Bytes(), &uploadArtifact); err != nil || uploadArtifact.ArtifactToken == "" || uploadArtifact.OperationID == "" {
+	if err := json.Unmarshal(uploaded.Body.Bytes(), &uploadArtifact); err != nil || uploadArtifact.ArtifactToken == "" {
 		t.Fatalf("upload body = %s err=%v", uploaded.Body.String(), err)
 	}
 	uploadPreview := coreABJSON(t, handler, "/v1/media/movie-1/subtitles/preview", `{"artifact_token":"`+uploadArtifact.ArtifactToken+`"}`)
@@ -316,7 +315,7 @@ func TestCoreABHTTPFakeEmbyDailyMultiSourceFlow(t *testing.T) {
 			Type string `json:"type"`
 		} `json:"operations"`
 	}
-	if err := json.Unmarshal(history.Body.Bytes(), &historyBody); err != nil || len(historyBody.Operations) < 6 {
+	if err := json.Unmarshal(history.Body.Bytes(), &historyBody); err != nil || len(historyBody.Operations) < 5 {
 		t.Fatalf("history body = %s err=%v", history.Body.String(), err)
 	}
 	fake.mu.Lock()

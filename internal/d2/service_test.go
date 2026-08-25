@@ -159,6 +159,9 @@ func TestD2DailyGateAndUploadCreatePreviewArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := service.Upload(context.Background(), "movie-1", UploadRequest{Language: "zh-CN", Content: []byte("1\n00:00:01,000 --> 00:00:02,000\n缺少 source\n")}); !hasD2Code(err, "invalid_request") {
+		t.Fatalf("upload without source error = %v", err)
+	}
 	uploaded, err := service.Upload(context.Background(), "movie-1", UploadRequest{MediaSourceID: "source-1", Language: "zh-CN", Content: []byte("1\n00:00:01,000 --> 00:00:02,000\n本地上传\n")})
 	if err != nil || uploaded.Provider != "upload" || !uploaded.PreviewReady {
 		t.Fatalf("upload = %#v err=%v", uploaded, err)

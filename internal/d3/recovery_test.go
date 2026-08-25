@@ -2,7 +2,10 @@ package d3
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -74,16 +77,20 @@ func (f *fileBackedD3Reader) subtitleStreams() []domain.MediaStream {
 }
 
 type fileBackedRefresher struct {
-	mu      sync.Mutex
-	calls   int
-	failAt  int
-	failErr error
+	mu       sync.Mutex
+	calls    int
+	failAt   int
+	failErr  error
+	failures map[int]error
 }
 
 func (f *fileBackedRefresher) RefreshItem(context.Context, string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
+	if err := f.failures[f.calls]; err != nil {
+		return err
+	}
 	if f.failAt == f.calls {
 		if f.failErr != nil {
 			return f.failErr
@@ -221,7 +228,7 @@ func TestReplaceArchivesOldSubtitleAndRestoresIt(t *testing.T) {
 	if got, err := os.ReadFile(filepath.Join(root, oldName)); err != nil || string(got) != string(oldContent) {
 		t.Fatalf("restored content = %q err=%v", got, err)
 	}
-	operations, err := service.ListOperations("movie-1")
+	operations, err := service.ListOperations("movie-1", 0)
 	if err != nil || len(operations) != 2 {
 		t.Fatalf("operations = %#v err=%v", operations, err)
 	}
@@ -310,6 +317,100 @@ func TestReplaceRefreshFailureRestoresOldAndQuarantinesNew(t *testing.T) {
 	}
 }
 
+func TestReplaceRollbackFailureRequiresManualRecovery(t *testing.T) {
+	service, reader, _, root := newRecoveryTestService(t, nil, 2)
+	oldName := "movie.zh-CN.srt"
+	oldContent := []byte("1\n00:00:01,000 --> 00:00:02,000\n回滚恢复失败\n")
+	if err := os.WriteFile(filepath.Join(root, oldName), oldContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subtitleID := managedSubtitleID(t, service, reader, "source-1", oldName)
+	artifact := recoveryArtifact(t, service, "source-1", "新版本")
+	service.rollbackHooks.restore = func(string, string, string) error { return errors.New("restore denied") }
+	if _, err := service.Replace(context.Background(), "movie-1", subtitleID, ReplaceRequest{ArtifactToken: artifact.Token, MediaSourceID: "source-1", OperationID: "replace-rollback-restore"}); !hasD3Code(err, "subtitle_rollback_failed") {
+		t.Fatalf("rollback restore error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(service.settings.ArchiveDir, recoveryName("archive", sha256Operation("replace-rollback-restore")))); err != nil {
+		t.Fatalf("archive must remain for manual recovery: %v", err)
+	}
+}
+
+func TestRollbackFailureInjectionForQuarantineAndRefresh(t *testing.T) {
+	t.Run("quarantine", func(t *testing.T) {
+		service, reader, _, root := newRecoveryTestService(t, nil, 1)
+		oldName := "movie.zh-CN.srt"
+		if err := os.WriteFile(filepath.Join(root, oldName), []byte("1\n00:00:01,000 --> 00:00:02,000\n旧字幕\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		subtitleID := managedSubtitleID(t, service, reader, "source-1", oldName)
+		artifact := recoveryArtifact(t, service, "source-1", "新字幕")
+		service.rollbackHooks.quarantine = func(string, string, string) error { return errors.New("quarantine denied") }
+		if _, err := service.Replace(context.Background(), "movie-1", subtitleID, ReplaceRequest{ArtifactToken: artifact.Token, MediaSourceID: "source-1", OperationID: "replace-rollback-quarantine"}); !hasD3Code(err, "subtitle_rollback_failed") {
+			t.Fatalf("rollback quarantine error = %v", err)
+		}
+	})
+	t.Run("refresh", func(t *testing.T) {
+		service, reader, refresher, root := newRecoveryTestService(t, nil, 0)
+		oldName := "movie.zh-CN.srt"
+		if err := os.WriteFile(filepath.Join(root, oldName), []byte("1\n00:00:01,000 --> 00:00:02,000\n旧字幕\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		subtitleID := managedSubtitleID(t, service, reader, "source-1", oldName)
+		artifact := recoveryArtifact(t, service, "source-1", "新字幕")
+		refresher.failures = map[int]error{2: errors.New("replace refresh failed"), 3: errors.New("rollback refresh failed")}
+		if _, err := service.Replace(context.Background(), "movie-1", subtitleID, ReplaceRequest{ArtifactToken: artifact.Token, MediaSourceID: "source-1", OperationID: "replace-rollback-refresh"}); !hasD3Code(err, "subtitle_rollback_failed") {
+			t.Fatalf("rollback refresh error = %v", err)
+		}
+	})
+}
+
+func TestRestoreRollbackFailureFromRemoveRequiresManualRecovery(t *testing.T) {
+	service, reader, refresher, root := newRecoveryTestService(t, nil, 0)
+	oldName := "movie.zh-CN.srt"
+	if err := os.WriteFile(filepath.Join(root, oldName), []byte("1\n00:00:01,000 --> 00:00:02,000\n待恢复\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subtitleID := managedSubtitleID(t, service, reader, "source-1", oldName)
+	deleted, err := service.Delete(context.Background(), "movie-1", subtitleID, DeleteRequest{MediaSourceID: "source-1", OperationID: "delete-rollback-remove"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refresher.failures = map[int]error{2: errors.New("restore refresh failed")}
+	service.rollbackHooks.remove = func(string) error { return errors.New("remove denied") }
+	if _, err := service.Restore(context.Background(), deleted.OperationID, RestoreRequest{MediaSourceID: "source-1", OperationID: "restore-rollback-remove"}); !hasD3Code(err, "subtitle_rollback_failed") {
+		t.Fatalf("restore rollback remove error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(service.settings.TrashDir, recoveryName("trash", sha256Operation("delete-rollback-remove")))); err != nil {
+		t.Fatalf("trash must remain for manual recovery: %v", err)
+	}
+}
+
+func TestHistoryFailureRollsBackVerifiedReplace(t *testing.T) {
+	service, reader, _, root := newRecoveryTestService(t, nil, 0)
+	oldName := "movie.zh-CN.srt"
+	oldContent := []byte("1\n00:00:01,000 --> 00:00:02,000\n历史回滚\n")
+	if err := os.WriteFile(filepath.Join(root, oldName), oldContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subtitleID := managedSubtitleID(t, service, reader, "source-1", oldName)
+	artifact := recoveryArtifact(t, service, "source-1", "新字幕")
+	service.rollbackHooks.writeHistory = func(recoveryRecord) error { return ErrHistory }
+	if _, err := service.Replace(context.Background(), "movie-1", subtitleID, ReplaceRequest{ArtifactToken: artifact.Token, MediaSourceID: "source-1", OperationID: "replace-history-failure"}); !hasD3Code(err, "d3_history_unavailable") {
+		t.Fatalf("history error = %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, oldName)); err != nil || string(got) != string(oldContent) {
+		t.Fatalf("old content after history rollback = %q err=%v", got, err)
+	}
+	entries, err := os.ReadDir(service.settings.QuarantineDir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("quarantine entries = %d err=%v", len(entries), err)
+	}
+}
+
+func sha256Operation(value string) [32]byte {
+	return sha256.Sum256([]byte(value))
+}
+
 func TestAddUsesSelectedSourcePathForMultiSourceItem(t *testing.T) {
 	service, _, _, root := newRecoveryTestService(t, map[string]string{
 		"source-a": "/srv/media/version-A.mkv",
@@ -325,6 +426,40 @@ func TestAddUsesSelectedSourcePathForMultiSourceItem(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, result.FileName)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCoreABWritesRequireExplicitMediaSource(t *testing.T) {
+	service, reader, _, root := newRecoveryTestService(t, nil, 0)
+	oldName := "movie.zh-CN.srt"
+	if err := os.WriteFile(filepath.Join(root, oldName), []byte("1\n00:00:01,000 --> 00:00:02,000\n显式 source\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subtitleID := managedSubtitleID(t, service, reader, "source-1", oldName)
+	if _, err := service.Delete(context.Background(), "movie-1", subtitleID, DeleteRequest{OperationID: "delete-no-source"}); !hasD3Code(err, "invalid_request") {
+		t.Fatalf("missing source delete error = %v", err)
+	}
+}
+
+func TestHistoryListUsesDefaultAndMaximumLimit(t *testing.T) {
+	service, _, _, _ := newRecoveryTestService(t, nil, 0)
+	for index := 1; index <= 3; index++ {
+		operationID := fmt.Sprintf("history-limit-%04d", index)
+		hash := sha256Operation(operationID)
+		record := recoveryRecord{Version: 2, OperationHash: hex.EncodeToString(hash[:]), OperationID: operationID, Type: OperationAdd,
+			Fingerprint: "history-limit", ItemID: "movie-1", MediaSourceID: "source-1", FileName: fmt.Sprintf("movie.%d.srt", index), Format: "srt", Status: "verified", CreatedAt: time.Now().Add(time.Duration(index) * time.Second)}
+		if err := service.writeRecoveryHistory(record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if operations, err := service.ListOperations("movie-1", 2); err != nil || len(operations) != 2 {
+		t.Fatalf("limited history = %#v err=%v", operations, err)
+	}
+	if operations, err := service.ListOperations("movie-1", 0); err != nil || len(operations) != 3 {
+		t.Fatalf("default history = %#v err=%v", operations, err)
+	}
+	if _, err := service.ListOperations("movie-1", maxHistoryLimit+1); !hasD3Code(err, "invalid_request") {
+		t.Fatalf("over-limit history error = %v", err)
 	}
 }
 

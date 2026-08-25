@@ -118,6 +118,7 @@ type Service struct {
 	itemLocks          map[string]*sync.Mutex
 	operations         map[[32]byte]AddResponse
 	recoveryOperations map[[32]byte]operationMemory
+	rollbackHooks      rollbackHooks
 }
 
 type AddRequest struct {
@@ -287,27 +288,24 @@ func (s *Service) Add(ctx context.Context, itemID string, request AddRequest) (A
 		return AddResponse{}, err
 	}
 	target := filepath.Join(writeTarget.LocalDirectory, fileName)
+	rollback := rollbackPlan{itemID: item.ID, sourceID: mediaCtx.MediaSourceID, quarantinePath: target, quarantineHash: artifact.ContentHash, operationID: request.OperationID}
 	if err := verifyFile(target, content); err != nil {
-		s.quarantine(target, request.OperationID, fileName)
-		return AddResponse{}, &Error{Status: 503, Code: "write_verification_failed", Message: "subtitle write could not be verified", Cause: err}
+		return AddResponse{}, s.rollbackOrOriginal(rollback, &Error{Status: 503, Code: "write_verification_failed", Message: "subtitle write could not be verified", Cause: err})
 	}
 	refreshCtx, refreshCancel := context.WithTimeout(ctx, time.Duration(s.settings.RefreshTimeoutSeconds)*time.Second)
 	refreshErr := s.refresher.RefreshItem(refreshCtx, item.ID)
 	refreshCancel()
 	if refreshErr != nil {
-		s.quarantine(target, request.OperationID, fileName)
-		return AddResponse{}, &Error{Status: 502, Code: "emby_refresh_failed", Message: "Emby refresh failed; the new subtitle was quarantined", Cause: ErrRefresh}
+		return AddResponse{}, s.rollbackOrOriginal(rollback, &Error{Status: 502, Code: "emby_refresh_failed", Message: "Emby refresh failed; the new subtitle was quarantined", Cause: ErrRefresh})
 	}
 	visible := s.pollVisible(ctx, item.ID, mediaCtx.MediaSourceID, target)
 	if !visible {
-		s.quarantine(target, request.OperationID, fileName)
-		return AddResponse{}, &Error{Status: 502, Code: "emby_subtitle_not_visible", Message: "Emby did not expose the new subtitle; it was quarantined", Cause: ErrNotVisible}
+		return AddResponse{}, s.rollbackOrOriginal(rollback, &Error{Status: 502, Code: "emby_subtitle_not_visible", Message: "Emby did not expose the new subtitle; it was quarantined", Cause: ErrNotVisible})
 	}
 	created := s.now().UTC()
 	response := AddResponse{OperationID: request.OperationID, Type: OperationAdd, ItemID: item.ID, MediaSourceID: mediaCtx.MediaSourceID, FileName: fileName, Language: artifact.Language, Format: artifact.Format, ByteLength: artifact.ByteLength, ContentHash: artifact.ContentHash, Refresh: "verified", Status: "verified", CreatedAt: created}
 	if err := s.writeHistory(response); err != nil {
-		s.quarantine(target, request.OperationID, fileName)
-		return AddResponse{}, &Error{Status: 503, Code: "d3_history_unavailable", Message: "D3 history could not be recorded; the new subtitle was quarantined", Cause: ErrHistory}
+		return AddResponse{}, s.rollbackOrOriginal(rollback, &Error{Status: 503, Code: "d3_history_unavailable", Message: "D3 history could not be recorded; the new subtitle was quarantined", Cause: ErrHistory})
 	}
 	s.mu.Lock()
 	s.operations[opHash] = response
@@ -441,44 +439,13 @@ func verifyFile(filename string, expected []byte) error {
 	return nil
 }
 
-func (s *Service) quarantine(source, operationID, fileName string) {
-	if source == "" || s == nil || s.settings.QuarantineDir == "" {
-		return
+func (s *Service) quarantine(source, operationID, expectedHash string) error {
+	if source == "" || operationID == "" || expectedHash == "" || s == nil || s.settings.QuarantineDir == "" {
+		return ErrWrite
 	}
 	hash := sha256.Sum256([]byte(operationID))
-	destination := filepath.Join(s.settings.QuarantineDir, hex.EncodeToString(hash[:8])+"-"+fileName)
-	if err := os.Rename(source, destination); err == nil {
-		return
-	}
-	// A cross-filesystem quarantine is handled by copy-then-remove only after
-	// the copy has been flushed and atomically renamed into its final name.
-	tmp := destination + ".tmp"
-	in, err := os.Open(source)
-	if err != nil {
-		return
-	}
-	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		_ = in.Close()
-		return
-	}
-	_, copyErr := io.Copy(out, in)
-	_ = in.Close()
-	if copyErr == nil {
-		copyErr = out.Sync()
-	}
-	_ = out.Close()
-	if copyErr == nil {
-		copyErr = os.Chmod(tmp, 0o600)
-	}
-	if copyErr == nil {
-		copyErr = os.Rename(tmp, destination)
-	}
-	if copyErr == nil {
-		_ = os.Remove(source)
-	} else {
-		_ = os.Remove(tmp)
-	}
+	destination := filepath.Join(s.settings.QuarantineDir, recoveryName("quarantine", hash))
+	return s.moveToRecovery(source, destination, expectedHash)
 }
 
 func (s *Service) writeHistory(result AddResponse) error {
@@ -486,7 +453,7 @@ func (s *Service) writeHistory(result AddResponse) error {
 	record := recoveryRecord{Version: 2, OperationHash: hex.EncodeToString(hash[:]), OperationID: result.OperationID, Type: OperationAdd,
 		Fingerprint: operationFingerprint(OperationAdd, result.ItemID, result.MediaSourceID, "", result.ContentHash), ItemID: result.ItemID, MediaSourceID: result.MediaSourceID,
 		FileName: result.FileName, Language: result.Language, Format: result.Format, ByteLength: result.ByteLength, ContentHash: result.ContentHash, Status: "verified", CreatedAt: result.CreatedAt}
-	return s.writeRecoveryHistory(record)
+	return s.persistRecoveryHistory(record)
 }
 
 func (s *Service) loadHistory(operationHash [32]byte, operationID, itemID, sourceID, directory, expectedHash string) (AddResponse, bool, bool) {
