@@ -47,6 +47,8 @@ D3.1 的客户端证据包含两层：自动化控制的 Emby Web 播放器读�
 
 ## 核心功能优先的压缩路线
 
+Core A/B 的接口、模块、恢复语义、自动化矩阵和执行边界已经固定在 [Core A/B 连续实施计划](core-ab-implementation-plan.md)。
+
 ### Core A　完成搜索到 Add 的日常闭环
 
 在同一个开发任务中完成日常 Add 和正向多源兼容，不再为单源、多源和管理 UI 点击分别建立独立版本。需要同时兼容“一个 Item 含多个 MediaSource”和“多个独立 Item”两种组织方式，明确绑定选中的 Item/source，再完成 Search→Fetch→Preview→Add。现有 UI 只增加完成闭环所需的最小控件，不调整媒体库层级和整体风格。

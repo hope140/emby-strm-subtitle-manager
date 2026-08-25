@@ -9,6 +9,7 @@
 | 文档 | 保存内容 | 不保存的内容 |
 |---|---|---|
 | [当前状态与后续路线图](current-status-and-roadmap.md) | 当前完成度、剩余缺口、推进优先级和运行边界 | 一次性执行命令、凭据和实时部署状态 |
+| [Core A/B 连续实施计划](core-ab-implementation-plan.md) | 日常 Add、多源、Replace、Upload、Delete、Restore 的实现范围、测试和审核方式 | C92 实际部署、凭据和 UI 重构 |
 | [当前架构](architecture.md) | 已实现或实测确认的组件、数据流和边界 | 未来愿景和未验证设计 |
 | [维护经验](lessons-learned.md) | 隐蔽、高复用、有证据的规则 | 一次性排错流水账 |
 | [ADR](adr/README.md) | 长期架构选择、原因和代价 | 局部实现细节 |

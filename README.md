@@ -33,6 +33,7 @@ Compose 的 `IMAGE_TAG`、`BUILD_VERSION`、`BUILD_COMMIT`、`BUILD_TIME` 和 `B
 | 文档 | 用途 |
 |---|---|
 | [当前状态与后续路线图](docs/current-status-and-roadmap.md) | 已完成、部分完成、待做和建议推进顺序的统一入口 |
+| [Core A/B 连续实施计划](docs/core-ab-implementation-plan.md) | 核心字幕管理能力的连续实现范围、测试矩阵和停止条件 |
 | [总体规划](SubBridge_Master_Plan_Revised.md) | 产品范围、数据模型、阶段和验收条件 |
 | [Gate 0 实测报告](GATE0_REPORT.md) | 真实环境验证结果和证据边界 |
 | [D1 部署验收报告](docs/d1-deployment-acceptance.md) | C92 部署、真实 STRM Canary 和剩余门禁 |
