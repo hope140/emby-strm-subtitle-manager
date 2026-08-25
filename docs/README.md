@@ -22,7 +22,7 @@
 | [D2-C C92 单源真实 Canary 验收](d2-c92-canary-acceptance.md) | C92 可回滚 D2 部署、真实 Search/Fetch/Preview、候选失败隔离和关闭后的状态 | 多源支持、真实客户端、公网 UI 和 D3 写入 |
 | [D2 多版本 MediaSources 实测记录](d2-multisource-c92-sample.md) | C92 真实版本组、`AlternateMediaSources` 字段证据和客户端修正入口 | 多源 Search/Fetch/Preview 完整 Canary、写入能力 |
 | [ADR-006 管理员会话与自动化凭据](adr/006-admin-session-and-automation-credentials.md) | 发布镜像的管理员登录、Compose environment 配置、自动化 Token 分离和 D2.5 排期 | D3 写入和多用户系统 |
-| [D2.5 管理员认证](d2.5-admin-auth.md) | D2.5-A/B/C 当前实现、会话与只读 scope 契约、Compose environment、测试证据和剩余门禁 | scope 的 C92 下一次发布、CSRF 和 D3 写入 |
+| [D2.5 管理员认证](d2.5-admin-auth.md) | D2.5-A/B/C 当前实现、会话与只读 scope 契约、Compose environment、测试证据和剩余门禁 | CSRF 和 D3 写入 |
 | [D2.5 目标环境迁移预检](d2.5-target-migration-preflight-20260825.md) | 本轮本地发布核对、C92 只读状态、暂停原因和恢复顺序 | Secret 内容、部署操作和 D3 写入 |
 | [D1 部署验收报告](d1-deployment-acceptance.md) | 已验证的部署、真实 STRM Canary 和剩余门禁 | 私有部署细节、凭据和一次性操作记录 |
 | [D1.5 最小只读 Web UI](d1.5-readonly-ui.md) | 内嵌 UI、Token 内存边界和三种访问方式 | 真实部署验收和私有环境细节 |
