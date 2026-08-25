@@ -427,7 +427,7 @@ func validAdminUsername(value string) bool {
 }
 
 func validAdminPassword(value string) bool {
-	return len([]byte(value)) >= 12 && len([]byte(value)) <= 256 && strings.IndexFunc(value, unicode.IsControl) < 0
+	return len([]byte(value)) >= 6 && len([]byte(value)) <= 256 && strings.IndexFunc(value, unicode.IsControl) < 0
 }
 
 // ValidateAdminPasswordDistinct prevents an administrator password from

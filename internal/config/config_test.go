@@ -246,6 +246,12 @@ func TestAdminCredentialValidationRejectsControlCharacters(t *testing.T) {
 	}
 }
 
+func TestAdminCredentialValidationAcceptsSixBytePassword(t *testing.T) {
+	if !validAdminPassword("123456") {
+		t.Fatal("validAdminPassword rejected the six-byte minimum")
+	}
+}
+
 func TestValidateAdministratorSessionConfiguration(t *testing.T) {
 	base := Config{
 		Server:       ServerConfig{ListenAddress: "127.0.0.1:8080"},

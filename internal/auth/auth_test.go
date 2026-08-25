@@ -89,6 +89,7 @@ func TestNewRejectsControlCharactersAndOversizedCredentials(t *testing.T) {
 	}{
 		{name: "username control", username: "admin\x00", password: "correct horse battery staple"},
 		{name: "password control", username: "admin", password: "correct horse\nbattery staple"},
+		{name: "password too short", username: "admin", password: "12345"},
 		{name: "password oversized", username: "admin", password: string(bytes.Repeat([]byte{'x'}, 257))},
 	}
 	for _, testCase := range cases {

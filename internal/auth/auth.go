@@ -1,7 +1,7 @@
 // Package auth implements the small, single-instance administrator session
 // boundary. It deliberately does not provide users, roles, password reset, or
-// a persistent account database; deployment-owned Secret files are the source
-// of the administrator credential.
+// a persistent account database; the deployment-owned environment credential
+// is the source of the administrator account.
 package auth
 
 import (
@@ -74,7 +74,7 @@ func New(username, password string, options Options) (*Authenticator, error) {
 	if strings.TrimSpace(username) == "" || username != strings.TrimSpace(username) || len([]byte(username)) > 64 || strings.IndexFunc(username, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
 		return nil, errors.New("invalid administrator username")
 	}
-	if password == "" || len([]byte(password)) < 12 || len([]byte(password)) > 256 || strings.IndexFunc(password, unicode.IsControl) >= 0 {
+	if password == "" || len([]byte(password)) < 6 || len([]byte(password)) > 256 || strings.IndexFunc(password, unicode.IsControl) >= 0 {
 		return nil, errors.New("invalid administrator password")
 	}
 	if options.Now == nil {

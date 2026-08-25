@@ -40,7 +40,7 @@ Web UI 使用用户名密码登录，服务端签发短期 HttpOnly 会话 Cooki
 ### 管理员登录
 
 - 每个部署实例配置自己的管理员用户名和密码，不提供通用默认密码。
-- 用户名和密码分别从 `APP_ADMIN_USERNAME`、`APP_ADMIN_PASSWORD` 读取；缺失、空值或非法值直接阻止启动。用户名为 1–64 字节，密码为 12–256 字节，均拒绝控制字符。密码不写入镜像、Git、日志、URL 或响应；启动后只保留随机盐 PBKDF2-HMAC-SHA256 派生校验材料。
+- 用户名和密码分别从 `APP_ADMIN_USERNAME`、`APP_ADMIN_PASSWORD` 读取；缺失、空值或非法值直接阻止启动。用户名为 1–64 字节，密码为 6–256 字节，均拒绝控制字符。密码不写入镜像、Git、日志、URL 或响应；启动后只保留随机盐 PBKDF2-HMAC-SHA256 派生校验材料。
 - 登录成功后使用短期会话 Cookie；Cookie 应为 `HttpOnly`，并按 HTTP/HTTPS 部署设置 `Secure` 和 `SameSite` 属性。
 - 不在面板实现账号注册、改密码、注销或多角色管理。密码轮换、强制失效和忘记密码恢复由部署者修改私有 Compose 的 environment 并重建容器完成。
 - D3 写入接口启用前必须补齐 CSRF、会话过期、失败限速、来源校验和审计边界。
