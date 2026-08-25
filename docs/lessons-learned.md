@@ -75,3 +75,7 @@ XTerminal 已提供带连接状态的 SSH MCP。先列出服务器并按明确�
 ## 14. 管理员认证迁移必须先识别现有功能窗口
 
 同一 C92 可能已经运行 D2 closed Canary、allowlist 和预览缓存。切换管理员 environment 前先确认当前镜像、配置代际和已有服务端凭据集合，避免把 D2.5 environment 写入错误的 Compose 组合。迁移失败时只回滚 app 服务，并保持 `remote_search_enabled=false`、`write_enabled=false`，不联动重启 SH/FRP/OpenResty。
+
+## 15. Compose 文件权限必须用容器内实际读取验证
+
+Docker Compose 对 file-source Secret/config 的 `uid`、`gid`、`mode` 字段可能只给出 warning 并忽略。部署前应让目标镜像以实际运行 UID 执行 `test -r`，并把非凭据 config 的宿主权限设为该 UID 可读；管理员 environment 所在私有 Compose 可以保持 root-only。C92 的 b9916d1 迁移用 `root:root 0600` 私有 Compose、`root:root 0644` config 和 UID 10001 容器读取测试通过，避免把 YAML 权限假象当成运行时证据。
