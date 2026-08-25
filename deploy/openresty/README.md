@@ -20,7 +20,7 @@ FRPC loopback --HTTP--> 应用
 3. nginx 配置测试通过后再 reload，并用 `nginx -T` 确认最终生效配置引用 `subbridge_safe`。
 4. 如果当前面板无法持久化自定义 `log_format`，代理 location 应临时使用 `access_log off`，不能退回包含完整请求行的默认格式。
 
-安全日志只记录粗粒度路由名、方法、协议、状态码、响应大小和耗时。不得加入 `$request`、`$request_uri`、`$args`、`$query_string`、`$http_authorization`、`$http_referer`、原始 Emby Item ID 或候选 ID。
+安全日志只记录粗粒度路由名、方法、协议、状态码、响应大小和耗时。模板覆盖 Core A/B 的 Search、Fetch、Preview、Upload、Add、Replace、Delete、History 与 Restore，且标签不包含 Item、subtitle 或 operation ID。不得加入 `$request`、`$request_uri`、`$args`、`$query_string`、`$http_authorization`、`$http_referer`、原始 Emby Item ID 或候选 ID。
 
 ## 网络门禁
 

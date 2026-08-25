@@ -627,10 +627,8 @@ func (s *Service) moveToRecovery(source, destination, expectedHash string) error
 	if err != nil || (expectedHash != "" && hash != expectedHash) {
 		return ErrWrite
 	}
-	if _, err := os.Lstat(destination); err == nil {
-		return fs.ErrExist
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return ErrWrite
+	if reused, err := s.reuseRecoveryFile(source, destination, hash); reused || err != nil {
+		return err
 	}
 	temporary := destination + ".tmp"
 	file, err := os.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
@@ -653,7 +651,11 @@ func (s *Service) moveToRecovery(source, destination, expectedHash string) error
 	}
 	if err := os.Link(temporary, destination); err != nil {
 		if errors.Is(err, fs.ErrExist) {
-			return fs.ErrExist
+			reused, reuseErr := s.reuseRecoveryFile(source, destination, hash)
+			if !reused && reuseErr == nil {
+				return ErrWrite
+			}
+			return reuseErr
 		}
 		return ErrWrite
 	}
@@ -664,6 +666,31 @@ func (s *Service) moveToRecovery(source, destination, expectedHash string) error
 		return ErrWrite
 	}
 	return nil
+}
+
+// reuseRecoveryFile makes a retry with the same operation ID safe without
+// treating a mismatched or unsafe private recovery file as interchangeable.
+// A matching recovery hash proves the prior rollback material is the exact
+// same file; only then may the current media copy be removed.
+func (s *Service) reuseRecoveryFile(source, destination, expectedHash string) (bool, error) {
+	info, err := os.Lstat(destination)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return true, ErrWrite
+	}
+	_, existingHash, err := s.readBoundedFile(destination)
+	if err != nil {
+		return true, ErrWrite
+	}
+	if existingHash != expectedHash {
+		return true, fs.ErrExist
+	}
+	if err := os.Remove(source); err != nil {
+		return true, ErrWrite
+	}
+	return true, nil
 }
 
 // restoreRecovery is a no-overwrite copy from archive/trash into the selected

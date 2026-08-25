@@ -105,3 +105,7 @@ Replace/Delete 的 history 若只在 Restore 时使用当前 source 的写入目
 ## 21. 可恢复事务的补偿失败必须成为公开的人工恢复边界
 
 Replace、Delete、Restore 或 Add 的失败分支不能把恢复旧文件、移除新文件、quarantine、Refresh 或 history 补偿写成 best-effort 后继续返回原错误。补偿步骤必须统一执行，恢复后重新读取并核对文件 Hash，再通过 Refresh/MediaStreams 验证最终可见性；任一步无法验证时返回稳定 `subtitle_rollback_failed`，并保留 archive、trash 或 quarantine，不删除可用于人工恢复的副本。该边界由 `internal/d3` 的 restore、remove、quarantine、rollback Refresh 和 history 失败注入测试覆盖。
+
+## 22. 成功补偿不能让同一 operation ID 变成不可重试
+
+成功 rollback 会按设计保留 archive、trash 和 quarantine；这些文件再次遇到时不能一律视为冲突。`moveToRecovery` 必须先重新核对已有恢复文件的 Hash：只有与当前已核验源文件完全一致时才可复用并移除当前媒体副本，Hash 不同或文件不安全时继续拒绝。这样 Replace/Delete 的同一 `operation_id` 可在成功补偿后安全重试，同时不会把不同内容误当成同一恢复材料。

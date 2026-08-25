@@ -11,6 +11,15 @@ map $uri $subbridge_route {
     /v1/auth/login                                auth_login;
     /v1/emby/libraries                           libraries;
     /v1/emby/items                               items;
+    ~^/v1/media/[^/]+/subtitles/search$          subtitle_search;
+    ~^/v1/media/[^/]+/subtitles/fetch$           subtitle_fetch;
+    ~^/v1/media/[^/]+/subtitles/preview$         subtitle_preview;
+    ~^/v1/media/[^/]+/subtitles/upload$          subtitle_upload;
+    ~^/v1/media/[^/]+/subtitles/add$             subtitle_add;
+    ~^/v1/media/[^/]+/subtitles/[^/]+/replace$   subtitle_replace;
+    ~^/v1/media/[^/]+/subtitles/[^/]+/delete$    subtitle_delete;
+    /v1/subtitle-operations                      subtitle_history;
+    ~^/v1/subtitle-operations/[^/]+/restore$     subtitle_restore;
     ~^/v1/media/[^/]+/subtitles$                 media_subtitles;
     ~^/v1/media/[^/]+$                           media;
 }

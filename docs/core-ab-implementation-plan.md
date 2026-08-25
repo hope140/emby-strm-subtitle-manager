@@ -210,6 +210,7 @@ Core B：
 
 - Replace 成功、旧字幕归档、Refresh 两阶段核验和幂等重放。
 - Replace 在新文件创建、首次 Refresh、归档复制、旧文件删除、第二次 Refresh、history 任一点失败时均恢复旧字幕并隔离新版本；Delete/Restore 同样执行补偿。补偿后必须重新核对 Hash 和 Emby MediaStreams，恢复、移除、quarantine、Refresh 或 history 补偿失败统一返回 `subtitle_rollback_failed`，保留 archive/trash/quarantine 供人工恢复。
+- 成功补偿后使用相同 `operation_id` 重试 Replace/Delete 时，Hash 一致的 archive/trash/quarantine 恢复材料可复用；Hash 不一致仍安全冲突，绝不移除当前媒体副本。
 - Upload 的 SRT/ASS/SSA、UTF-8/UTF-16、BOM、空文件、HTML/JSON、二进制、超限和恶意文件名。
 - Delete 成功进入 trash；失败恢复；重复操作不产生第二份；内嵌或不可管理字幕拒绝。
 - Restore 成功、目标冲突、Hash 不符、Item/source 变化和重复恢复。

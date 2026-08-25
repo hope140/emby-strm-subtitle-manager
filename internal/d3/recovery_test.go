@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -314,6 +315,83 @@ func TestReplaceRefreshFailureRestoresOldAndQuarantinesNew(t *testing.T) {
 	}
 	if refresher.calls < 4 {
 		t.Fatalf("expected rollback refreshes, got %d", refresher.calls)
+	}
+}
+
+func TestReplaceRetryAfterSuccessfulRollbackReusesRecoveryFiles(t *testing.T) {
+	service, reader, _, root := newRecoveryTestService(t, nil, 2)
+	oldName := "movie.zh-CN.srt"
+	oldContent := []byte("1\n00:00:01,000 --> 00:00:02,000\n重试前旧字幕\n")
+	if err := os.WriteFile(filepath.Join(root, oldName), oldContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subtitleID := managedSubtitleID(t, service, reader, "source-1", oldName)
+	artifact := recoveryArtifact(t, service, "source-1", "重试后新字幕")
+	request := ReplaceRequest{ArtifactToken: artifact.Token, MediaSourceID: "source-1", OperationID: "replace-retry-rollback"}
+	if _, err := service.Replace(context.Background(), "movie-1", subtitleID, request); !hasD3Code(err, "emby_refresh_failed") {
+		t.Fatalf("initial replace error = %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, oldName)); err != nil || string(got) != string(oldContent) {
+		t.Fatalf("old content after rollback = %q err=%v", got, err)
+	}
+	retry, err := service.Replace(context.Background(), "movie-1", subtitleID, request)
+	if err != nil || retry.Status != "verified" {
+		t.Fatalf("retry replace = %#v err=%v", retry, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, oldName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("old subtitle remains after retry: %v", err)
+	}
+}
+
+func TestDeleteRetryAfterSuccessfulRollbackReusesRecoveryFiles(t *testing.T) {
+	service, reader, _, root := newRecoveryTestService(t, nil, 1)
+	oldName := "movie.zh-CN.srt"
+	if err := os.WriteFile(filepath.Join(root, oldName), []byte("1\n00:00:01,000 --> 00:00:02,000\n删除重试\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subtitleID := managedSubtitleID(t, service, reader, "source-1", oldName)
+	request := DeleteRequest{MediaSourceID: "source-1", OperationID: "delete-retry-rollback"}
+	if _, err := service.Delete(context.Background(), "movie-1", subtitleID, request); !hasD3Code(err, "emby_refresh_failed") {
+		t.Fatalf("initial delete error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, oldName)); err != nil {
+		t.Fatalf("old subtitle was not restored: %v", err)
+	}
+	retry, err := service.Delete(context.Background(), "movie-1", subtitleID, request)
+	if err != nil || retry.Status != "verified" {
+		t.Fatalf("retry delete = %#v err=%v", retry, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, oldName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("old subtitle remains after retry: %v", err)
+	}
+}
+
+func TestMoveToRecoveryReusesOnlyMatchingRecoveryHash(t *testing.T) {
+	service, _, _, root := newRecoveryTestService(t, nil, 0)
+	source := filepath.Join(root, "movie.zh-CN.srt")
+	destination := filepath.Join(service.settings.ArchiveDir, "existing-archive.subbridge")
+	matching := []byte("1\n00:00:01,000 --> 00:00:02,000\n匹配\n")
+	if err := os.WriteFile(source, matching, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, matching, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.moveToRecovery(source, destination, hashBytes(matching)); err != nil {
+		t.Fatalf("matching recovery reuse error = %v", err)
+	}
+	if _, err := os.Stat(source); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("matching source remains: %v", err)
+	}
+	mismatched := []byte("1\n00:00:01,000 --> 00:00:02,000\n不匹配\n")
+	if err := os.WriteFile(source, mismatched, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.moveToRecovery(source, destination, hashBytes(mismatched)); !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("mismatched recovery error = %v", err)
+	}
+	if got, err := os.ReadFile(source); err != nil || string(got) != string(mismatched) {
+		t.Fatalf("mismatched source changed = %q err=%v", got, err)
 	}
 }
 
