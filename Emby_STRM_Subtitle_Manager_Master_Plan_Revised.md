@@ -480,13 +480,13 @@ Phase 3 完成后暂停。只有真实 Movie、Episode 和 STRM 验收都通过�
 本阶段服务于镜像发布后的服务器管理员，不引入面向 Emby 观众的用户注册、多租户或复杂账户后台。当前 D2 的共享 Bearer Token 作为过渡兼容方式保留；在 D3 写入和正式发布前，增加更适合人工使用的管理员登录层。
 
 - Web UI 使用部署者配置的管理员用户名和密码登录
-- 管理员凭据通过 Docker Secret 或等价的受保护文件注入，不提供通用默认密码
-- 登录成功后使用短期 HttpOnly 会话 Cookie；面板不提供改密码、注销或账号管理，轮换通过替换 Secret 和重建容器完成
+- 管理员凭据通过私有 Docker Compose 文件的 `environment` 直接注入，固定使用 `APP_ADMIN_USERNAME`、`APP_ADMIN_PASSWORD`，不提供通用默认密码
+- 登录成功后使用短期 HttpOnly 会话 Cookie；面板不提供改密码、注销或账号管理，轮换通过修改私有 Compose 的 environment 并重建容器完成
 - CLI、定时任务和 CI 使用独立 Bearer Token，不能复用管理员密码或 Emby API Key
 - 自动化 Token 先支持只读范围，后续将 `media:read`、`subtitle:search`、`subtitle:preview` 与 D3 写入 scope 分开
-- 补齐会话 TTL、重启失效、失败限速、CSRF、日志脱敏、Secret 轮换、Compose 预检和浏览器/CLI 验收
+- 补齐会话 TTL、重启失效、失败限速、CSRF、日志脱敏、environment 轮换、Compose 预检和浏览器/CLI 验收
 
-详细决策和排期见 [ADR-006](docs/adr/006-admin-session-and-automation-credentials.md)。D2.5-A/B 已在本地完成管理员 Secret 登录、短期 HttpOnly 会话、失败限速和 Bearer 自动化兼容，尚未部署 C92/SH；D2.5-C 的细粒度 scope、CSRF 和 D3 写入门禁仍未完成。不得把当前共享 Bearer Token 宣称为细粒度权限系统；`write_enabled=false` 继续保持默认关闭。
+详细决策和排期见 [ADR-006](docs/adr/006-admin-session-and-automation-credentials.md)。D2.5-A/B 已在本地完成管理员 environment 登录、短期 HttpOnly 会话、失败限速和 Bearer 自动化兼容，尚未部署 C92/SH；D2.5-C 的细粒度 scope、CSRF 和 D3 写入门禁仍未完成。不得把当前共享 Bearer Token 宣称为细粒度权限系统；`write_enabled=false` 继续保持默认关闭。
 
 ### Phase 4　安全写入
 

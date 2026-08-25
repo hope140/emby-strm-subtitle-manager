@@ -48,15 +48,18 @@ func TestLoadFileRejectsUnknownFieldsAndFeatureGates(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, suffix := range map[string]string{
-		"unknown":          "unknown_field: true\n",
-		"write":            "features:\n  write_enabled: true\n  remote_search_enabled: false\n",
-		"search":           "features:\n  write_enabled: false\n  remote_search_enabled: true\n",
-		"missing-identity": "",
+		"unknown":           "unknown_field: true\n",
+		"legacy-admin-file": "admin_username_file: /run/secrets/admin\n",
+		"write":             "features:\n  write_enabled: true\n  remote_search_enabled: false\n",
+		"search":            "features:\n  write_enabled: false\n  remote_search_enabled: true\n",
+		"missing-identity":  "",
 	} {
 		t.Run(name, func(t *testing.T) {
 			text := validYAML(keyFile)
 			if name == "unknown" {
 				text += suffix
+			} else if name == "legacy-admin-file" {
+				text = strings.Replace(text, "  api_auth_token_file: "+keyFile+"\n", "  api_auth_token_file: "+keyFile+"\n  "+suffix, 1)
 			} else if name == "missing-identity" {
 				text = strings.Replace(text, "security:\n  identity_key_file: "+keyFile+"\n", "", 1)
 			} else {
@@ -182,51 +185,64 @@ func TestReadAPIAuthTokenRequiresHighEntropyAndDistinctSecrets(t *testing.T) {
 	}
 }
 
-func TestReadAdminCredentials(t *testing.T) {
-	dir := t.TempDir()
-	usernameFile := filepath.Join(dir, "admin-username")
-	passwordFile := filepath.Join(dir, "admin-password")
-	if err := os.WriteFile(usernameFile, []byte("operator\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(passwordFile, []byte("correct horse battery staple\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	username, err := ReadAdminUsername(usernameFile)
-	if err != nil || username != "operator" {
-		t.Fatalf("ReadAdminUsername() = %q, %v", username, err)
-	}
-	password, err := ReadAdminPassword(passwordFile)
-	if err != nil || password != "correct horse battery staple" {
-		t.Fatalf("ReadAdminPassword() = %q, %v", password, err)
+func TestReadAdminCredentialsFromEnv(t *testing.T) {
+	t.Setenv(AdminUsernameEnv, "operator")
+	t.Setenv(AdminPasswordEnv, "correct horse battery staple")
+	username, password, err := ReadAdminCredentialsFromEnv()
+	if err != nil || username != "operator" || password != "correct horse battery staple" {
+		t.Fatalf("ReadAdminCredentialsFromEnv() = %q, %q, %v", username, password, err)
 	}
 }
 
-func TestReadAdminCredentialsRejectInvalidValuesWithoutLeakage(t *testing.T) {
-	dir := t.TempDir()
-	for name, contents := range map[string]string{
-		"empty":      "\n",
-		"short":      "short\n",
-		"multi-line": "correct horse battery staple\nsecond\n",
-		"control":    "correct horse battery staple\x00\n",
-		"long":       strings.Repeat("x", 257),
+func TestReadAdminCredentialsFromEnvRejectsMissingAndInvalidValuesWithoutLeakage(t *testing.T) {
+	t.Run("missing username", func(t *testing.T) {
+		t.Setenv(AdminPasswordEnv, "correct horse battery staple")
+		t.Setenv(AdminUsernameEnv, "")
+		if _, _, err := ReadAdminCredentialsFromEnv(); err == nil || !strings.Contains(err.Error(), AdminUsernameEnv) {
+			t.Fatalf("missing username error = %v", err)
+		}
+	})
+	t.Run("missing password", func(t *testing.T) {
+		t.Setenv(AdminUsernameEnv, "operator")
+		t.Setenv(AdminPasswordEnv, "")
+		if _, _, err := ReadAdminCredentialsFromEnv(); err == nil || !strings.Contains(err.Error(), AdminPasswordEnv) {
+			t.Fatalf("missing password error = %v", err)
+		}
+	})
+	for name, username := range map[string]string{
+		"leading-space":  " operator",
+		"trailing-space": "operator ",
+		"embedded-space": "operator name",
 	} {
-		t.Run(name, func(t *testing.T) {
-			filename := filepath.Join(dir, name)
-			if err := os.WriteFile(filename, []byte(contents), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := ReadAdminPassword(filename); err == nil || strings.Contains(err.Error(), contents) || strings.Contains(err.Error(), filename) {
-				t.Fatalf("unexpected password result: %v", err)
+		t.Run("username-"+name, func(t *testing.T) {
+			t.Setenv(AdminUsernameEnv, username)
+			t.Setenv(AdminPasswordEnv, "correct horse battery staple")
+			if _, _, err := ReadAdminCredentialsFromEnv(); err == nil || strings.Contains(err.Error(), username) {
+				t.Fatalf("invalid username result = %v", err)
 			}
 		})
 	}
-	usernameFile := filepath.Join(dir, "username-invalid")
-	if err := os.WriteFile(usernameFile, []byte("operator name\n"), 0o600); err != nil {
-		t.Fatal(err)
+	for name, password := range map[string]string{
+		"short":      "short",
+		"multi-line": "correct horse battery staple\nsecond",
+		"long":       strings.Repeat("x", 257),
+	} {
+		t.Run("password-"+name, func(t *testing.T) {
+			t.Setenv(AdminUsernameEnv, "operator")
+			t.Setenv(AdminPasswordEnv, password)
+			if _, _, err := ReadAdminCredentialsFromEnv(); err == nil || strings.Contains(err.Error(), password) {
+				t.Fatalf("invalid password result = %v", err)
+			}
+		})
 	}
-	if _, err := ReadAdminUsername(usernameFile); err == nil || strings.Contains(err.Error(), "operator name") {
-		t.Fatalf("invalid username accepted or leaked: %v", err)
+}
+
+func TestAdminCredentialValidationRejectsControlCharacters(t *testing.T) {
+	if validAdminUsername("operator\x00") {
+		t.Fatal("validAdminUsername accepted a control character")
+	}
+	if validAdminPassword("correct horse battery\x00") {
+		t.Fatal("validAdminPassword accepted a control character")
 	}
 }
 
@@ -238,12 +254,10 @@ func TestValidateAdministratorSessionConfiguration(t *testing.T) {
 		PathMappings: []PathMapping{{Emby: "/srv/media", Local: "/media"}},
 	}
 	if err := base.Validate(); err != nil {
-		t.Fatalf("legacy bearer-only config should remain valid during migration: %v", err)
+		t.Fatalf("valid non-secret config rejected: %v", err)
 	}
 	for name, security := range map[string]SecurityConfig{
-		"missing-password":  {IdentityKeyFile: "/run/secrets/identity", APIAuthTokenFile: "/run/secrets/api-auth-token", AdminUsernameFile: "/run/secrets/admin-username"},
-		"relative-username": {IdentityKeyFile: "/run/secrets/identity", APIAuthTokenFile: "/run/secrets/api-auth-token", AdminUsernameFile: "admin-username", AdminPasswordFile: "/run/secrets/admin-password"},
-		"short-ttl":         {IdentityKeyFile: "/run/secrets/identity", APIAuthTokenFile: "/run/secrets/api-auth-token", AdminUsernameFile: "/run/secrets/admin-username", AdminPasswordFile: "/run/secrets/admin-password", SessionTTLSeconds: 59},
+		"short-ttl": {IdentityKeyFile: "/run/secrets/identity", APIAuthTokenFile: "/run/secrets/api-auth-token", SessionTTLSeconds: 59},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := base
@@ -482,9 +496,10 @@ type composeTestSecretRef struct {
 }
 
 type composeTestService struct {
-	ReadOnly bool                   `yaml:"read_only"`
-	Volumes  []composeTestVolume    `yaml:"volumes"`
-	Secrets  []composeTestSecretRef `yaml:"secrets"`
+	ReadOnly    bool                   `yaml:"read_only"`
+	Environment map[string]string      `yaml:"environment"`
+	Volumes     []composeTestVolume    `yaml:"volumes"`
+	Secrets     []composeTestSecretRef `yaml:"secrets"`
 }
 
 type composeTestSecret struct {
@@ -520,8 +535,11 @@ func TestBaseComposeHasNoD2Dependencies(t *testing.T) {
 			if !ok || !app.ReadOnly {
 				t.Fatal("base app must keep read_only: true")
 			}
-			if len(app.Secrets) != 5 {
-				t.Fatalf("base Compose must keep exactly the three D1 secrets plus two administrator secrets, got %d", len(app.Secrets))
+			if len(app.Secrets) != 3 {
+				t.Fatalf("base Compose must keep exactly the three non-admin D1 secrets, got %d", len(app.Secrets))
+			}
+			if app.Environment["APP_ADMIN_USERNAME"] != "" || app.Environment["APP_ADMIN_PASSWORD"] != "" || len(app.Environment) != 2 {
+				t.Fatalf("base Compose must expose only blank admin environment placeholders, got %#v", app.Environment)
 			}
 			mediaFound := false
 			for _, mount := range app.Volumes {
@@ -545,6 +563,11 @@ func TestBaseComposeHasNoD2Dependencies(t *testing.T) {
 			}
 			if _, ok := document.Secrets["d2_canary_items"]; ok {
 				t.Fatal("base Compose must not define the D2 allowlist secret")
+			}
+			for _, name := range []string{"app_admin_username", "app_admin_password"} {
+				if _, ok := document.Secrets[name]; ok {
+					t.Fatalf("base Compose must not define administrator Docker Secret %q", name)
+				}
 			}
 		})
 	}

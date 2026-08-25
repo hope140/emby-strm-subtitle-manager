@@ -61,7 +61,7 @@
     unauthorized: "登录已失效，请重新登录。",
     invalid_credentials: "管理员用户名或密码错误。",
     login_rate_limited: "登录尝试过于频繁，请稍后重试。",
-    admin_login_unavailable: "管理员登录尚未配置，请检查 Docker Secret。",
+    admin_login_unavailable: "管理员登录尚未配置，请检查 APP_ADMIN_USERNAME 和 APP_ADMIN_PASSWORD。",
     session_unavailable: "管理员会话暂时不可用，请稍后重试。",
     remote_search_disabled: "远程搜索未启用，请联系管理员确认 D2 Canary 状态。",
     canary_item_not_allowed: "当前媒体未获准进行 D2 预览，请选择已授权的单源 Movie 或 Episode。",

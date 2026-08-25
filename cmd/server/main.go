@@ -48,27 +48,19 @@ func main() {
 		logger.Error("API auth token configuration rejected", "error", err.Error())
 		os.Exit(1)
 	}
-	var adminAuth *auth.Authenticator
-	if cfg.Security.AdminUsernameFile != "" {
-		username, readErr := config.ReadAdminUsername(cfg.Security.AdminUsernameFile)
-		if readErr != nil {
-			logger.Error("administrator username configuration rejected", "error", readErr.Error())
-			os.Exit(1)
-		}
-		password, readErr := config.ReadAdminPassword(cfg.Security.AdminPasswordFile)
-		if readErr != nil {
-			logger.Error("administrator password configuration rejected", "error", readErr.Error())
-			os.Exit(1)
-		}
-		if readErr := config.ValidateAdminPasswordDistinct(password, apiKey, authToken, identityKey); readErr != nil {
-			logger.Error("administrator password configuration rejected", "error", readErr.Error())
-			os.Exit(1)
-		}
-		adminAuth, err = auth.New(username, password, auth.Options{SessionTTL: time.Duration(cfg.Security.SessionTTLSeconds) * time.Second})
-		if err != nil {
-			logger.Error("administrator authentication configuration rejected", "error", err.Error())
-			os.Exit(1)
-		}
+	username, password, err := config.ReadAdminCredentialsFromEnv()
+	if err != nil {
+		logger.Error("administrator environment configuration rejected", "error", err.Error())
+		os.Exit(1)
+	}
+	if err := config.ValidateAdminPasswordDistinct(password, apiKey, authToken, identityKey); err != nil {
+		logger.Error("administrator authentication configuration rejected", "error", err.Error())
+		os.Exit(1)
+	}
+	adminAuth, err := auth.New(username, password, auth.Options{SessionTTL: time.Duration(cfg.Security.SessionTTLSeconds) * time.Second})
+	if err != nil {
+		logger.Error("administrator authentication configuration rejected", "error", err.Error())
+		os.Exit(1)
 	}
 	mappings := make([]pathmap.Mapping, 0, len(cfg.PathMappings))
 	localRoots := make([]string, 0, len(cfg.PathMappings))

@@ -59,3 +59,19 @@ Emby 可能把媒体目录中的 `.ass`、`.ssa` 和 `.srt` 备份再次识别�
 ## 10. HttpOnly 会话的浏览器验收不能只看 JavaScript 存储
 
 管理员登录会把短期会话放在 `HttpOnly` Cookie 中。页面脚本读取不到它，所以 `document.cookie` 为空是预期结果，不能据此断言服务端没有会话。验收必须同时检查 Set-Cookie 的 `HttpOnly`、`SameSite`、`Secure` 和 TTL 属性，并用带 Cookie 的只读 API 请求证明会话确实生效。密码输入框提交后应立即清空；刷新页面回到登录界面不代表 Cookie 被脚本持久化。
+
+## 11. 目标环境必须以实时容器证据为准
+
+本地操作手册、阶段报告和另一条会话留下的部署快照都可能落后于目标环境。迁移或回滚前先用 `docker inspect` 核对当前镜像、OCI revision、Compose `config_files`、working directory、挂载、rootfs、网络模式和 health 状态，再决定从哪个 Compose 文件继续。容器标签是发现实际版本化 Compose 文件的可靠入口；不能只按文档中的默认路径猜测。
+
+## 12. Compose 路径错误不能当成服务配置错误
+
+`docker compose config --quiet` 在错误工作目录下会报告没有配置文件。这个结果只证明调用位置或 `-f` 参数不对，不证明 YAML 无效。应先从容器标签取得实际 `config_files`，再用相同文件组合执行 `config --quiet` 和 `ps`，并把两类结果分开记录。
+
+## 13. 远程运维优先使用专用非交互通道
+
+XTerminal 已提供带连接状态的 SSH MCP。先列出服务器并按明确的 C92 条目选择，再执行有界、可审计的非交互命令；不要通过桌面点击猜测当前连接，也不要把上海 SH 与 C92 混为一个目标。部署前仍需独立保留回滚点和用户授权，MCP 可用不等于可以跳过安全预检。
+
+## 14. 管理员认证迁移必须先识别现有功能窗口
+
+同一 C92 可能已经运行 D2 closed Canary、allowlist 和预览缓存。切换管理员 environment 前先确认当前镜像、配置代际和已有服务端凭据集合，避免把 D2.5 environment 写入错误的 Compose 组合。迁移失败时只回滚 app 服务，并保持 `remote_search_enabled=false`、`write_enabled=false`，不联动重启 SH/FRP/OpenResty。

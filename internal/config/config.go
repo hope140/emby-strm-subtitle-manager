@@ -22,6 +22,8 @@ const (
 	maxTimeoutSeconds     = 300
 	maxAllowlistBytes     = 1 << 20
 	maxAllowlistEntries   = 1000
+	AdminUsernameEnv      = "APP_ADMIN_USERNAME"
+	AdminPasswordEnv      = "APP_ADMIN_PASSWORD"
 )
 
 // Config is the complete non-secret runtime configuration.
@@ -47,8 +49,6 @@ type EmbyConfig struct {
 type SecurityConfig struct {
 	IdentityKeyFile     string `yaml:"identity_key_file"`
 	APIAuthTokenFile    string `yaml:"api_auth_token_file"`
-	AdminUsernameFile   string `yaml:"admin_username_file"`
-	AdminPasswordFile   string `yaml:"admin_password_file"`
 	SessionCookieSecure bool   `yaml:"session_cookie_secure"`
 	SessionTTLSeconds   int    `yaml:"session_ttl_seconds"`
 }
@@ -176,15 +176,6 @@ func (c Config) Validate() error {
 	}
 	if !isAbsolutePath(c.Security.APIAuthTokenFile) {
 		return errors.New("security.api_auth_token_file must be an absolute path")
-	}
-	if (strings.TrimSpace(c.Security.AdminUsernameFile) == "") != (strings.TrimSpace(c.Security.AdminPasswordFile) == "") {
-		return errors.New("security.admin_username_file and security.admin_password_file must be configured together")
-	}
-	if c.Security.AdminUsernameFile != "" && !isAbsolutePath(c.Security.AdminUsernameFile) {
-		return errors.New("security.admin_username_file must be an absolute path")
-	}
-	if c.Security.AdminPasswordFile != "" && !isAbsolutePath(c.Security.AdminPasswordFile) {
-		return errors.New("security.admin_password_file must be an absolute path")
 	}
 	if c.Security.SessionTTLSeconds == 0 {
 		c.Security.SessionTTLSeconds = 8 * 60 * 60
@@ -410,26 +401,33 @@ func ReadAPIAuthToken(filename, embyAPIKey string, identityKey []byte) (string, 
 	return token, nil
 }
 
-// ReadAdminUsername reads one deployment-owned administrator username. The
-// value is intentionally separate from the password Secret and never appears
-// in an error message.
-func ReadAdminUsername(filename string) (string, error) {
-	value, err := readSingleLineSecret(filename, "administrator username", 1, 64)
-	if err != nil || strings.TrimSpace(value) != value || strings.IndexFunc(value, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
-		return "", errors.New("invalid administrator username file")
+// ReadAdminCredentialsFromEnv reads the deployment-owned administrator
+// credentials from the two fixed Compose environment variables. Neither
+// variable has a default, and the values are never included in an error.
+func ReadAdminCredentialsFromEnv() (string, string, error) {
+	username, usernameSet := os.LookupEnv(AdminUsernameEnv)
+	password, passwordSet := os.LookupEnv(AdminPasswordEnv)
+	if !usernameSet || username == "" {
+		return "", "", errors.New(AdminUsernameEnv + " is required")
 	}
-	return value, nil
+	if !passwordSet || password == "" {
+		return "", "", errors.New(AdminPasswordEnv + " is required")
+	}
+	if !validAdminUsername(username) {
+		return "", "", errors.New("invalid " + AdminUsernameEnv)
+	}
+	if !validAdminPassword(password) {
+		return "", "", errors.New("invalid " + AdminPasswordEnv)
+	}
+	return username, password, nil
 }
 
-// ReadAdminPassword reads one deployment-owned administrator password. The
-// password remains a host Secret, not a configuration value or command-line
-// argument; the HTTP layer derives an in-memory verifier from it.
-func ReadAdminPassword(filename string) (string, error) {
-	value, err := readSingleLineSecret(filename, "administrator password", 12, 256)
-	if err != nil || strings.IndexFunc(value, unicode.IsControl) >= 0 {
-		return "", errors.New("invalid administrator password file")
-	}
-	return value, nil
+func validAdminUsername(value string) bool {
+	return len([]byte(value)) >= 1 && len([]byte(value)) <= 64 && strings.TrimSpace(value) == value && strings.IndexFunc(value, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) < 0
+}
+
+func validAdminPassword(value string) bool {
+	return len([]byte(value)) >= 12 && len([]byte(value)) <= 256 && strings.IndexFunc(value, unicode.IsControl) < 0
 }
 
 // ValidateAdminPasswordDistinct prevents an administrator password from
@@ -440,26 +438,6 @@ func ValidateAdminPasswordDistinct(password, embyAPIKey, apiAuthToken string, id
 		return errors.New("administrator password must be distinct from other secrets")
 	}
 	return nil
-}
-
-func readSingleLineSecret(filename, label string, minBytes, maxBytes int) (string, error) {
-	if strings.TrimSpace(filename) == "" || !isAbsolutePath(filename) {
-		return "", fmt.Errorf("invalid %s file", label)
-	}
-	contents, err := os.ReadFile(filename)
-	if err != nil {
-		return "", fmt.Errorf("unable to read %s file", label)
-	}
-	value := string(contents)
-	if strings.HasSuffix(value, "\r\n") {
-		value = strings.TrimSuffix(value, "\r\n")
-	} else if strings.HasSuffix(value, "\n") || strings.HasSuffix(value, "\r") {
-		value = value[:len(value)-1]
-	}
-	if len([]byte(value)) < minBytes || len([]byte(value)) > maxBytes || strings.Contains(value, "\n") || strings.Contains(value, "\r") {
-		return "", fmt.Errorf("invalid %s file", label)
-	}
-	return value, nil
 }
 
 // ReadAPIToken is kept as a concise alias for callers using the older name.

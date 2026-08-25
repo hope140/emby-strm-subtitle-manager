@@ -3,7 +3,7 @@
 - 状态　D2 后端、内嵌只读 UI 与 D2.5-A/B 管理员会话已在本地实现；真实 Canary 待授权
 - 日期　2026-08-24
 - 适用范围　ADR-003 的 D2、ADR-005 规定的单源条件入口
-- 当前实现　后端、安全门禁、内嵌 UI、管理员 Secret 登录和 Fake Emby 测试已实现；真实 Provider Canary、部署和重启不在本轮范围
+- 当前实现　后端、安全门禁、内嵌 UI、Compose environment 管理员登录和 Fake Emby 测试已实现；真实 Provider Canary、部署和重启不在本轮范围
 
 本文把 D2 的搜索、Fetch、预览和安全边界固定下来。它不授权真实环境启用远程搜索，不改变 `remote_search_enabled=false` 的默认值，也不授权部署、重启、媒体库写入或 Emby 配置修改。
 
@@ -266,7 +266,6 @@ Preview 不提供返回整个 Artifact 的下载接口。`text` 是纯文本，�
 | 502 | `provider_search_failed` | Search 无法得到可用的候选列表 |
 | 502 | `candidate_fetch_failed` | 当前候选 Fetch 失败；其他候选仍保留 |
 | 503 | `preview_store_unavailable` | 私有 Artifact 存储不可用 |
-| 503 | `admin_login_unavailable` | 未配置管理员 Secret，UI 登录不可用 |
 | 503 | `session_unavailable` | 管理员会话无法签发 |
 | 504 | `emby_timeout` | Emby Search 请求超时 |
 | 504 | `candidate_fetch_timeout` | 当前候选 Fetch 在预算内未完成 |

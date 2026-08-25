@@ -4,7 +4,7 @@
 
 ## D1 本地实现
 
-当前代码由 `cmd/server` 和以下内部模块组成：`config`（非密配置与 Secret 读取）、`domain`（Emby 领域 DTO）、`embyclient`（仅只读 Emby 调用）、`media`（MediaContext 与 MediaSource 选择）、`pathmap`（跨平台路径映射和目录安全边界）、`inventory`（字幕清单）、`httpui`（内嵌只读页面）以及 `httpapi`（只读 HTTP 层）。
+当前代码由 `cmd/server` 和以下内部模块组成：`config`（非密配置、服务端文件凭据与管理员 environment 校验）、`domain`（Emby 领域 DTO）、`embyclient`（仅只读 Emby 调用）、`media`（MediaContext 与 MediaSource 选择）、`pathmap`（跨平台路径映射和目录安全边界）、`inventory`（字幕清单）、`httpui`（内嵌只读页面）以及 `httpapi`（只读 HTTP 层）。
 
 服务还提供同源的内嵌 D1.5 只读 UI，并公开 7 个 GET API 路由，3 个运维路由和 4 个业务路由：
 
@@ -26,7 +26,7 @@ D1.5 UI 只浏览既有媒体库、Movie/Episode 混合分页、媒体详情和�
 
 应用 API Key 与独立的 identity secret 分离。identity secret 由 Inventory 用于生成稳定、不可逆的本地字幕标识，不能替代或复用 Emby API Key，也不会进入响应和普通日志。
 
-管理 API 使用独立的 `security.api_auth_token_file` Bearer Token，发布版 UI 另使用 `admin_username_file`、`admin_password_file` 注入的管理员凭据。`POST /v1/auth/login` 只接受无 query 的 JSON 用户名和密码，成功后签发 `HttpOnly`、`SameSite=Lax`、固定 TTL 的内存会话；会话服务重启即失效。`/livez` 与只返回极小状态的 `/readyz` 保持公开；除登录路由外的所有 `/v1/*` 路由均接受有效管理员会话或 `Authorization: Bearer <token>`。缺失或错误统一返回 401、`WWW-Authenticate: Bearer` 和脱敏错误 envelope。Bearer 不接受 query 参数，也不写入日志或响应，并且不能复用 Emby API Key、identity secret 或管理员密码。当前尚未实现 Bearer scope、CSRF 或 D3 写入权限。
+管理 API 使用独立的 `security.api_auth_token_file` Bearer Token，发布版 UI 使用私有 Compose environment 中的 `APP_ADMIN_USERNAME`、`APP_ADMIN_PASSWORD`。两个变量缺失或非法时服务启动失败，不回退到 Bearer-only UI。`POST /v1/auth/login` 只接受无 query 的 JSON 用户名和密码，成功后签发 `HttpOnly`、`SameSite=Lax`、固定 TTL 的内存会话；会话服务重启即失效。`/livez` 与只返回极小状态的 `/readyz` 保持公开；除登录路由外的所有 `/v1/*` 路由均接受有效管理员会话或 `Authorization: Bearer <token>`。缺失或错误统一返回 401、`WWW-Authenticate: Bearer` 和脱敏错误 envelope。Bearer 不接受 query 参数，也不写入日志或响应，并且不能复用 Emby API Key、identity secret 或管理员密码。当前尚未实现 Bearer scope、CSRF 或 D3 写入权限。
 
 MediaContext 对单源自动选择，对多源要求显式 `media_source_id`，不会猜测列表第一项。STRM 的 Inventory 和 PathMapper 始终使用 Emby Item.Path；非 STRM 只有本地 MediaSource.Path 可用时才使用它，远程 source path 只作为内部播放定位事实，不参与本地映射、目录检查、响应或日志。STRM 的 IsStrm 判断只看 Item.Path。即使多源共用同一个 Item.Path 的 STRM sidecar 目录，字幕流仍按选中的 MediaSource 保持隔离。PathMapper 支持 POSIX、Windows drive 和 UNC 形式，采用规范化、最长前缀匹配及目录 containment 检查；路径不安全、未映射或目录不可用时返回降级状态和稳定 warning。Inventory 只枚举受控目录、读取文件元数据并合并 Emby MediaStreams，绝不读取 STRM 内容、媒体正文或字幕正文。
 

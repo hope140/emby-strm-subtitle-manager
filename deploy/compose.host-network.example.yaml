@@ -17,6 +17,11 @@ services:
     command:
       - -config
       - /etc/emby-strm-subtitle-manager/config.yaml
+    environment:
+      # Replace both empty placeholders in the private Compose file.
+      # Do not commit or push the actual credentials.
+      APP_ADMIN_USERNAME: ""
+      APP_ADMIN_PASSWORD: ""
     network_mode: host
     user: "10001:10001"
     read_only: true
@@ -39,16 +44,6 @@ services:
         mode: 0400
       - source: app_api_auth_token
         target: app_api_auth_token
-        uid: "10001"
-        gid: "10001"
-        mode: 0400
-      - source: app_admin_username
-        target: app_admin_username
-        uid: "10001"
-        gid: "10001"
-        mode: 0400
-      - source: app_admin_password
-        target: app_admin_password
         uid: "10001"
         gid: "10001"
         mode: 0400
@@ -86,9 +81,3 @@ secrets:
     # File-source uid/gid/mode settings are not trusted across Docker setups.
     # On the host, chown this file to 10001:10001 and chmod 0400 before start.
     file: ./secrets/app_api_auth_token
-  app_admin_username:
-    # On the host, chown this file to 10001:10001 and chmod 0400 before start.
-    file: ./secrets/app_admin_username
-  app_admin_password:
-    # On the host, chown this file to 10001:10001 and chmod 0400 before start.
-    file: ./secrets/app_admin_password
