@@ -10,6 +10,7 @@ temp/
 .cache/
 .gocache/
 .gomodcache/
+.playwright-cli/
 
 # Common local reports, backups, temporary files, and credentials.
 *.log

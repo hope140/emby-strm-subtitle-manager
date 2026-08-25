@@ -39,4 +39,4 @@ Phase 2 采用以下顺序，前一阶段的真实验收通过后才能进入下
 - [Gate 0 实测报告](../../GATE0_REPORT.md)
 - [Phase 2 只读 Canary 验收定义](../phase2-readonly-canary.md)
 
-本 ADR 记录路线和默认边界；当前 D1 的代码、自动化、C92 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已有验收证据，剩余真实多媒体源样本门禁见 [D1 部署验收报告](../d1-deployment-acceptance.md)。该报告不改变本 ADR 对 D2、D3 及写能力的前置条件。
+本 ADR 记录路线和默认边界；当前 D1 的代码、自动化、C92 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已有验收证据，真实多媒体源样本仍未找到，详见 [D1 部署验收报告](../d1-deployment-acceptance.md)。[ADR-005](005-conditional-d2-entry-without-live-multisource.md) 将“进入单源 D2”和“宣称真实多源搜索支持”拆为两个门禁：允许 D2 契约、实现和单源 Canary 继续推进，多源搜索在真实样本验收前必须安全拒绝。D2 的详细契约和当前 D2-B1 后端状态见 [D2 搜索预览契约](../d2-search-preview-contract.md)；D3 及所有写能力的前置条件不变。

@@ -61,6 +61,36 @@ button.secondary:hover:not(:disabled) { background: #d6e4e7; }
 .subtitle p { margin: .3rem 0 0; }
 .warning-list, .issue-list { color: #8a5a1c; margin: .4rem 0 0; padding-left: 1.2rem; }
 .success { color: #27704c; }
+.d2-panel { border-top: 1px solid #e1e9eb; margin-top: 1rem; padding-top: 1rem; }
+.d2-panel h3, .d2-panel h4 { margin: 0 0 .35rem; }
+.d2-status { color: #53636b; min-height: 1.25rem; }
+.d2-status.error, .candidate-error { color: #ad2f38; }
+.d2-actions, .preview-toolbar { align-items: center; display: flex; flex-wrap: wrap; gap: .65rem; }
+.checkbox-label { align-items: center; display: inline-flex; gap: .35rem; margin: 0; }
+.checkbox-label input { accent-color: #167c80; }
+.d2-results { margin-top: 1rem; }
+.compact-heading { margin-bottom: .55rem; }
+.compact-heading h4 { margin: 0; }
+.candidate-list { display: grid; gap: .55rem; }
+.candidate-card { border: 1px solid #dce7ea; border-radius: 8px; padding: .7rem; }
+.candidate-card.is-fetched { border-color: #79b99a; }
+.candidate-card.is-failed, .candidate-card.is-expired { border-color: #dfb4b7; }
+.candidate-header { align-items: flex-start; display: flex; gap: .65rem; justify-content: space-between; }
+.candidate-facts { display: grid; gap: .35rem .8rem; grid-template-columns: minmax(82px, .35fr) minmax(0, 1fr); margin: .55rem 0; }
+.candidate-facts dt { color: #63727d; font-size: .82rem; }
+.candidate-facts dd { margin: 0; overflow-wrap: anywhere; }
+.candidate-comment { color: #53636b; margin: .45rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.candidate-footer { align-items: center; display: flex; flex-wrap: wrap; gap: .6rem; justify-content: space-between; }
+.candidate-footer button { min-width: 6rem; }
+.preview-panel { border-top: 1px solid #e1e9eb; margin-top: 1rem; padding-top: 1rem; }
+.preview-toolbar { margin-bottom: .75rem; }
+.preview-toolbar label { margin: 0; white-space: nowrap; }
+.preview-toolbar select { min-height: 2.4rem; }
+.preview-toolbar #d2-preview-status { flex: 1 1 12rem; min-width: 12rem; text-align: right; }
+.cue-list { display: grid; gap: .45rem; }
+.cue { border-left: 3px solid #9ccfd0; padding: .45rem .7rem; }
+.cue-time { color: #16686b; display: block; font-size: .82rem; font-variant-numeric: tabular-nums; margin-bottom: .2rem; }
+.cue-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .hidden { display: none !important; }
 .visually-hidden { clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
 

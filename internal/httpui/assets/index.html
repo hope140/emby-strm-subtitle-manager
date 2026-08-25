@@ -63,6 +63,49 @@
         <section class="panel detail-panel">
           <h2>媒体详情</h2>
           <div id="detail" class="empty-state">选择一个 Movie 或 Episode 查看详情。</div>
+          <section id="d2-panel" class="d2-panel hidden" aria-labelledby="d2-heading">
+            <div class="section-heading">
+              <div>
+                <h3 id="d2-heading">D2 搜索预览</h3>
+                <p class="muted">只对当前选定的单源 Movie / Episode 请求中文候选。</p>
+              </div>
+            </div>
+            <p id="d2-status" class="d2-status" role="status"></p>
+            <div id="d2-actions" class="d2-actions hidden">
+              <label class="checkbox-label" for="d2-forced">
+                <input id="d2-forced" type="checkbox">
+                仅强制字幕
+              </label>
+              <button id="d2-search" type="button">搜索</button>
+            </div>
+            <div id="d2-results" class="d2-results hidden">
+              <div class="section-heading compact-heading">
+                <h4>候选</h4>
+                <span id="d2-result-status" class="muted" role="status"></span>
+              </div>
+              <div id="d2-candidates" class="candidate-list"></div>
+            </div>
+            <section id="d2-preview" class="preview-panel hidden" aria-labelledby="d2-preview-heading">
+              <div class="section-heading compact-heading">
+                <div>
+                  <h4 id="d2-preview-heading">字幕预览</h4>
+                  <p id="d2-artifact-meta" class="muted"></p>
+                </div>
+              </div>
+              <div class="preview-toolbar">
+                <label for="d2-preview-limit">每页</label>
+                <select id="d2-preview-limit">
+                  <option value="200">200 条</option>
+                  <option value="500">500 条</option>
+                </select>
+                <button id="d2-preview-previous" class="secondary" type="button" disabled>上一页</button>
+                <button id="d2-preview-next" class="secondary" type="button" disabled>下一页</button>
+                <button id="d2-preview-reset" class="secondary" type="button">回到开头</button>
+                <span id="d2-preview-status" class="muted" role="status"></span>
+              </div>
+              <div id="d2-cues" class="cue-list"></div>
+            </section>
+          </section>
         </section>
       </div>
     </section>

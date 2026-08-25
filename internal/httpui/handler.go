@@ -1,4 +1,4 @@
-// Package httpui serves the small, read-only D1.5 browser UI.
+// Package httpui serves the embedded D1.5 and D2 read-only browser UI.
 package httpui
 
 import (
@@ -12,7 +12,7 @@ import (
 const uiCSP = "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'"
 
 // NewHandler returns the embedded UI handler. It deliberately has no API or
-// filesystem dependencies; all data comes from same-origin relative GETs.
+// filesystem dependencies; all data comes from same-origin relative requests.
 func NewHandler() http.Handler {
 	return http.HandlerFunc(serve)
 }

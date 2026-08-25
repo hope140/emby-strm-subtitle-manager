@@ -1,6 +1,6 @@
 // Package embyclient implements the intentionally small, read-only Emby API
-// facade used by D1. It does not expose search, refresh, playback or write
-// operations.
+// facade used by D1 and the D2 Remote Subtitle Bridge. It does not expose
+// Save, Refresh, playback or other write operations.
 package embyclient
 
 import (
@@ -23,6 +23,8 @@ import (
 const (
 	defaultTimeout       = 20 * time.Second
 	defaultMaxBodyBytes  = 8 << 20
+	remoteSearchMaxBody  = 1 << 20
+	remoteFetchMaxBody   = 4 << 20
 	maxListLimit         = 200
 	listIncludeItemTypes = "Movie,Episode"
 )
@@ -148,6 +150,12 @@ type Client struct {
 	maxBodyBytes int64
 }
 
+// RemoteSubtitleReader is the exact read-only Emby surface used by D2.
+type RemoteSubtitleReader interface {
+	SearchRemoteSubtitles(context.Context, string, string, string, bool) ([]domain.RemoteSubtitleInfo, error)
+	FetchRemoteSubtitle(context.Context, string) ([]byte, error)
+}
+
 // ListLibraries returns the Emby library folders without exposing locations.
 func (c *Client) ListLibraries(ctx context.Context) ([]domain.Library, error) {
 	query := url.Values{}
@@ -238,10 +246,64 @@ func (c *Client) GetItem(ctx context.Context, itemID string) (domain.EmbyItem, e
 	if len(*raw.Items) != 1 {
 		return domain.EmbyItem{}, &Error{Kind: ErrInvalidResponse}
 	}
-	if !(*raw.Items)[0].validItemShape() {
+	if !(*raw.Items)[0].validDetailedItemShape() {
 		return domain.EmbyItem{}, &Error{Kind: ErrInvalidResponse}
 	}
 	return (*raw.Items)[0].toDomain(), nil
+}
+
+// SearchRemoteSubtitles calls the one Emby Remote Subtitle Search endpoint
+// allowed by D2. All source and matching flags are supplied by the server.
+func (c *Client) SearchRemoteSubtitles(ctx context.Context, itemID, language, mediaSourceID string, forced bool) ([]domain.RemoteSubtitleInfo, error) {
+	itemID, err := normalizePathSegment(itemID)
+	if err != nil {
+		return nil, &Error{Kind: ErrInvalidInput}
+	}
+	language, err = normalizePathSegment(language)
+	if err != nil {
+		return nil, &Error{Kind: ErrInvalidInput}
+	}
+	mediaSourceID, err = normalizePathSegment(mediaSourceID)
+	if err != nil {
+		return nil, &Error{Kind: ErrInvalidInput}
+	}
+	query := url.Values{}
+	query.Set("MediaSourceId", mediaSourceID)
+	query.Set("IsForced", strconv.FormatBool(forced))
+	query.Set("IsPerfectMatch", "false")
+	query.Set("IsHearingImpaired", "false")
+	var raw []remoteSubtitleDTO
+	if err := c.getJSONSegments(ctx, query, remoteSearchMaxBody, &raw, "Items", itemID, "RemoteSearch", "Subtitles", language); err != nil {
+		return nil, err
+	}
+	if raw == nil {
+		return nil, &Error{Kind: ErrInvalidResponse}
+	}
+	result := make([]domain.RemoteSubtitleInfo, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, candidate := range raw {
+		if !nonEmpty(candidate.ID) {
+			return nil, &Error{Kind: ErrInvalidResponse}
+		}
+		id := stringValue(candidate.ID)
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, candidate.toDomain())
+	}
+	return result, nil
+}
+
+// FetchRemoteSubtitle calls the one Emby Remote Subtitle Fetch endpoint allowed
+// by D2. The caller must obtain subtitleID from a server-side Candidate map.
+func (c *Client) FetchRemoteSubtitle(ctx context.Context, subtitleID string) ([]byte, error) {
+	var err error
+	subtitleID, err = normalizePathSegment(subtitleID)
+	if err != nil {
+		return nil, &Error{Kind: ErrInvalidInput}
+	}
+	return c.getBytesSegments(ctx, nil, remoteFetchMaxBody, "Providers", "Subtitles", "Subtitles", subtitleID)
 }
 
 func normalizeID(value string) (string, error) {
@@ -255,6 +317,14 @@ func normalizeID(value string) (string, error) {
 	return value, nil
 }
 
+func normalizePathSegment(value string) (string, error) {
+	value, err := normalizeID(value)
+	if err != nil || value != strings.TrimSpace(value) || strings.ContainsAny(value, "/\\") || value == "." || value == ".." {
+		return "", errors.New("invalid path segment")
+	}
+	return value, nil
+}
+
 func (c *Client) endpoint(path string, query url.Values) string {
 	u := c.baseURL
 	basePath := strings.TrimRight(u.Path, "/")
@@ -263,11 +333,37 @@ func (c *Client) endpoint(path string, query url.Values) string {
 	return u.String()
 }
 
+func (c *Client) endpointSegments(query url.Values, segments ...string) string {
+	u := c.baseURL
+	basePath := strings.TrimRight(u.Path, "/")
+	baseEscaped := strings.TrimRight(u.EscapedPath(), "/")
+	pathParts := append([]string{basePath}, segments...)
+	escapedParts := append([]string{baseEscaped}, make([]string, len(segments))...)
+	for i, segment := range segments {
+		escapedParts[i+1] = url.PathEscape(segment)
+	}
+	u.Path = strings.Join(pathParts, "/")
+	u.RawPath = strings.Join(escapedParts, "/")
+	if u.RawPath == u.Path {
+		u.RawPath = ""
+	}
+	u.RawQuery = query.Encode()
+	return u.String()
+}
+
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, target any) error {
+	return c.getJSONLimited(ctx, c.endpoint(path, query), c.maxBodyBytes, target)
+}
+
+func (c *Client) getJSONSegments(ctx context.Context, query url.Values, limit int64, target any, segments ...string) error {
+	return c.getJSONLimited(ctx, c.endpointSegments(query, segments...), limit, target)
+}
+
+func (c *Client) getJSONLimited(ctx context.Context, endpoint string, limit int64, target any) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint(path, query), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return &Error{Kind: ErrTransport}
 	}
@@ -290,7 +386,7 @@ func (c *Client) getJSON(ctx context.Context, path string, query url.Values, tar
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return &Error{Kind: ErrHTTP, Status: resp.StatusCode}
 	}
-	body, err := readLimited(resp.Body, c.maxBodyBytes)
+	body, err := readLimited(resp.Body, limit)
 	if err != nil {
 		if errors.Is(err, errBodyTooLarge) {
 			return &Error{Kind: ErrResponseTooLarge}
@@ -306,6 +402,43 @@ func (c *Client) getJSON(ctx context.Context, path string, query url.Values, tar
 		return &Error{Kind: ErrMalformedJSON}
 	}
 	return nil
+}
+
+func (c *Client) getBytesSegments(ctx context.Context, query url.Values, limit int64, segments ...string) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpointSegments(query, segments...), nil)
+	if err != nil {
+		return nil, &Error{Kind: ErrTransport}
+	}
+	req.Header.Set("Accept", "text/plain, text/*, application/octet-stream")
+	req.Header.Set("X-Emby-Token", c.apiKey)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		if errors.Is(err, errRedirect) {
+			return nil, &Error{Kind: ErrRedirect}
+		}
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, &Error{Kind: ErrTimeout}
+		}
+		if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
+			return nil, &Error{Kind: ErrCanceled}
+		}
+		return nil, &Error{Kind: ErrTransport}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, &Error{Kind: ErrHTTP, Status: resp.StatusCode}
+	}
+	body, err := readLimited(resp.Body, limit)
+	if err != nil {
+		if errors.Is(err, errBodyTooLarge) {
+			return nil, &Error{Kind: ErrResponseTooLarge}
+		}
+		return nil, &Error{Kind: ErrTransport}
+	}
+	return body, nil
 }
 
 var errBodyTooLarge = errors.New("body too large")

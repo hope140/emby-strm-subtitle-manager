@@ -50,7 +50,7 @@ Gate 0 已正式通过。下一阶段为 Phase 1 构建基线与代码路线决�
 
 Phase 1 只允许构建、检查和文档化。完成 `BASELINE.md`、`CSF_REUSE_MATRIX.md` 和项目路线 ADR 前，不开始 MediaContext、Inventory 或 Installer 实现。
 
-Phase 2 只做 Emby Item、MediaContext、PathMapper 与字幕清单的只读切片。真实电影、剧集和多媒体源 Item 验收通过后，才能进入搜索预览。
+Phase 2 只做 Emby Item、MediaContext、PathMapper 与字幕清单的只读切片。真实电影、剧集和多源自动化验收通过后，可按 [ADR-005](docs/adr/005-conditional-d2-entry-without-live-multisource.md) 有条件进入单源搜索预览；真实多媒体源 Item 验收前，多源搜索必须安全拒绝且不得宣称支持，`remote_search_enabled` 继续默认关闭。
 
 Installer 必须等只读模型和路径映射准确后再开始。部署、重启和外部发布始终需要用户明确授权。
 

@@ -2,12 +2,14 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -18,6 +20,7 @@ import (
 	"unicode"
 
 	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
+	"github.com/hope140/emby-strm-subtitle-manager/internal/d2"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/inventory"
@@ -33,6 +36,7 @@ const (
 	defaultStartIndex     = 0
 	defaultLimit          = 50
 	maxHTTPItemsLimit     = 200
+	maxD2RequestBody      = 8 << 10
 )
 
 // EmbyReader is the smallest interface needed by the HTTP layer. Keeping the
@@ -49,6 +53,7 @@ type EmbyReader interface {
 // without creating a filesystem or exposing server paths.
 type Services struct {
 	Emby      EmbyReader
+	D2        *d2.Service
 	Mapper    *pathmap.Mapper
 	Guard     *pathmap.PathGuard
 	Inventory *inventory.Service
@@ -61,6 +66,7 @@ type Server struct {
 	ver       version.Info
 	logger    *slog.Logger
 	emby      EmbyReader
+	d2        *d2.Service
 	readiness *readinessProbe
 	mapper    *pathmap.Mapper
 	guard     *pathmap.PathGuard
@@ -90,6 +96,7 @@ func NewServerWithServices(cfg config.Config, ver version.Info, logger *slog.Log
 	}
 	return &Server{
 		cfg: cfg, ver: ver, logger: logger, emby: services.Emby,
+		d2:        services.D2,
 		readiness: &readinessProbe{client: services.Emby}, mapper: services.Mapper,
 		guard: services.Guard, inventory: services.Inventory, authToken: []byte(services.AuthToken), ui: services.UI,
 	}
@@ -106,6 +113,15 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if requiresAuthentication(r.URL.Path) && !s.authorized(r) {
 		s.writeUnauthorized(w, r)
+		return
+	}
+	if d2Operation(r.URL.Path) != "" {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			s.writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		s.handleD2(w, r, d2Operation(r.URL.Path))
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -155,6 +171,22 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.writeError(w, r, http.StatusNotFound, "not_found", "not found")
+	}
+}
+
+func d2Operation(path string) string {
+	if !strings.HasPrefix(path, "/v1/media/") {
+		return ""
+	}
+	parts := strings.Split(strings.TrimPrefix(path, "/v1/media/"), "/")
+	if len(parts) != 3 || parts[1] != "subtitles" {
+		return ""
+	}
+	switch parts[2] {
+	case "search", "fetch", "preview":
+		return parts[2]
+	default:
+		return ""
 	}
 }
 
@@ -264,6 +296,114 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"media": public, "inventory": inventoryResult})
+}
+
+func (s *Server) handleD2(w http.ResponseWriter, r *http.Request, operation string) {
+	if r.URL.RawQuery != "" {
+		s.writeError(w, r, http.StatusBadRequest, "invalid_request", "query parameters are not allowed")
+		return
+	}
+	if s.d2 == nil || !s.d2.Enabled() {
+		s.writeError(w, r, http.StatusForbidden, "remote_search_disabled", "remote subtitle search is disabled")
+		return
+	}
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/v1/media/"), "/")
+	if len(parts) != 3 || !validID(parts[0]) || strings.ContainsAny(parts[0], `/\\`) {
+		s.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid item id")
+		return
+	}
+	itemID := parts[0]
+	switch operation {
+	case "search":
+		var body d2SearchBody
+		if err := decodeD2JSON(r, &body); err != nil {
+			s.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid JSON request")
+			return
+		}
+		response, err := s.d2.Search(r.Context(), itemID, d2.SearchRequest{MediaSourceID: body.MediaSourceID, Language: body.Language, Forced: body.Forced})
+		if err != nil {
+			s.writeD2Error(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, response)
+	case "fetch":
+		var body d2FetchBody
+		if err := decodeD2JSON(r, &body); err != nil || body.CandidateToken == "" {
+			s.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid JSON request")
+			return
+		}
+		response, err := s.d2.Fetch(r.Context(), itemID, d2.FetchRequest{CandidateToken: body.CandidateToken})
+		if err != nil {
+			s.writeD2Error(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, response)
+	case "preview":
+		var body d2PreviewBody
+		if err := decodeD2JSON(r, &body); err != nil || body.ArtifactToken == "" {
+			s.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid JSON request")
+			return
+		}
+		response, err := s.d2.Preview(r.Context(), itemID, d2.PreviewRequest{ArtifactToken: body.ArtifactToken, Offset: body.Offset, Limit: body.Limit})
+		if err != nil {
+			s.writeD2Error(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, response)
+	}
+}
+
+type d2SearchBody struct {
+	MediaSourceID string `json:"media_source_id"`
+	Language      string `json:"language"`
+	Forced        bool   `json:"forced"`
+}
+
+type d2FetchBody struct {
+	CandidateToken string `json:"candidate_token"`
+}
+
+type d2PreviewBody struct {
+	ArtifactToken string `json:"artifact_token"`
+	Offset        int    `json:"offset"`
+	Limit         int    `json:"limit"`
+}
+
+func decodeD2JSON(r *http.Request, target any) error {
+	contentType := strings.TrimSpace(strings.ToLower(r.Header.Get("Content-Type")))
+	if contentType != "" && !strings.HasPrefix(contentType, "application/json") {
+		return errors.New("JSON content type is required")
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxD2RequestBody+1))
+	if err != nil || len(body) > maxD2RequestBody {
+		return errors.New("request body too large")
+	}
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) < 2 || trimmed[0] != '{' || trimmed[len(trimmed)-1] != '}' {
+		return errors.New("request must be a JSON object")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return errors.New("multiple JSON values are not allowed")
+	}
+	return nil
+}
+
+func (s *Server) writeD2Error(w http.ResponseWriter, r *http.Request, err error) {
+	var d2Err *d2.Error
+	if !errors.As(err, &d2Err) || d2Err == nil {
+		s.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	if d2Err.RetryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(d2Err.RetryAfter))
+	}
+	s.writeError(w, r, d2Err.Status, d2Err.Code, d2Err.Message)
 }
 
 func parseMediaRequest(r *http.Request) (mediaRequest, error) {
@@ -541,6 +681,12 @@ func routeLabel(path string) string {
 		}
 		if len(parts) == 2 && parts[1] == "subtitles" {
 			return "/v1/media/{itemId}/subtitles"
+		}
+		if len(parts) == 3 && parts[1] == "subtitles" {
+			switch parts[2] {
+			case "search", "fetch", "preview":
+				return "/v1/media/{itemId}/subtitles/" + parts[2]
+			}
 		}
 	}
 	return "<unmatched>"

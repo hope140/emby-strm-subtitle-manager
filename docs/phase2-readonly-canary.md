@@ -1,8 +1,8 @@
 # Phase 2-D1 只读 Canary 验收定义
 
-状态：D1 代码切片、Linux 自动化门禁、C92 Docker Compose 部署、公网 HTTPS 及 Movie/Episode STRM Canary 已验收；真实多媒体源样本尚未验收，因此 D1 的全部真实门禁仍未收口。
+状态：D1 代码切片、Linux 自动化门禁、C92 Docker Compose 部署、公网 HTTPS 及 Movie/Episode STRM Canary 已验收；真实多媒体源样本尚未验收。按 ADR-005，D1 已满足有条件进入 D2 的门禁，但真实多源搜索支持仍未收口。
 
-本文件定义 ADR-003 的 D1 范围和进入 D2 的门禁。它是实现和部署测试的契约，不把规划内容写成已完成事实。
+本文件定义 ADR-003 的 D1 范围，并按 [ADR-005](adr/005-conditional-d2-entry-without-live-multisource.md) 区分进入单源 D2 的门禁和真实多源搜索支持门禁。D2 的接口、安全预算和测试矩阵，以及 D2-B1 当前后端状态见 [D2 搜索预览契约](d2-search-preview-contract.md)。它不授权真实 Canary、部署或重启。
 
 ## 1. D1 目标与范围
 
@@ -18,7 +18,7 @@ D1 只建立一个可部署的只读纵向切片：
   → 展示字幕状态
 ```
 
-必须覆盖电影、剧集和至少一个多媒体源样本。D1 不执行搜索、Fetch、Add、Replace、Delete、Upload、Refresh 或批量扫描。
+自动化必须覆盖电影、剧集和多 MediaSource；真实 Canary 必须覆盖 Movie 与 Episode，真实多源 Item 在可获得时补验。缺少真实多源样本不再阻断单源 D2，但在补验前不得宣称或启用真实多源搜索。D1 不执行搜索、Fetch、Add、Replace、Delete、Upload、Refresh 或批量扫描。
 
 ## 2. D1 只读 API
 
@@ -75,6 +75,7 @@ Compose 部署必须满足：
 - 日志默认脱敏，不记录 Token、候选原始 ID、认证参数 URL、字幕正文或本机绝对路径。
 - 公网反代使用仓库提供的安全日志基线，只记录粗粒度路由和状态，不记录完整请求行、query、Authorization、Referer、原始 Item ID 或候选 ID；模板见 [OpenResty 公网入口基线](../deploy/openresty/README.md)。
 - Docker 默认只运行 D1 只读能力：`write_enabled=false`、`remote_search_enabled=false`，媒体挂载为只读，配置/Secret 与媒体目录分离，不默认公开管理端口。
+- 若后续获得 D2 单独授权，Compose 必须把宿主机专用的 `/replace/with/dedicated/d2-preview-cache` 仅绑定到容器 `/var/lib/emby-strm-subtitle-manager/d2-preview-cache`，该宿主目录实际 owner 为 `10001:10001`、mode 为 `0700`，且位于媒体映射之外；rootfs 仍保持只读、`/media` 仍保持只读。Canary allowlist 使用新增 `d2_canary_items` file-source Secret，只读注入到 `/run/secrets/d2_canary_items`，宿主文件实际按 `10001:10001`、`0400` 准备，不能只依赖 Compose uid/gid/mode 字段。
 - `/livez` 与只返回极小状态的 `/readyz` 是公开探针；所有 `/v1/*` 必须携带 `Authorization: Bearer <token>`。缺失、错误或通过 query 传入 Token 均返回统一 401，不回显凭据。
 
 文件型 Secret 的 `uid`、`gid`、`mode` 选项在不同 Docker 实现中不能作为授权依据。宿主机应先实际执行 `chown 10001:10001` 和 `chmod 0400`，再用应用用户做容器内可读性预检，例如 `docker compose run --rm --no-deps --entrypoint sh app -c 'test -r /run/secrets/app_api_auth_token && test -r /run/secrets/emby_api_key && test -r /run/secrets/app_identity_key'`。预检只返回成功/失败，不输出 Secret 内容。
@@ -108,9 +109,9 @@ Compose 部署必须满足：
 
 ## 6. 真实 Canary 验收门禁
 
-在私网或 SSH 隧道环境部署单容器后，使用专用测试账号和已确认的只读配置完成以下门禁。Movie 与 Episode STRM 已完成，真实多媒体源仍待补样本：
+在私网或 SSH 隧道环境部署单容器后，使用专用测试账号和已确认的只读配置完成以下门禁。Movie 与 Episode STRM 已完成；2026-08-24 两轮有界真实 Emby 扫描覆盖 11 个媒体库、1,026 个最新样本和 938 个分层样本，仍未补齐真实多媒体源。下列 Movie/Episode 项已经完成，多源对应项保留为独立待验门禁：
 
-- 一个真实 Movie、一个真实 Episode 和一个多媒体源 Item 均可浏览。
+- 一个真实 Movie 和一个真实 Episode 均可浏览；找到多媒体源 Item 后补验同一流程。
 - `ItemID`、`MediaSourceID`、媒体类型、STRM 标记和字幕状态与 Emby 页面/API 一致。
 - 映射成功的目录只读取当前 Item 所需范围；映射失败时安全拒绝并给出可行动错误。
 - Embedded 字幕显示为不可管理，Emby 与文件系统同时发现的 Sidecar 不重复显示。
@@ -118,7 +119,7 @@ Compose 部署必须满足：
 - 浏览器开发者工具、应用日志和容器环境导出中均不存在 API Key 或认证参数 URL。
 - 将 `write_enabled=false` 作为配置和运行时状态分别核对，不能只查看配置文件。
 
-D1 只有在自动化门禁、Movie/Episode STRM Canary 和真实多媒体源门禁都通过后，才允许进入 D2 搜索预览。当前多源自动化的 409 与显式 source 选择测试已通过，但真实 Item 尚未找到；FRP 公网 HTTPS 已通过独立部署验收。任何一项失败都保留证据并回到只读边界修复。
+按 ADR-005，自动化门禁、Movie/Episode STRM Canary、部署和安全边界通过后，可以有条件进入 D2 的契约、实现和单源 Canary。当前多源自动化的 409 与显式 source 选择测试已通过，但真实 Item 尚未找到；因此 D2 首轮只支持单源 Movie/Episode，多源搜索必须安全拒绝，稳定响应契约由 [D2 搜索预览契约](d2-search-preview-contract.md) 和测试固定。`remote_search_enabled=false` 继续作为默认值，实际启用仍需 D2 专项授权和验收。真实多源 Item 验收仍是宣称或启用多源搜索支持的前置条件；D3 和所有写入门禁不变。任何已要求门禁失败都保留证据并回到对应边界修复。
 
 ## 7. 非目标
 
@@ -131,4 +132,4 @@ D1 明确不包含：
 - STRM 内容读取、115/CD2 访问、媒体代理或第二套媒体索引
 - 公开互联网部署、账号系统、多实例锁和生产数据迁移
 
-本文件只确认已经完成的部署、公网 HTTPS 和 STRM Canary；在真实多媒体源样本验收完成前，不得宣称 D1 全部真实门禁已经通过。
+本文件只确认已经完成的部署、公网 HTTPS 和 STRM Canary。当前可以宣称 D1 已满足 ADR-005 的单源 D2 条件入口；在真实多媒体源样本验收完成前，不得宣称真实多源搜索支持或把多源真实门禁写成已通过。

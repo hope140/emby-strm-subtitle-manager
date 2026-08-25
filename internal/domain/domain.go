@@ -83,3 +83,19 @@ type EmbyItem struct {
 	// (nil) from an explicitly returned empty stream list.
 	MediaStreams *[]MediaStream `json:"-"`
 }
+
+// RemoteSubtitleInfo is the server-side projection of an Emby Bridge search
+// result. ID is deliberately excluded from JSON serialization: it may contain
+// provider-specific data and is usable only through a short-lived Candidate.
+type RemoteSubtitleInfo struct {
+	ID          string   `json:"-"`
+	Provider    string   `json:"provider,omitempty"`
+	Name        string   `json:"name,omitempty"`
+	Language    string   `json:"language,omitempty"`
+	Format      string   `json:"format,omitempty"`
+	Author      string   `json:"author,omitempty"`
+	Comment     string   `json:"comment,omitempty"`
+	IsHashMatch bool     `json:"is_hash_match"`
+	Score       float64  `json:"score"`
+	Reasons     []string `json:"reasons,omitempty"`
+}

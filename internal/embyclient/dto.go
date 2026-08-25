@@ -43,6 +43,19 @@ type itemDTO struct {
 	MediaStreams      *[]mediaStreamDTO  `json:"MediaStreams"`
 }
 
+type remoteSubtitleDTO struct {
+	ID          *string   `json:"Id"`
+	Provider    *string   `json:"ProviderName"`
+	Name        *string   `json:"Name"`
+	Language    *string   `json:"Language"`
+	Format      *string   `json:"Format"`
+	Author      *string   `json:"Author"`
+	Comment     *string   `json:"Comment"`
+	IsHashMatch *bool     `json:"IsHashMatch"`
+	Score       *float64  `json:"Score"`
+	Reasons     *[]string `json:"Reasons"`
+}
+
 type mediaSourceDTO struct {
 	ID                 *string           `json:"Id"`
 	Name               *string           `json:"Name"`
@@ -82,6 +95,10 @@ func (d itemDTO) validItemShape() bool {
 		return false
 	}
 	return *d.Type == "Movie" || *d.Type == "Episode"
+}
+
+func (d itemDTO) validDetailedItemShape() bool {
+	return nonEmpty(d.ID) && nonEmpty(d.Name) && nonEmpty(d.Type)
 }
 
 func nonEmpty(value *string) bool {
@@ -133,6 +150,18 @@ func (d itemDTO) toDomain() domain.EmbyItem {
 	return item
 }
 
+func (d remoteSubtitleDTO) toDomain() domain.RemoteSubtitleInfo {
+	result := domain.RemoteSubtitleInfo{
+		ID: stringValue(d.ID), Provider: stringValue(d.Provider), Name: stringValue(d.Name),
+		Language: stringValue(d.Language), Format: stringValue(d.Format), Author: stringValue(d.Author),
+		Comment: stringValue(d.Comment), IsHashMatch: boolValue(d.IsHashMatch), Score: floatValue(d.Score),
+	}
+	if d.Reasons != nil {
+		result.Reasons = append([]string(nil), (*d.Reasons)...)
+	}
+	return result
+}
+
 func mapMediaStream(stream mediaStreamDTO) domain.MediaStream {
 	return domain.MediaStream{
 		Index: stream.Index, Type: sourceString(stream.Type), Codec: sourceString(stream.Codec), Title: sourceString(stream.Title),
@@ -145,6 +174,17 @@ func mapMediaStream(stream mediaStreamDTO) domain.MediaStream {
 func stringValue(value *string) string {
 	if value == nil {
 		return ""
+	}
+	return *value
+}
+
+func boolValue(value *bool) bool {
+	return value != nil && *value
+}
+
+func floatValue(value *float64) float64 {
+	if value == nil {
+		return 0
 	}
 	return *value
 }

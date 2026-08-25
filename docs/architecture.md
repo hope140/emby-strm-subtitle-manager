@@ -1,6 +1,6 @@
 # 当前架构
 
-本文只描述截至 2026 年 8 月 24 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已验收；真实多媒体源样本仍待验收。Installer、搜索预览和写入能力仍属于后续阶段。
+本文只描述截至 2026 年 8 月 25 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已验收；D2 后端、内嵌 UI 和本地 Fake Emby 浏览器自动化已完成。真实 Provider/客户端 Canary 与真实多媒体源样本仍待验收。真实多源搜索仍不得宣称支持。Installer 和写入能力仍属于后续阶段。
 
 ## D1 本地实现
 
@@ -30,7 +30,7 @@ D1.5 UI 只浏览既有媒体库、Movie/Episode 混合分页、媒体详情和�
 
 MediaContext 对单源自动选择，对多源要求显式 `media_source_id`，不会猜测列表第一项。STRM 的 Inventory 和 PathMapper 始终使用 Emby Item.Path；非 STRM 只有本地 MediaSource.Path 可用时才使用它，远程 source path 只作为内部播放定位事实，不参与本地映射、目录检查、响应或日志。STRM 的 IsStrm 判断只看 Item.Path。即使多源共用同一个 Item.Path 的 STRM sidecar 目录，字幕流仍按选中的 MediaSource 保持隔离。PathMapper 支持 POSIX、Windows drive 和 UNC 形式，采用规范化、最长前缀匹配及目录 containment 检查；路径不安全、未映射或目录不可用时返回降级状态和稳定 warning。Inventory 只枚举受控目录、读取文件元数据并合并 Emby MediaStreams，绝不读取 STRM 内容、媒体正文或字幕正文。
 
-本地 `scripts/verify.ps1` 和 Linux 全包测试均已通过且无 skip；C92 的 Docker Compose schema/build、启动安全边界、`/readyz`、Bearer 认证和版本标签，以及 FRP 公网 HTTPS、单代理加密和公网应用端口防火墙边界另有部署证据。自动化与已验收的 STRM Canary 仍不能替代尚未完成的真实多媒体源验收。
+本地 `scripts/verify.ps1` 和 Linux 全包测试均已通过且无 skip；C92 的 Docker Compose schema/build、启动安全边界、`/readyz`、Bearer 认证和版本标签，以及 FRP 公网 HTTPS、单代理加密和公网应用端口防火墙边界另有部署证据。自动化与已验收的 STRM Canary 仍不能替代尚未完成的真实多媒体源验收，因此它们不能支撑真实多源搜索的支持声明；该缺口不再阻断单源 D2。
 
 ## 当前系统边界
 
@@ -104,17 +104,27 @@ Gate 0 已经验证 Emby 能把成功 Fetch 的 Thunder 候选写入 STRM 同目
 
 V1 通过 Emby Bridge 使用 Meiam Provider。Native Thunder 和 Native ASSRT 暂缓，详见 [ADR-001](adr/001-v1-uses-emby-remote-subtitle-bridge.md)。
 
+## D2-B1 后端实现
+
+D2-B1 在独立 `d2` Service 中实现 Search、Fetch、Preview 的后端闭环，并由 `config`、`embyclient`、`subtitleprovider`、`subtitle`、`preview` 和 `httpapi` 提供边界能力。默认开关关闭；启用时必须同时满足 Canary 和服务端 Item allowlist。每次操作重新读取 Item，首轮只接受单源 Movie/Episode，多源统一 fail closed。
+
+Remote Subtitle Bridge 只通过服务端 API Key 调用固定的两个 GET 接口。候选原始 ID 不进入 HTTP 响应、日志或 Artifact；Fetch 先做有界字幕校验和 canonical UTF-8 解析，再写入显式配置的专用稳定短期缓存。启用 D2 时 cache_dir 缺失、为根目录、与媒体映射双向 overlap 或通过 symlink/reparse point 到达其他位置都会 fail closed；启动同一缓存目录会回收旧 Artifact。Candidate/Artifact 绑定认证上下文、Item、source、语言和 allowlist generation，过期状态遵循一次 410、清理后 404 的无 tombstone 语义；成功 Fetch 重放复用 Artifact，Preview 只额外重读一次 Item，不重新 Fetch Provider。
+
+D2 HTTP API 使用现有 Bearer 认证，JSON 请求体上限为 8 KiB，并提供固定错误码、并发/频率限流和脱敏请求日志。D2 不注册 Save、Refresh、媒体目录或 D3 写入路由。内嵌 UI 只在 health 明确报告开关启用、且当前选择单源 Movie/Episode 时展示候选、Fetch 与纯文本预览；Token、Candidate Token 与 Artifact Token 都仅留在页面内存，页面刷新即回到登录态。D2-B1 后端证据见 [D2-B1 后端实现评审](d2-b1-backend-implementation-review.md)，本地浏览器证据见 [D2-B2 UI 评审](d2-b2-readonly-ui-review.md)；真实 Provider Canary 与真实客户端验收仍未完成。
+
 项目路线决策已经完成；上游完整构建基线仍有环境阻断和未验证项，但因为项目不采用 CSF 整仓运行时，这些缺口不再阻塞方案 B。ADR-002 已接受，选择新建轻量 Go 后端，选择性复用 ASS/SRT Parser 核心、语言与命名处理经验、相关测试思路、Emby HTTP 调用经验和少量无状态前端组件。
 
-ChineseSubFinder 的旧扫描器、Cloud/SubtitleBest 下载链、Provider Hub、Cron/PreJob、旧任务队列、按视频物理路径保存和视频 Hash 逻辑不进入新运行时。搜索、Installer 和写入能力仍属于后续阶段。
+ChineseSubFinder 的旧扫描器、Cloud/SubtitleBest 下载链、Provider Hub、Cron/PreJob、旧任务队列、按视频物理路径保存和视频 Hash 逻辑不进入新运行时。Installer 和写入能力仍属于后续阶段；D2 UI 只覆盖搜索、Fetch 与预览，不扩大为写入能力。
 
-Phase 2 的交付顺序和默认部署边界已记录在 [ADR-003](adr/003-phase2-milestones-and-deployment.md)：先做 D1 只读 Canary，再做 D2 搜索预览，最后对专用样本做 D3 Add。D1 的代码、自动化、部署和 Movie/Episode STRM Canary 已完成；真实多媒体源样本仍是进入 D2 前的门禁，具体 API、安全边界和剩余验收见 [只读 Canary 验收定义](phase2-readonly-canary.md) 与 [D1 部署验收报告](d1-deployment-acceptance.md)。
+Phase 2 的交付顺序和默认部署边界已记录在 [ADR-003](adr/003-phase2-milestones-and-deployment.md)：先做 D1 只读 Canary，再做 D2 搜索预览，最后对专用样本做 D3 Add。D1 的代码、自动化、部署和 Movie/Episode STRM Canary 已完成；[ADR-005](adr/005-conditional-d2-entry-without-live-multisource.md) 允许 D2 契约、实现和单源 Canary 继续推进，真实多媒体源样本改为多源搜索支持的独立门禁。样本验收前，多源搜索必须安全拒绝，功能开关继续默认关闭。D2 的详细契约、安全边界、资源预算和测试矩阵见 [D2 搜索预览契约](d2-search-preview-contract.md)；D1 的剩余验收见 [只读 Canary 验收定义](phase2-readonly-canary.md) 与 [D1 部署验收报告](d1-deployment-acceptance.md)。
 
 ## 证据
 
 - [Gate 0 实测报告](../GATE0_REPORT.md)
 - [总体规划](../Emby_STRM_Subtitle_Manager_Master_Plan_Revised.md)
 - [ADR-002：项目代码路线](adr/002-project-codebase-route.md)
+- [ADR-005：缺少真实多源样本时有条件进入 D2](adr/005-conditional-d2-entry-without-live-multisource.md)
+- [D2-B1 后端实现评审](d2-b1-backend-implementation-review.md)
 - [Phase 1 基线报告](../BASELINE.md)
 - [ChineseSubFinder 复用矩阵](../CSF_REUSE_MATRIX.md)
 - [Emby SubtitleService API](https://dev.emby.media/reference/RestAPI/SubtitleService.html)

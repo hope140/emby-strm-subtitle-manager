@@ -349,6 +349,7 @@ GET  /v1/media/{itemId}
 GET  /v1/media/{itemId}/subtitles
 
 POST /v1/media/{itemId}/subtitles/search
+POST /v1/media/{itemId}/subtitles/fetch
 POST /v1/media/{itemId}/subtitles/preview
 POST /v1/media/{itemId}/subtitles/add
 POST /v1/media/{itemId}/subtitles/replace
@@ -362,6 +363,8 @@ GET  /v1/audit-events
 ```
 
 Search 返回结果时附带 ProviderCapabilities。Refresh 由 Installer 和 Reconciler 内部调用，不作为普通前端按钮的主要接口。
+
+D2 阶段只实现 Search、Fetch、Preview；详细请求/响应、稳定错误码、候选 Token、PreviewArtifact、资源上限和安全边界见 [D2 搜索预览契约与安全设计](docs/d2-search-preview-contract.md)。Add、Replace、Delete、Upload 和 Refresh 仍属于后续阶段。
 
 ## 10. 配置与凭据
 
@@ -446,9 +449,9 @@ Gate 0 通过后才能决定是否沿用 Emby Bridge。若 Fetch 不稳定或 Pr
 
 ### Phase 2　只读纵向切片
 
-本阶段按 [ADR-003](docs/adr/003-phase2-milestones-and-deployment.md) 作为 D1 只读 Canary 执行。默认使用 Linux Docker Compose 单应用容器、媒体只读挂载和 `write_enabled=false`，通过私网或 SSH 隧道做实际验收。具体 API、安全边界和门禁见 [D1 验收定义](docs/phase2-readonly-canary.md)。
+本阶段按 [ADR-003](docs/adr/003-phase2-milestones-and-deployment.md) 作为 D1 只读 Canary 执行，并由 [ADR-005](docs/adr/005-conditional-d2-entry-without-live-multisource.md) 规定缺少真实多源样本时的 D2 条件入口。默认使用 Linux Docker Compose 单应用容器、媒体只读挂载和 `write_enabled=false`，通过私网或 SSH 隧道做实际验收。具体 API、安全边界和门禁见 [D1 验收定义](docs/phase2-readonly-canary.md)。
 
-当前进度：D1 的 Go 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 以及 Movie、Episode STRM 真实 Canary 已完成并记录在 [D1 部署验收报告](docs/d1-deployment-acceptance.md)。Docker Compose schema/build、host-network、UID 10001、只读 root、只读媒体、三份 Secret 权限、`/readyz`、Bearer 认证、版本溯源标签、FRP 单代理加密和公网应用端口防火墙边界均已通过。真实多媒体源样本尚未找到，自动化 409 与显式 source 选择测试已通过但不能替代真实样本。`write_enabled=false` 和 `remote_search_enabled=false` 继续保持关闭，在多源真实样本补齐前不进入 Phase 3。
+当前进度：D1 的 Go 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 以及 Movie、Episode STRM 真实 Canary 已完成并记录在 [D1 部署验收报告](docs/d1-deployment-acceptance.md)。Docker Compose schema/build、host-network、UID 10001、只读 root、只读媒体、三份 Secret 权限、`/readyz`、Bearer 认证、版本溯源标签、FRP 单代理加密和公网应用端口防火墙边界均已通过。真实多媒体源样本尚未找到，自动化 409 与显式 source 选择测试已通过但不能替代真实样本。按 ADR-005，可以开始 D2 契约、实现和单源 Canary；真实多源搜索在样本验收前必须安全拒绝且不得宣称支持。`write_enabled=false` 和 `remote_search_enabled=false` 继续保持默认关闭，D3 及所有写入门禁不变。
 
 - 实现 MediaContext 和 PathMapper
 - 从 Emby 浏览电影与剧集
@@ -456,11 +459,13 @@ Gate 0 通过后才能决定是否沿用 Emby Bridge。若 Fetch 不稳定或 Pr
 - 显示 Embedded、External、Manageable 状态
 - 正确识别 STRM
 
-验收需要覆盖一个电影、一个剧集和一个多媒体源 Item。
+Movie/Episode 的 D1 真实验收必须覆盖；多 MediaSource 自动化也必须覆盖。真实多源样本缺失时，必须标记为“自动化已通过、真实样本待补”，不能写成真实多源完整通过。按 ADR-005，这一缺口阻断多源搜索支持声明和启用，但不阻断单源 D2 的实现与 Canary。
 
 ### Phase 3　远程搜索与预览
 
-本阶段对应 ADR-003 的 D2。只有 D1 的自动化和真实 Canary 验收通过，才允许开始搜索和预览；本阶段仍不写入媒体库。
+本阶段对应 ADR-003 的 D2，并采用 ADR-005 的条件入口。D1 自动化和真实 Movie/Episode STRM Canary 已通过，因此先实现单源 Movie/Episode 的搜索和预览；多源 Item 在真实样本验收前必须安全拒绝，不得猜测 source。本阶段继续保持功能开关默认关闭，未获专项授权不在真实环境启用，也不写入媒体库。
+
+本阶段的 Search、Fetch、Preview、稳定错误码、Candidate Token、PreviewArtifact、候选级失败、资源上限、安全边界和实现测试矩阵以 [D2 搜索预览契约与安全设计](docs/d2-search-preview-contract.md) 为准。
 
 - 实现 EmbyRemoteSubtitleProvider
 - 引入 ProviderCapabilities

@@ -9,15 +9,19 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"unicode"
 
+	"github.com/hope140/emby-strm-subtitle-manager/internal/pathsecurity"
 	"gopkg.in/yaml.v3"
 )
 
 const (
 	defaultTimeoutSeconds = 30
 	maxTimeoutSeconds     = 300
+	maxAllowlistBytes     = 1 << 20
+	maxAllowlistEntries   = 1000
 )
 
 // Config is the complete non-secret runtime configuration.
@@ -26,6 +30,7 @@ type Config struct {
 	Emby         EmbyConfig     `yaml:"emby"`
 	Security     SecurityConfig `yaml:"security"`
 	Features     FeatureConfig  `yaml:"features"`
+	D2           D2Config       `yaml:"d2"`
 	PathMappings []PathMapping  `yaml:"path_mappings"`
 }
 
@@ -47,6 +52,60 @@ type SecurityConfig struct {
 type FeatureConfig struct {
 	WriteEnabled        bool `yaml:"write_enabled" json:"write_enabled"`
 	RemoteSearchEnabled bool `yaml:"remote_search_enabled" json:"remote_search_enabled"`
+}
+
+// D2Config contains bounded search/preview settings. Zero values are filled
+// with safe defaults by WithDefaults; the feature itself remains disabled
+// unless features.remote_search_enabled and the Canary gate are both enabled.
+type D2Config struct {
+	CacheDir              string         `yaml:"cache_dir"`
+	DefaultLanguage       string         `yaml:"default_language"`
+	CandidateTTLSeconds   int            `yaml:"candidate_ttl_seconds"`
+	ArtifactTTLSeconds    int            `yaml:"artifact_ttl_seconds"`
+	SearchTimeoutSeconds  int            `yaml:"search_timeout_seconds"`
+	FetchTimeoutSeconds   int            `yaml:"fetch_timeout_seconds"`
+	PreviewTimeoutSeconds int            `yaml:"preview_timeout_seconds"`
+	MaxSubtitleBytes      int64          `yaml:"max_subtitle_bytes"`
+	MaxCandidateCount     int            `yaml:"max_candidate_count"`
+	MaxConcurrent         int            `yaml:"max_concurrent"`
+	Canary                D2CanaryConfig `yaml:"canary"`
+}
+
+type D2CanaryConfig struct {
+	Enabled           bool   `yaml:"enabled"`
+	ItemAllowlistFile string `yaml:"item_allowlist_file"`
+}
+
+// WithDefaults returns the bounded D2 configuration used by the runtime.
+func (c D2Config) WithDefaults() D2Config {
+	if c.DefaultLanguage == "" {
+		c.DefaultLanguage = "zh-CN"
+	}
+	if c.CandidateTTLSeconds == 0 {
+		c.CandidateTTLSeconds = 600
+	}
+	if c.ArtifactTTLSeconds == 0 {
+		c.ArtifactTTLSeconds = 1200
+	}
+	if c.SearchTimeoutSeconds == 0 {
+		c.SearchTimeoutSeconds = 20
+	}
+	if c.FetchTimeoutSeconds == 0 {
+		c.FetchTimeoutSeconds = 25
+	}
+	if c.PreviewTimeoutSeconds == 0 {
+		c.PreviewTimeoutSeconds = 5
+	}
+	if c.MaxSubtitleBytes == 0 {
+		c.MaxSubtitleBytes = 4 << 20
+	}
+	if c.MaxCandidateCount == 0 {
+		c.MaxCandidateCount = 20
+	}
+	if c.MaxConcurrent == 0 {
+		c.MaxConcurrent = 4
+	}
+	return c
 }
 
 type PathMapping struct {
@@ -80,13 +139,14 @@ func LoadFile(filename string) (Config, error) {
 	if cfg.Emby.TimeoutSeconds == 0 {
 		cfg.Emby.TimeoutSeconds = defaultTimeoutSeconds
 	}
+	cfg.D2 = cfg.D2.WithDefaults()
 	if err := cfg.Validate(); err != nil {
 		return cfg, err
 	}
 	return cfg, nil
 }
 
-// Validate checks the safe D1 configuration boundary.
+// Validate checks the safe D1 and gated D2 configuration boundaries.
 func (c Config) Validate() error {
 	if strings.TrimSpace(c.Server.ListenAddress) == "" {
 		return errors.New("server.listen_address is required")
@@ -119,8 +179,48 @@ func (c Config) Validate() error {
 	if c.Features.WriteEnabled {
 		return errors.New("features.write_enabled must be false in D1")
 	}
-	if c.Features.RemoteSearchEnabled {
-		return errors.New("features.remote_search_enabled must be false in D1")
+	d2 := c.D2.WithDefaults()
+	if !validD2Language(d2.DefaultLanguage) {
+		return errors.New("d2.default_language must be a supported Chinese language")
+	}
+	if c.Features.RemoteSearchEnabled && strings.TrimSpace(d2.CacheDir) == "" {
+		return errors.New("d2.cache_dir is required when features.remote_search_enabled is true")
+	}
+	if d2.CacheDir != "" && !isAbsolutePath(d2.CacheDir) {
+		return errors.New("d2.cache_dir must be an absolute path")
+	}
+	if d2.CandidateTTLSeconds < 1 || d2.CandidateTTLSeconds > 3600 {
+		return errors.New("d2.candidate_ttl_seconds must be between 1 and 3600")
+	}
+	if d2.ArtifactTTLSeconds < 1 || d2.ArtifactTTLSeconds > 7200 {
+		return errors.New("d2.artifact_ttl_seconds must be between 1 and 7200")
+	}
+	if d2.SearchTimeoutSeconds < 1 || d2.SearchTimeoutSeconds > 20 {
+		return errors.New("d2.search_timeout_seconds must be between 1 and 20")
+	}
+	if d2.FetchTimeoutSeconds < 1 || d2.FetchTimeoutSeconds > 25 {
+		return errors.New("d2.fetch_timeout_seconds must be between 1 and 25")
+	}
+	if d2.PreviewTimeoutSeconds < 1 || d2.PreviewTimeoutSeconds > 5 {
+		return errors.New("d2.preview_timeout_seconds must be between 1 and 5")
+	}
+	if d2.MaxSubtitleBytes < 1 || d2.MaxSubtitleBytes > 4<<20 {
+		return errors.New("d2.max_subtitle_bytes must be between 1 and 4194304")
+	}
+	if d2.MaxCandidateCount < 1 || d2.MaxCandidateCount > 20 {
+		return errors.New("d2.max_candidate_count must be between 1 and 20")
+	}
+	if d2.MaxConcurrent < 1 || d2.MaxConcurrent > 4 {
+		return errors.New("d2.max_concurrent must be between 1 and 4")
+	}
+	if d2.Canary.Enabled && strings.TrimSpace(d2.Canary.ItemAllowlistFile) == "" {
+		return errors.New("d2.canary.item_allowlist_file is required when Canary is enabled")
+	}
+	if strings.TrimSpace(d2.Canary.ItemAllowlistFile) != "" && !isAbsolutePath(d2.Canary.ItemAllowlistFile) {
+		return errors.New("d2.canary.item_allowlist_file must be an absolute path")
+	}
+	if c.Features.RemoteSearchEnabled && (!d2.Canary.Enabled || strings.TrimSpace(d2.Canary.ItemAllowlistFile) == "") {
+		return errors.New("features.remote_search_enabled requires an enabled D2 Canary allowlist")
 	}
 	if len(c.PathMappings) == 0 {
 		return errors.New("path_mappings requires at least one mapping")
@@ -133,7 +233,90 @@ func (c Config) Validate() error {
 			return fmt.Errorf("path_mappings[%d] emby and local must be absolute paths", i)
 		}
 	}
+	if d2.CacheDir != "" {
+		if pathsecurity.IsFilesystemRoot(d2.CacheDir) {
+			return errors.New("d2.cache_dir must be a dedicated non-root directory")
+		}
+		if usesSymlink, inspectErr := pathsecurity.UsesSymlink(d2.CacheDir); inspectErr != nil {
+			return errors.New("d2.cache_dir path cannot be safely inspected")
+		} else if usesSymlink {
+			return errors.New("d2.cache_dir must not use a symlinked path")
+		}
+		if pathOverlapsMappings(d2.CacheDir, c.PathMappings) {
+			return errors.New("d2.cache_dir must be outside media path mappings")
+		}
+	}
+	if d2.Canary.ItemAllowlistFile != "" {
+		if usesSymlink, inspectErr := pathsecurity.UsesSymlink(d2.Canary.ItemAllowlistFile); inspectErr != nil {
+			return errors.New("d2.canary.item_allowlist_file path cannot be safely inspected")
+		} else if usesSymlink {
+			return errors.New("d2.canary.item_allowlist_file must not use a symlinked path")
+		}
+		if pathOverlapsMappings(d2.Canary.ItemAllowlistFile, c.PathMappings) {
+			return errors.New("d2.canary.item_allowlist_file must be outside media path mappings")
+		}
+	}
 	return nil
+}
+
+func validD2Language(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "zh-cn", "zh", "zho", "chi":
+		return true
+	default:
+		return false
+	}
+}
+
+func pathOverlapsMappings(candidate string, mappings []PathMapping) bool {
+	for _, mapping := range mappings {
+		if pathsecurity.Overlaps(candidate, mapping.Emby) || pathsecurity.Overlaps(candidate, mapping.Local) {
+			return true
+		}
+	}
+	return false
+}
+
+// ReadItemAllowlist reads exact item IDs from a protected, one-ID-per-line
+// file. The values are returned only to the in-process allowlist and are never
+// included in errors or logs.
+func ReadItemAllowlist(filename string) ([]string, error) {
+	if strings.TrimSpace(filename) == "" || !isAbsolutePath(filename) {
+		return nil, errors.New("invalid D2 Canary allowlist configuration")
+	}
+	contents, err := os.ReadFile(filename)
+	if err != nil || len(contents) > maxAllowlistBytes {
+		return nil, errors.New("unable to read D2 Canary allowlist")
+	}
+	if runtime.GOOS != "windows" {
+		info, statErr := os.Stat(filename)
+		if statErr != nil || info.Mode().Perm()&0o077 != 0 {
+			return nil, errors.New("D2 Canary allowlist permissions are too broad")
+		}
+	}
+	seen := make(map[string]struct{})
+	items := make([]string, 0)
+	for _, raw := range strings.Split(strings.ReplaceAll(string(contents), "\r\n", "\n"), "\n") {
+		item := strings.TrimSpace(raw)
+		if item == "" {
+			continue
+		}
+		if len([]byte(item)) > 512 || strings.ContainsAny(item, `/\\`) || strings.IndexFunc(item, func(r rune) bool { return unicode.IsControl(r) || unicode.IsSpace(r) }) >= 0 {
+			return nil, errors.New("invalid D2 Canary allowlist")
+		}
+		if len(items) >= maxAllowlistEntries {
+			return nil, errors.New("D2 Canary allowlist is too large")
+		}
+		if _, exists := seen[item]; exists {
+			continue
+		}
+		seen[item] = struct{}{}
+		items = append(items, item)
+	}
+	if len(items) == 0 {
+		return nil, errors.New("D2 Canary allowlist is empty")
+	}
+	return items, nil
 }
 
 func isAbsolutePath(value string) bool {
