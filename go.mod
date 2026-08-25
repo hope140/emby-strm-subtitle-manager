@@ -1,4 +1,4 @@
-module github.com/hope140/emby-strm-subtitle-manager
+module github.com/hope140/subbridge
 
 go 1.26
 

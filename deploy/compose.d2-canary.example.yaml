@@ -16,7 +16,7 @@ services:
       # 10001:10001 and 0700, and keep it outside every media mapping.
       - type: bind
         source: /replace/with/dedicated/d2-preview-cache
-        target: /var/lib/emby-strm-subtitle-manager/d2-preview-cache
+        target: /var/lib/subbridge/d2-preview-cache
         read_only: false
 
 secrets:

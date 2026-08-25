@@ -613,7 +613,7 @@ func TestBaseComposeHasNoD2Dependencies(t *testing.T) {
 			}
 			mediaFound := false
 			for _, mount := range app.Volumes {
-				if mount.Target == "/var/lib/emby-strm-subtitle-manager/d2-preview-cache" {
+				if mount.Target == "/var/lib/subbridge/d2-preview-cache" {
 					t.Fatal("base Compose must not mount the D2 cache")
 				}
 				if mount.Target == "/media" && !mount.ReadOnly {
@@ -652,7 +652,7 @@ func TestD2ComposeOverlayAddsDedicatedWritableCacheAndAllowlistSecret(t *testing
 	}
 	cacheFound := false
 	for _, mount := range overlayApp.Volumes {
-		if mount.Target == "/var/lib/emby-strm-subtitle-manager/d2-preview-cache" {
+		if mount.Target == "/var/lib/subbridge/d2-preview-cache" {
 			if mount.Type != "bind" || mount.Source != "/replace/with/dedicated/d2-preview-cache" || mount.ReadOnly {
 				t.Fatalf("unsafe D2 cache overlay mount = %#v", mount)
 			}
@@ -688,7 +688,7 @@ func TestD2ComposeOverlayAddsDedicatedWritableCacheAndAllowlistSecret(t *testing
 			mergedCache := false
 			mergedMediaReadOnly := false
 			for _, mount := range mergedVolumes {
-				if mount.Target == "/var/lib/emby-strm-subtitle-manager/d2-preview-cache" && !mount.ReadOnly {
+				if mount.Target == "/var/lib/subbridge/d2-preview-cache" && !mount.ReadOnly {
 					mergedCache = true
 				}
 				if mount.Target == "/media" && mount.ReadOnly {
@@ -722,12 +722,12 @@ func TestD3ComposeOverlayAddsOnlyDedicatedWritableMediaAndRecoveryMounts(t *test
 				t.Fatalf("D3 media mount = %#v", mount)
 			}
 			media = true
-		case "/var/lib/emby-strm-subtitle-manager/d3-history":
+		case "/var/lib/subbridge/d3-history":
 			if mount.ReadOnly {
 				t.Fatalf("D3 history mount is read-only")
 			}
 			history = true
-		case "/var/lib/emby-strm-subtitle-manager/d3-quarantine":
+		case "/var/lib/subbridge/d3-quarantine":
 			if mount.ReadOnly {
 				t.Fatalf("D3 quarantine mount is read-only")
 			}

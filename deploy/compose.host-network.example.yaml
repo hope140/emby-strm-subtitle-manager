@@ -1,4 +1,4 @@
-name: emby-strm-subtitle-manager
+name: subbridge
 
 # Use this topology when Emby already listens on the Docker host network.
 # The application also uses host networking, but its configured listener stays
@@ -12,11 +12,11 @@ services:
         BUILD_VERSION: ${BUILD_VERSION:-dev}
         BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
         BUILD_TIME: ${BUILD_TIME:-unknown}
-        BUILD_SOURCE: ${BUILD_SOURCE:-unknown}
-    image: emby-strm-subtitle-manager:${IMAGE_TAG:-local}
+        BUILD_SOURCE: "${BUILD_SOURCE:-https://github.com/hope140/subbridge}"
+    image: subbridge:${IMAGE_TAG:-local}
     command:
       - -config
-      - /etc/emby-strm-subtitle-manager/config.yaml
+      - /etc/subbridge/config.yaml
     environment:
       # Replace both empty placeholders in the private Compose file.
       # Do not commit or push the actual credentials.
@@ -29,7 +29,7 @@ services:
     restart: unless-stopped
     configs:
       - source: app_config
-        target: /etc/emby-strm-subtitle-manager/config.yaml
+        target: /etc/subbridge/config.yaml
         mode: 0444
     secrets:
       - source: emby_api_key

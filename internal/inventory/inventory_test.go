@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/media"
+	"github.com/hope140/subbridge/internal/domain"
+	"github.com/hope140/subbridge/internal/media"
 )
 
 type recordingFS struct {

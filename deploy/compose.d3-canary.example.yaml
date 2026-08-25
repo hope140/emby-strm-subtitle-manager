@@ -12,11 +12,11 @@ services:
         read_only: false
       - type: bind
         source: /replace/with/dedicated/d3-history
-        target: /var/lib/emby-strm-subtitle-manager/d3-history
+        target: /var/lib/subbridge/d3-history
         read_only: false
       - type: bind
         source: /replace/with/dedicated/d3-quarantine
-        target: /var/lib/emby-strm-subtitle-manager/d3-quarantine
+        target: /var/lib/subbridge/d3-quarantine
         read_only: false
     secrets:
       - source: d3_canary_items

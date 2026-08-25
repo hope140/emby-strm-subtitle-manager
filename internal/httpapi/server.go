@@ -20,16 +20,16 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/hope140/emby-strm-subtitle-manager/internal/auth"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/d2"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/d3"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/inventory"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/media"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/pathmap"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/version"
+	"github.com/hope140/subbridge/internal/auth"
+	"github.com/hope140/subbridge/internal/config"
+	"github.com/hope140/subbridge/internal/d2"
+	"github.com/hope140/subbridge/internal/d3"
+	"github.com/hope140/subbridge/internal/domain"
+	"github.com/hope140/subbridge/internal/embyclient"
+	"github.com/hope140/subbridge/internal/inventory"
+	"github.com/hope140/subbridge/internal/media"
+	"github.com/hope140/subbridge/internal/pathmap"
+	"github.com/hope140/subbridge/internal/version"
 )
 
 const (
@@ -40,7 +40,7 @@ const (
 	defaultLimit          = 50
 	maxHTTPItemsLimit     = 200
 	maxD2RequestBody      = 8 << 10
-	adminSessionCookie    = "emby_strm_admin_session"
+	adminSessionCookie    = "subbridge_admin_session"
 )
 
 // EmbyReader is the smallest interface needed by the HTTP layer. Keeping the

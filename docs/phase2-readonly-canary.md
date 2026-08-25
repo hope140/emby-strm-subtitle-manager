@@ -76,10 +76,10 @@ Compose 部署必须满足：
 - 日志默认脱敏，不记录 Token、候选原始 ID、认证参数 URL、字幕正文或本机绝对路径。
 - 公网反代使用仓库提供的安全日志基线，只记录粗粒度路由和状态，不记录完整请求行、query、Authorization、Referer、原始 Item ID 或候选 ID；模板见 [OpenResty 公网入口基线](../deploy/openresty/README.md)。
 - Docker 默认只运行 D1 只读能力：`write_enabled=false`、`remote_search_enabled=false`，媒体挂载为只读，配置/Secret 与媒体目录分离，不默认公开管理端口。
-- 若后续获得 D2 单独授权，Compose 必须把宿主机专用的 `/replace/with/dedicated/d2-preview-cache` 仅绑定到容器 `/var/lib/emby-strm-subtitle-manager/d2-preview-cache`，该宿主目录实际 owner 为 `10001:10001`、mode 为 `0700`，且位于媒体映射之外；rootfs 仍保持只读、`/media` 仍保持只读。Canary allowlist 使用新增 `d2_canary_items` file-source Secret，只读注入到 `/run/secrets/d2_canary_items`，宿主文件实际按 `10001:10001`、`0400` 准备，不能只依赖 Compose uid/gid/mode 字段。
+- 若后续获得 D2 单独授权，Compose 必须把宿主机专用的 `/replace/with/dedicated/d2-preview-cache` 仅绑定到容器 `/var/lib/subbridge/d2-preview-cache`，该宿主目录实际 owner 为 `10001:10001`、mode 为 `0700`，且位于媒体映射之外；rootfs 仍保持只读、`/media` 仍保持只读。Canary allowlist 使用新增 `d2_canary_items` file-source Secret，只读注入到 `/run/secrets/d2_canary_items`，宿主文件实际按 `10001:10001`、`0400` 准备，不能只依赖 Compose uid/gid/mode 字段。
 - `/livez` 与只返回极小状态的 `/readyz` 是公开探针；`POST /v1/auth/login` 接受 Compose environment 中的管理员凭据，其余 `/v1/*` 必须携带有效管理员会话或 `Authorization: Bearer <token>`。管理员 environment 缺失或非法时服务启动失败，不回退 Bearer-only UI；缺失、错误或通过 query 传入 Token 均返回统一 401，不回显凭据。Bearer 只读 scope 由 `security.api_auth_scopes` 控制，缺少所需 scope 返回 403；写 scope 在 `write_enabled=false` 时拒绝。
 
-文件型服务端凭据的 `uid`、`gid`、`mode` 选项在不同 Docker 实现中不能作为授权依据。宿主机应先实际核对 `emby_api_key`、`app_identity_key`、`app_api_auth_token` 的权限，再用应用用户做容器内可读性预检，例如 `docker compose run --rm --no-deps --entrypoint sh app -c 'test -r /run/secrets/app_api_auth_token && test -r /run/secrets/emby_api_key && test -r /run/secrets/app_identity_key && test -r /etc/emby-strm-subtitle-manager/config.yaml'`。管理员 environment 由启动校验覆盖，预检只返回成功/失败，不输出凭据内容。
+文件型服务端凭据的 `uid`、`gid`、`mode` 选项在不同 Docker 实现中不能作为授权依据。宿主机应先实际核对 `emby_api_key`、`app_identity_key`、`app_api_auth_token` 的权限，再用应用用户做容器内可读性预检，例如 `docker compose run --rm --no-deps --entrypoint sh app -c 'test -r /run/secrets/app_api_auth_token && test -r /run/secrets/emby_api_key && test -r /run/secrets/app_identity_key && test -r /etc/subbridge/config.yaml'`。管理员 environment 由启动校验覆盖，预检只返回成功/失败，不输出凭据内容。
 
 镜像构建使用 Compose 的 `IMAGE_TAG`、`BUILD_VERSION`、`BUILD_COMMIT`、`BUILD_TIME` 和 `BUILD_SOURCE` 参数。正式部署应将 `IMAGE_TAG` 固定为不可变发布标签或摘要，并在启动前用 `docker image inspect` 核对 `org.opencontainers.image.version`、`revision`、`created` 和 `source` 标签与构建记录一致；回滚时重新指定已验收的旧标签或摘要，不使用浮动标签覆盖当前版本。
 

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
+	"github.com/hope140/subbridge/internal/domain"
+	"github.com/hope140/subbridge/internal/embyclient"
 )
 
 type fakeRemoteClient struct {

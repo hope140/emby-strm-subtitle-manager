@@ -1,4 +1,4 @@
-# Emby STRM Subtitle Manager — Gate0 实测报告
+# SubBridge（SB，字幕桥）— Gate0 实测报告
 
 日期：2026-08-24
 

@@ -26,7 +26,7 @@
 
 已跟踪修改文件：
 
-`.gitignore`、`AGENTS.md`、`Emby_STRM_Subtitle_Manager_Master_Plan_Revised.md`、`README.md`、`cmd/server/main.go`、`deploy/config.example.yaml`、`deploy/config.host-network.example.yaml`、`docs/README.md`、`docs/adr/003-phase2-milestones-and-deployment.md`、`docs/adr/README.md`、`docs/architecture.md`、`docs/d1-deployment-acceptance.md`、`docs/d1.5-deployment-preflight.md`、`docs/d1.5-readonly-ui.md`、`docs/lessons-learned.md`、`docs/phase2-readonly-canary.md`、`internal/config/config.go`、`internal/config/config_test.go`、`internal/domain/domain.go`、`internal/embyclient/client.go`、`internal/embyclient/dto.go`、`internal/httpapi/server.go`、`internal/httpui/assets/app.css`、`internal/httpui/assets/app.js`、`internal/httpui/assets/index.html`、`internal/httpui/handler.go`、`internal/httpui/handler_test.go`。
+`.gitignore`、`AGENTS.md`、`SubBridge_Master_Plan_Revised.md`、`README.md`、`cmd/server/main.go`、`deploy/config.example.yaml`、`deploy/config.host-network.example.yaml`、`docs/README.md`、`docs/adr/003-phase2-milestones-and-deployment.md`、`docs/adr/README.md`、`docs/architecture.md`、`docs/d1-deployment-acceptance.md`、`docs/d1.5-deployment-preflight.md`、`docs/d1.5-readonly-ui.md`、`docs/lessons-learned.md`、`docs/phase2-readonly-canary.md`、`internal/config/config.go`、`internal/config/config_test.go`、`internal/domain/domain.go`、`internal/embyclient/client.go`、`internal/embyclient/dto.go`、`internal/httpapi/server.go`、`internal/httpui/assets/app.css`、`internal/httpui/assets/app.js`、`internal/httpui/assets/index.html`、`internal/httpui/handler.go`、`internal/httpui/handler_test.go`。
 
 未跟踪文件：
 

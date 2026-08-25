@@ -1,4 +1,4 @@
-# Emby STRM 字幕管理器修订版总体规划
+# SubBridge（SB，字幕桥）修订版总体规划
 
 文档状态　可执行规划草案
 
@@ -364,7 +364,7 @@ GET  /v1/audit-events
 
 Search 返回结果时附带 ProviderCapabilities。Refresh 由 Installer 和 Reconciler 内部调用，不作为普通前端按钮的主要接口。
 
-D2 阶段只实现 Search、Fetch、Preview；详细请求/响应、稳定错误码、候选 Token、PreviewArtifact、资源上限和安全边界见 [D2 搜索预览契约与安全设计](docs/d2-search-preview-contract.md)。Add、Replace、Delete、Upload 和 Refresh 仍属于后续阶段。
+D2 阶段只实现 Search、Fetch、Preview；详细请求/响应、稳定错误码、候选 Token、PreviewArtifact、资源上限和安全边界见 [D2 搜索预览契约与安全设计](docs/d2-search-preview-contract.md)。专用单源 Add 与内部 Refresh 已在 D3.1 完成；日常 Add、多源正向能力、Replace、Delete 和 Upload 仍属于后续阶段，当前拆分见 [当前状态与后续路线图](docs/current-status-and-roadmap.md)。
 
 ## 10. 配置与凭据
 
@@ -451,7 +451,7 @@ Gate 0 通过后才能决定是否沿用 Emby Bridge。若 Fetch 不稳定或 Pr
 
 本阶段按 [ADR-003](docs/adr/003-phase2-milestones-and-deployment.md) 作为 D1 只读 Canary 执行，并由 [ADR-005](docs/adr/005-conditional-d2-entry-without-live-multisource.md) 规定缺少真实多源样本时的 D2 条件入口。默认使用 Linux Docker Compose 单应用容器、媒体只读挂载和 `write_enabled=false`，通过私网或 SSH 隧道做实际验收。具体 API、安全边界和门禁见 [D1 验收定义](docs/phase2-readonly-canary.md)。
 
-当前进度：D1 的 Go 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 以及 Movie、Episode STRM 真实 Canary 已完成并记录在 [D1 部署验收报告](docs/d1-deployment-acceptance.md)。Docker Compose schema/build、host-network、UID 10001、只读 root、只读媒体、三份 Secret 权限、`/readyz`、Bearer 认证、版本溯源标签、FRP 单代理加密和公网应用端口防火墙边界均已通过。C92 已找到真实 Movie 版本组；详情读取只有在 `Fields` 包含 `AlternateMediaSources` 时才能得到完整两个 `MediaSources`，客户端字段修正、本地回归、两个真实 Item 的 source 对应核对以及真实多源 API/source 对应和 D2 409 安全拒绝 Canary 已完成，证据见 [D2 多源真实 API Canary](docs/d2-multisource-c92-canary-acceptance-20260825.md)。按 ADR-005，可以继续 D2 契约、实现和单源 Canary；多源正向 Search、Fetch、Preview 以及真实浏览器 UI source 点击在正向能力门禁通过前必须安全拒绝且不得宣称支持。`write_enabled=false` 和 `remote_search_enabled=false` 继续保持默认关闭，D3 及所有写入门禁不变。
+当前进度：D1 的 Go 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 以及 Movie、Episode STRM 真实 Canary 已完成并记录在 [D1 部署验收报告](docs/d1-deployment-acceptance.md)。D2 单源 Search→Fetch→Preview 真实 API Canary、D2.5 管理员认证和 D3.1 专用单源 Add 也已完成；D3.1 已取得 Emby Web 与手机端实际客户端读取确认。C92 已找到真实 Movie 版本组，完整 `AlternateMediaSources` 读取、source 对应核对和 D2 409 安全拒绝已完成，但多源正向 Search、Fetch、Preview、Add 尚未实现。当前运行态继续保持 `write_enabled=false`、`remote_search_enabled=false` 和只读媒体挂载；统一完成度见 [当前状态与后续路线图](docs/current-status-and-roadmap.md)。
 
 - 实现 MediaContext 和 PathMapper
 - 从 Emby 浏览电影与剧集
@@ -490,9 +490,11 @@ Phase 3 完成后暂停。只有真实 Movie、Episode 和 STRM 验收都通过�
 
 ### Phase 4　安全写入
 
-D3 专用样本 Add 的代码、本地自动化和 C92 真实闭环现已完成，包含会话 CSRF、写 scope、独立 allowlist、Artifact 绑定、原子非覆盖版本文件、Emby Refresh/轮询、history/quarantine、字幕流回读和 Emby Web 客户端读取。验收结束后已恢复 closed 配置、写入和远程搜索开关关闭；Replace、Delete、Upload 和批量写入继续保持关闭。实现契约和证据见 [D3 专用样本 Add 契约](docs/d3-dedicated-add-contract.md) 与 [D3 C92 Canary 验收](docs/d3-c92-canary-acceptance-20260825.md)。
+D3.1 专用样本 Add 的代码、本地自动化和 C92 真实闭环现已完成，包含会话 CSRF、写 scope、独立 allowlist、Artifact 绑定、Item 锁、幂等操作、原子非覆盖版本文件、Emby Refresh/轮询、history/quarantine、字幕流回读，以及 Emby Web 和手机端实际客户端读取。验收结束后已恢复 closed 配置、写入和远程搜索开关关闭。这里的“D3.1 完成”不等于整个 Phase 4 完成；日常 Add、多源正向写入、Replace、Delete、Upload 和批量写入继续保持关闭。实现契约和证据见 [D3 专用样本 Add 契约](docs/d3-dedicated-add-contract.md) 与 [D3 C92 Canary 验收](docs/d3-c92-canary-acceptance-20260825.md)。
 
 本阶段先以 ADR-003 的 D3 专用样本 Add 作为第一步，并要求 D2.5 管理员会话、CSRF 和写入 scope 门禁已经通过。Replace、Delete、Upload、批量处理和其他写操作必须在专用样本验收证据充分后另行开放。
+
+后续按 [当前状态与后续路线图](docs/current-status-and-roadmap.md) 压缩推进：Core A 在一个任务内完成日常 Add 与正向多源 Search→Preview→Add，Core B 连续完成 Replace、Upload 和可恢复 Delete；两部分完成后只做一次综合 C92 验收。现有 UI 在核心阶段只补最小操作入口，媒体库层级、设置、日志和整体视觉统一延后到核心测试版稳定以后。
 
 - Add、Replace、Delete、Upload
 - Item 锁、幂等操作和原子写入
@@ -510,6 +512,8 @@ D3 专用样本 Add 的代码、本地自动化和 C92 真实闭环现已完成�
 - 添加、替换、删除和上传
 - Settings、Provider 状态和错误提示
 - 操作历史与恢复入口
+- 首次部署、升级、回滚和媒体目录权限预检
+- 正式版本标签与容器镜像发布
 
 ### Phase 6　缺字幕与批量管理
 
@@ -537,7 +541,7 @@ No concurrent manual operation
 
 手工 Offset、Scale 和字幕版本保存可以在 V1 稳定后实现。
 
-自动 VAD、语音识别、跨语言字幕对齐和删减版匹配拆成独立研究线。它们不写入 V1 或 V1.1 的交付承诺，也不能阻塞字幕管理器发布。
+自动 VAD、语音识别、跨语言字幕对齐和删减版匹配拆成独立研究线。它们不写入 V1 或 V1.1 的交付承诺，也不能阻塞 SubBridge 发布。
 
 ## 12. 测试和验收
 

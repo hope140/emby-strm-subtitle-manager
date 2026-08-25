@@ -2,7 +2,7 @@
 
 ## 适用范围
 
-本文件适用于 Emby STRM 字幕管理器仓库中的代码、测试、文档和本地验证。当前阶段以 [总体规划](Emby_STRM_Subtitle_Manager_Master_Plan_Revised.md)和 [Gate 0 实测报告](GATE0_REPORT.md)为事实起点。
+本文件适用于 SubBridge（SB，字幕桥）仓库中的代码、测试、文档和本地验证。当前阶段以 [总体规划](SubBridge_Master_Plan_Revised.md)和 [Gate 0 实测报告](GATE0_REPORT.md)为事实起点。
 
 ## 开始任务前的读取顺序
 

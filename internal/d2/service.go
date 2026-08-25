@@ -15,12 +15,12 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/preview"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/subtitle"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/subtitleprovider"
+	"github.com/hope140/subbridge/internal/config"
+	"github.com/hope140/subbridge/internal/domain"
+	"github.com/hope140/subbridge/internal/embyclient"
+	"github.com/hope140/subbridge/internal/preview"
+	"github.com/hope140/subbridge/internal/subtitle"
+	"github.com/hope140/subbridge/internal/subtitleprovider"
 )
 
 const maxPreviewResponseBytes = 1 << 20

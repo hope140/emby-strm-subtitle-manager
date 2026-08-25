@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
+	"github.com/hope140/subbridge/internal/embyclient"
 )
 
 const (

@@ -1,7 +1,7 @@
 # Load this file inside nginx's http context before the site server block.
 # It emits only coarse route names, never raw paths, query strings, referers,
 # Authorization/Cookie headers, Emby item IDs, or subtitle candidate IDs.
-map $uri $embysm_route {
+map $uri $subbridge_route {
     default                                      other;
     /                                            ui;
     ~^/assets/                                   ui_assets;
@@ -15,7 +15,7 @@ map $uri $embysm_route {
     ~^/v1/media/[^/]+$                           media;
 }
 
-log_format emby_strm_subtitle_safe
+log_format subbridge_safe
     '$remote_addr [$time_local] "$request_method $server_protocol" '
-    'route=$embysm_route status=$status bytes=$body_bytes_sent '
+    'route=$subbridge_route status=$status bytes=$body_bytes_sent '
     'request_time=$request_time';

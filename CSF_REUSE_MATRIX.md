@@ -1,6 +1,6 @@
 # ChineseSubFinder 复用矩阵
 
-范围：上游 commit `3335a9c95eec8e1664b7ab29368c34ce10f13575` 的静态代码取证，以及本次基线中可执行的局部测试。结论针对当前 Emby STRM 字幕管理器 V1，V1 的事实约束仍以 [ADR-001](docs/adr/001-v1-uses-emby-remote-subtitle-bridge.md)、已接受的 [ADR-002](docs/adr/002-project-codebase-route.md)、[总体规划](Emby_STRM_Subtitle_Manager_Master_Plan_Revised.md) 和 Gate 0 为准。
+范围：上游 commit `3335a9c95eec8e1664b7ab29368c34ce10f13575` 的静态代码取证，以及本次基线中可执行的局部测试。结论针对当前 SubBridge（SB，字幕桥）V1，V1 的事实约束仍以 [ADR-001](docs/adr/001-v1-uses-emby-remote-subtitle-bridge.md)、已接受的 [ADR-002](docs/adr/002-project-codebase-route.md)、[总体规划](SubBridge_Master_Plan_Revised.md) 和 Gate 0 为准。
 
 ADR-002 已正式接受方案 B：新建轻量 Go 后端，选择性复用；本矩阵仍只记录复用边界和证据，不授权现在开始编写 MediaContext、Inventory 或 Installer。
 

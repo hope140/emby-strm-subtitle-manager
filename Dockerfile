@@ -16,14 +16,14 @@ RUN go mod download
 
 COPY cmd ./cmd
 COPY internal ./internal
-RUN go build -trimpath -buildvcs=false -ldflags="-s -w -X github.com/hope140/emby-strm-subtitle-manager/internal/version.Version=${BUILD_VERSION} -X github.com/hope140/emby-strm-subtitle-manager/internal/version.Commit=${BUILD_COMMIT} -X github.com/hope140/emby-strm-subtitle-manager/internal/version.BuildTime=${BUILD_TIME}" -o /out/emby-strm-subtitle-manager ./cmd/server
+RUN go build -trimpath -buildvcs=false -ldflags="-s -w -X github.com/hope140/subbridge/internal/version.Version=${BUILD_VERSION} -X github.com/hope140/subbridge/internal/version.Commit=${BUILD_COMMIT} -X github.com/hope140/subbridge/internal/version.BuildTime=${BUILD_TIME}" -o /out/subbridge ./cmd/server
 
 FROM alpine:3.24.1
 
 ARG BUILD_VERSION=dev
 ARG BUILD_COMMIT=unknown
 ARG BUILD_TIME=unknown
-ARG BUILD_SOURCE=unknown
+ARG BUILD_SOURCE=https://github.com/hope140/subbridge
 
 LABEL org.opencontainers.image.version="${BUILD_VERSION}" \
       org.opencontainers.image.revision="${BUILD_COMMIT}" \
@@ -34,7 +34,7 @@ RUN apk add --no-cache ca-certificates \
     && addgroup -S -g 10001 app \
     && adduser -S -D -H -u 10001 -G app app
 
-COPY --from=build --chown=app:app /out/emby-strm-subtitle-manager /usr/local/bin/emby-strm-subtitle-manager
+COPY --from=build --chown=app:app /out/subbridge /usr/local/bin/subbridge
 
 USER 10001:10001
 EXPOSE 8080
@@ -45,4 +45,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/livez"]
 
-ENTRYPOINT ["/usr/local/bin/emby-strm-subtitle-manager"]
+ENTRYPOINT ["/usr/local/bin/subbridge"]

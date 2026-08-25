@@ -13,7 +13,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/hope140/emby-strm-subtitle-manager/internal/pathsecurity"
+	"github.com/hope140/subbridge/internal/pathsecurity"
 	"gopkg.in/yaml.v3"
 )
 

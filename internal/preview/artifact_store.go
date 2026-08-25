@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hope140/emby-strm-subtitle-manager/internal/pathsecurity"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/subtitle"
+	"github.com/hope140/subbridge/internal/pathsecurity"
+	"github.com/hope140/subbridge/internal/subtitle"
 )
 
 var (

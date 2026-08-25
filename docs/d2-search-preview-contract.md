@@ -1,9 +1,9 @@
 # D2 搜索预览契约与安全设计
 
-- 状态　D2 后端、内嵌只读 UI 与 D2.5-A/B/C 管理员会话和只读 scope 已在本地实现；C92 已找到真实版本组并完成完整 source 字段、应用/API 对应和 D2 409 安全拒绝 Canary，真实浏览器 UI 显式 source 点击和多源正向支持仍待独立任务
-- 日期　2026-08-24
+- 状态　D2 后端、内嵌只读 UI 与 D2.5 管理员认证已实现；C92 单源真实 Provider API Canary、完整 source 字段、应用/API 对应和多源 409 安全拒绝均已通过，真实管理 UI 点击验收和多源正向支持仍待独立任务
+- 日期　2026-08-25
 - 适用范围　ADR-003 的 D2、ADR-005 规定的单源条件入口
-- 当前实现　后端、安全门禁、内嵌 UI、Compose environment 管理员登录和 Fake Emby 测试已实现；真实 Provider Canary、部署和重启不在本轮范围
+- 当前实现　后端、安全门禁、内嵌 UI、Compose environment 管理员登录、Fake Emby 测试和 C92 单源真实 API Canary 已完成；C92 管理 UI Search→Fetch→Preview 点击流程和多源正向 Search、Fetch、Preview 尚未完成
 
 本文把 D2 的搜索、Fetch、预览和安全边界固定下来。它不授权真实环境启用远程搜索，不改变 `remote_search_enabled=false` 的默认值，也不授权部署、重启、媒体库写入或 Emby 配置修改。
 
@@ -404,7 +404,7 @@ features:
 
 d2:
   # 专用、稳定、绝对路径；必须位于所有媒体映射之外。
-  cache_dir: /var/lib/emby-strm-subtitle-manager/d2-preview-cache
+  cache_dir: /var/lib/subbridge/d2-preview-cache
   canary:
     enabled: false
     # 一行一个精确 Item ID，通过只读 Secret 注入，文件源位于媒体映射之外。

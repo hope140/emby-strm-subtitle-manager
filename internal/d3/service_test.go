@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/pathmap"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/preview"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/subtitle"
+	"github.com/hope140/subbridge/internal/config"
+	"github.com/hope140/subbridge/internal/domain"
+	"github.com/hope140/subbridge/internal/pathmap"
+	"github.com/hope140/subbridge/internal/preview"
+	"github.com/hope140/subbridge/internal/subtitle"
 )
 
 type fakeItemReader struct {

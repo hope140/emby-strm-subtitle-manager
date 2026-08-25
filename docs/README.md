@@ -1,13 +1,14 @@
-# 文档索引
+# SubBridge 文档索引
 
 这套文档把当前事实、长期决策、维护经验和本机信息分开保存。开发前按需要读取，任务结束后通过 Knowledge Review 决定是否更新。
 
-当前状态：Phase 1 已完成路线决策和文档收口，ADR-002 和 ADR-003 已接受并选择方案 B 及其 D1→D2→D3 里程碑。D1 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM 真实 Canary 已验收；D2 实现已形成不可变 commit，并完成一次 C92 单源真实 Search→Fetch→Preview Canary，随后已关闭 D2 开关。D2.5-A/B/C 已完成源码和自动化验证，D2.5-D 已基于 b9916d1 完成 C92 app-only 验收，a70bf89 完整 MediaSources 修正完成 app-only 重建，784ad32 scope 版本也已完成 C92 app-only 发布和本机探针验收，过程见 [D2.5 目标环境迁移预检](d2.5-target-migration-preflight-20260825.md)。C92 已找到真实 Movie 版本组；两个真实 Item 的完整 source 集合已与应用响应完成只读对应核对，随后完成了真实多源 API/source 对应和 D2 `409 d2_multisource_unsupported` 安全拒绝 Canary，详见 [D2 多源真实 API Canary](d2-multisource-c92-canary-acceptance-20260825.md)。D3 专用样本 Add 已完成代码、自动化验证和 C92 真实闭环，验收结束后恢复 closed 配置；详见 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)。SH/FRP/OpenResty、公网 18080 和多源正向搜索仍不在本轮范围。上游构建基线的失败和未验证项仍以 [Phase 1 基线报告](../BASELINE.md) 为准；它们不等同于新 Go 服务的验证结果。
+当前统一状态见 [当前状态与后续路线图](current-status-and-roadmap.md)。截至 2026-08-25，D1、D2 单源后端、D2.5 和 D3.1 专用单源 Add 已完成相应自动化与真实验收，D3.1 又补充了手机端实际客户端读取确认；多源正向流程、日常 Add、Replace、Upload、Delete、正式镜像发布和 V1 产品收口仍未完成。历史阶段报告继续保存当时的范围和证据，不再各自充当“当前进度”的正式来源。
 
 ## 正式文档
 
 | 文档 | 保存内容 | 不保存的内容 |
 |---|---|---|
+| [当前状态与后续路线图](current-status-and-roadmap.md) | 当前完成度、剩余缺口、推进优先级和运行边界 | 一次性执行命令、凭据和实时部署状态 |
 | [当前架构](architecture.md) | 已实现或实测确认的组件、数据流和边界 | 未来愿景和未验证设计 |
 | [维护经验](lessons-learned.md) | 隐蔽、高复用、有证据的规则 | 一次性排错流水账 |
 | [ADR](adr/README.md) | 长期架构选择、原因和代价 | 局部实现细节 |
@@ -15,7 +16,7 @@
 | [Phase 2 只读 Canary](phase2-readonly-canary.md) | D1 已实现切片的 API、配置、安全边界和自动/真实验收门禁 | D2 搜索预览和 D3 写入实现 |
 | [D2 搜索预览契约](d2-search-preview-contract.md) | D2 Search、Fetch、Preview、错误码、Token/Artifact 生命周期、安全预算、完整 MediaSources 读取和测试矩阵 | 真实 Canary、部署和写入能力 |
 | [D2-B1 后端实现评审](d2-b1-backend-implementation-review.md) | D2-B1 代码、单元测试、Fake Emby 证据和残余门禁 | 真实 Canary、部署和 UI 验收 |
-| [D2-B2 UI 评审](d2-b2-readonly-ui-review.md) | D2 UI、内存 Token 边界与本地 Fake Emby 浏览器 E2E | 真实 Provider/客户端 Canary、部署和写入能力 |
+| [D2-B2 UI 评审](d2-b2-readonly-ui-review.md) | D2 UI、内存 Token 边界与本地 Fake Emby 浏览器 E2E | C92 管理 UI 真实点击验收、部署和写入能力 |
 | [D2-C C92 预检](d2-c-c92-canary-preflight.md) | C92 有界只读 Item 选择、实时版本核对和 Canary 阻断证据 | 真实 D2 Search、Fetch、Preview Canary |
 | [D2-C C92 部署前核对](d2-c92-deployment-preflight.md) | C92 现网 D1 安全边界、回滚点和 D2 发布阻断证据 | D2 部署、重启和真实 Canary |
 | [D2 发布候选审计](d2-release-candidate-audit.md) | 本地 Git、敏感信息、测试构建证据与发布阻断项 | C92 部署、重启和真实 canary |

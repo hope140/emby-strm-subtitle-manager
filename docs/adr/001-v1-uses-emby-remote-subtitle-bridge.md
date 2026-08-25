@@ -66,4 +66,4 @@ Fetch 失败不能清空搜索结果。临时错误最多重试一次，上游 4
 
 - [Gate 0 实测报告](../../GATE0_REPORT.md)
 - [当前架构](../architecture.md)
-- [总体规划](../../Emby_STRM_Subtitle_Manager_Master_Plan_Revised.md)
+- [总体规划](../../SubBridge_Master_Plan_Revised.md)

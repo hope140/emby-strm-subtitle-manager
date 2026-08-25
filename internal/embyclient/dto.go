@@ -3,7 +3,7 @@ package embyclient
 import (
 	"strings"
 
-	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
+	"github.com/hope140/subbridge/internal/domain"
 )
 
 // Pointer fields intentionally preserve the distinction between an omitted

@@ -15,9 +15,9 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/media"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/pathmap"
+	"github.com/hope140/subbridge/internal/domain"
+	"github.com/hope140/subbridge/internal/media"
+	"github.com/hope140/subbridge/internal/pathmap"
 )
 
 // FileSystem is intentionally smaller than fs.FS. Inventory may enumerate a

@@ -1,6 +1,6 @@
 # D3 专用样本 Add 契约
 
-状态：专用样本 Add 的实现和 C92 真实验收已完成，验收记录见 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)。D3 只开放“把已经通过 D2 Validator 的 Artifact 添加到一个服务端 allowlist 专用样本”。Replace、Delete、Upload、批量处理和普通全库写入仍不在本阶段。
+状态：专用样本 Add 的实现和 C92 真实验收已完成，Emby Web 与手机端实际客户端读取均已确认；验收记录见 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)。D3 只开放“把已经通过 D2 Validator 的 Artifact 添加到一个服务端 allowlist 专用样本”。Replace、Delete、Upload、批量处理和普通全库写入仍不在本阶段。
 
 ## 入口与门禁
 

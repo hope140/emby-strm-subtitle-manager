@@ -17,11 +17,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/inventory"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/pathmap"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/version"
+	"github.com/hope140/subbridge/internal/config"
+	"github.com/hope140/subbridge/internal/embyclient"
+	"github.com/hope140/subbridge/internal/inventory"
+	"github.com/hope140/subbridge/internal/pathmap"
+	"github.com/hope140/subbridge/internal/version"
 )
 
 const integrationAPIKey = "d1-integration-token-never-in-response"

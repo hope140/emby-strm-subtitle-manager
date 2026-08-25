@@ -16,7 +16,7 @@ Knowledge Review
 
 - 代码　`internal/d3`、`internal/auth`、`internal/config`、`internal/preview`、`internal/embyclient`、`internal/httpapi`、`internal/httpui` 和 `cmd/server`。
 - 测试　D3 Add 原子写入、幂等重放、Refresh 失败隔离、配置门禁、HTTP CSRF/scope、Emby Refresh 请求及全包测试。
-- 实际运行、日志或可复现结果　真实 C92 Add、Emby 字幕流、应用字幕清单和 Emby Web 客户端读取已在 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md) 中单独记录；D3 写入窗口随后已恢复为 closed。
+- 实际运行、日志或可复现结果　真实 C92 Add、Emby 字幕流、应用字幕清单、Emby Web 客户端读取，以及环境负责人补充的手机端实际播放确认，已在 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md) 中单独记录；D3 写入窗口随后已恢复为 closed。
 
 ## 去重检查
 

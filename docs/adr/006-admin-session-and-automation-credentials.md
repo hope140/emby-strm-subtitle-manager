@@ -88,5 +88,5 @@ D3 Add 已补齐管理员会话 CSRF、同源来源检查、`subtitle:write` sco
 
 - [D2 搜索预览契约](../d2-search-preview-contract.md)
 - [Phase 2 只读 Canary](../phase2-readonly-canary.md)
-- [总体规划](../../Emby_STRM_Subtitle_Manager_Master_Plan_Revised.md)
+- [总体规划](../../SubBridge_Master_Plan_Revised.md)
 - [Compose 示例](../../deploy/compose.example.yaml)

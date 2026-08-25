@@ -27,7 +27,7 @@ func TestRootAndAssets(t *testing.T) {
 	}{
 		{path: "/assets/app.js", contentType: "javascript"},
 		{path: "/assets/app.css", contentType: "text/css"},
-		{path: "/assets/subtitle-steward.svg", contentType: "image/svg+xml"},
+		{path: "/assets/subbridge.svg", contentType: "image/svg+xml"},
 	} {
 		rec := request(handler, http.MethodGet, test.path)
 		if rec.Code != http.StatusOK || !strings.Contains(rec.Header().Get("Content-Type"), test.contentType) {

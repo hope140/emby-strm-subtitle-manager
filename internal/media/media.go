@@ -6,8 +6,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/pathmap"
+	"github.com/hope140/subbridge/internal/domain"
+	"github.com/hope140/subbridge/internal/pathmap"
 )
 
 var (

@@ -16,14 +16,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hope140/emby-strm-subtitle-manager/internal/auth"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/httpui"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/inventory"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/pathmap"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/version"
+	"github.com/hope140/subbridge/internal/auth"
+	"github.com/hope140/subbridge/internal/config"
+	"github.com/hope140/subbridge/internal/domain"
+	"github.com/hope140/subbridge/internal/embyclient"
+	"github.com/hope140/subbridge/internal/httpui"
+	"github.com/hope140/subbridge/internal/inventory"
+	"github.com/hope140/subbridge/internal/pathmap"
+	"github.com/hope140/subbridge/internal/version"
 )
 
 type fakeEmby struct {

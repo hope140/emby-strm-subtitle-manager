@@ -7,10 +7,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/preview"
-	"github.com/hope140/emby-strm-subtitle-manager/internal/subtitleprovider"
+	"github.com/hope140/subbridge/internal/config"
+	"github.com/hope140/subbridge/internal/domain"
+	"github.com/hope140/subbridge/internal/preview"
+	"github.com/hope140/subbridge/internal/subtitleprovider"
 )
 
 type serviceFakeEmby struct {

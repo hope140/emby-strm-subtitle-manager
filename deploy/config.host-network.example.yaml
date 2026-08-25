@@ -32,15 +32,15 @@ d2:
   # Stable, dedicated application storage. Keep it outside every media
   # mapping; do not use /, /srv, a media root, a media parent, a media child,
   # a temporary directory, or a symlinked path.
-  cache_dir: /var/lib/emby-strm-subtitle-manager/d2-preview-cache
+  cache_dir: /var/lib/subbridge/d2-preview-cache
   canary:
     enabled: false
     # One exact approved Emby Item ID per line, injected read-only as a Secret.
     item_allowlist_file: /run/secrets/d2_canary_items
 
 d3:
-  history_dir: /var/lib/emby-strm-subtitle-manager/d3-history
-  quarantine_dir: /var/lib/emby-strm-subtitle-manager/d3-quarantine
+  history_dir: /var/lib/subbridge/d3-history
+  quarantine_dir: /var/lib/subbridge/d3-quarantine
   refresh_timeout_seconds: 10
   canary:
     enabled: false

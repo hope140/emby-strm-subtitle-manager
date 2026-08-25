@@ -1,6 +1,8 @@
-# 当前架构
+# SubBridge 当前架构
 
-本文只描述截至 2026 年 8 月 25 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已验收；D2 后端、内嵌 UI、本地 Fake Emby 浏览器自动化和 D2.5-A/B/C 管理员会话与只读 scope 已完成本地验证并在 C92 app-only 运行。D2.5 已基于公开 b9916d1 完成 C92 app-only 部署与认证验收，随后 a70bf89 完整 MediaSources 修正完成 C92 app-only 重建，784ad32 scope 版本也完成 app-only 发布和本机探针验收；SH/FRP/OpenResty 和公网 18080 未在本任务处理。C92 已找到真实版本组，并确认 Emby 4.9.x 详情请求必须包含 `AlternateMediaSources` 才能读取完整 source 列表；客户端字段修正、本地回归、两个真实 Item 的 source 对应核对以及真实 API/source 对应和 D2 `409 d2_multisource_unsupported` 安全拒绝 Canary 已完成，详见 [D2 多源真实 API Canary](d2-multisource-c92-canary-acceptance-20260825.md)。D3 专用样本 Add 已完成真实 C92 闭环，包含独立 allowlist、写 scope、CSRF、原子非覆盖写入、Refresh/轮询、history/quarantine、字幕流回读和 Emby Web 客户端读取；验收结束后恢复 closed 配置。真实多源正向 Search、Fetch、Preview 和真实浏览器 UI source 点击流程仍未验收，真实多源搜索仍不得宣称支持。Installer、Replace、Delete、Upload 和批量写入仍属于后续阶段，证据见 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)。
+本文只描述截至 2026 年 8 月 25 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容；完成度和后续优先级统一见 [当前状态与后续路线图](current-status-and-roadmap.md)。D1 的只读切片与 C92 部署、D2 单源后端真实 API Canary、D2.5 管理员认证和 D3.1 专用单源 Add 已通过相应验收。D3.1 已覆盖原子写入、Refresh/轮询、history/quarantine、字幕流、Emby Web 和手机端实际客户端读取，验收后恢复 closed 配置。多源读取与安全拒绝已经完成，但多源正向 Search、Fetch、Preview、Add 尚未实现；日常 Add、Replace、Delete、Upload、通用 Installer 和批量写入也仍属于后续阶段。
+
+当前品牌、GitHub 仓库、Go module、构建二进制和新安装 Compose 示例统一使用 `SubBridge`/`subbridge`。已经验收的 C92 Compose project、镜像、容器、目录和 FRP proxy 保留旧技术标识，直到后续获得有功能收益的部署授权；历史报告不追溯改写当时的资源名称。
 
 ## D1 本地实现
 
@@ -104,7 +106,7 @@ Gate 0 已经验证 Emby 能把成功 Fetch 的 Thunder 候选写入 STRM 同目
 
 ## D3 专用样本 Add
 
-D3 只注册 `POST /v1/media/{itemId}/subtitles/add`。请求必须同时通过管理员会话 CSRF/同源校验或 `subtitle:write` Bearer scope、D3 Item allowlist、单 source 选择、D2 Artifact 绑定和 PathGuard containment。服务端在同目录创建临时文件并以非覆盖原子提交生成版本化 sidecar，随后调用官方 `POST /Items/{Id}/Refresh`，轮询选中 source 的 MediaStreams，最后写入 history；失败文件进入独立 quarantine。D3 overlay 仅临时提供 `/media:rw`，目标宿主目录仍须显式允许 UID `10001:10001` 写入，验收后恢复目录权限和 `/media:ro`。D3 真实 C92 Add、Refresh、字幕流和客户端读取已由 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)确认。Replace、Delete、Upload 和批量写入不属于本阶段。
+D3 只注册 `POST /v1/media/{itemId}/subtitles/add`。请求必须同时通过管理员会话 CSRF/同源校验或 `subtitle:write` Bearer scope、D3 Item allowlist、单 source 选择、D2 Artifact 绑定和 PathGuard containment。服务端在同目录创建临时文件并以非覆盖原子提交生成版本化 sidecar，随后调用官方 `POST /Items/{Id}/Refresh`，轮询选中 source 的 MediaStreams，最后写入 history；失败文件进入独立 quarantine。D3 overlay 仅临时提供 `/media:rw`，目标宿主目录仍须显式允许 UID `10001:10001` 写入，验收后恢复目录权限和 `/media:ro`。D3 真实 C92 Add、Refresh、字幕流、Emby Web 和手机端实际客户端读取已由 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)确认。Replace、Delete、Upload 和批量写入不属于本阶段。
 
 V1 通过 Emby Bridge 使用 Meiam Provider。Native Thunder 和 Native ASSRT 暂缓，详见 [ADR-001](adr/001-v1-uses-emby-remote-subtitle-bridge.md)。
 
@@ -114,18 +116,18 @@ D2-B1 在独立 `d2` Service 中实现 Search、Fetch、Preview 的后端闭环�
 
 Remote Subtitle Bridge 只通过服务端 API Key 调用固定的两个 GET 接口。候选原始 ID 不进入 HTTP 响应、日志或 Artifact；Fetch 先做有界字幕校验和 canonical UTF-8 解析，再写入显式配置的专用稳定短期缓存。启用 D2 时 cache_dir 缺失、为根目录、与媒体映射双向 overlap 或通过 symlink/reparse point 到达其他位置都会 fail closed；启动同一缓存目录会回收旧 Artifact。Candidate/Artifact 绑定认证上下文、Item、source、语言和 allowlist generation，过期状态遵循一次 410、清理后 404 的无 tombstone 语义；成功 Fetch 重放复用 Artifact，Preview 只额外重读一次 Item，不重新 Fetch Provider。
 
-D2 HTTP API 接受有效管理员会话或现有 Bearer 自动化凭据，JSON 请求体上限为 8 KiB，并提供固定错误码、并发/频率限流和脱敏请求日志。D2 服务本身不注册 Save；Emby Refresh 和媒体写入只存在于独立、默认关闭的 D3 Add 服务。内嵌 UI 只在 health 明确报告开关启用、且当前选择单源 Movie/Episode 时展示候选、Fetch 与纯文本预览；D3 另外要求 allowlist 和已绑定 Artifact 才显示 Add。管理员密码和 Bearer 不进入 JavaScript 存储，Candidate Token、Artifact Token 和 CSRF Token 仅留在页面内存，页面刷新即回到登录界面。D2-B1 后端证据见 [D2-B1 后端实现评审](d2-b1-backend-implementation-review.md)，本地浏览器证据见 [D2-B2 UI 评审](d2-b2-readonly-ui-review.md)，D2.5 认证证据见 [D2.5 管理员认证](d2.5-admin-auth.md)；真实 Provider Canary 与真实客户端验收仍未完成。
+D2 HTTP API 接受有效管理员会话或现有 Bearer 自动化凭据，JSON 请求体上限为 8 KiB，并提供固定错误码、并发/频率限流和脱敏请求日志。D2 服务本身不注册 Save；Emby Refresh 和媒体写入只存在于独立、默认关闭的 D3 Add 服务。内嵌 UI 只在 health 明确报告开关启用、且当前选择单源 Movie/Episode 时展示候选、Fetch 与纯文本预览；D3 另外要求 allowlist 和已绑定 Artifact 才显示 Add。管理员密码和 Bearer 不进入 JavaScript 存储，Candidate Token、Artifact Token 和 CSRF Token 仅留在页面内存，页面刷新即回到登录界面。D2-B1 后端证据见 [D2-B1 后端实现评审](d2-b1-backend-implementation-review.md)，本地浏览器证据见 [D2-B2 UI 评审](d2-b2-readonly-ui-review.md)，D2.5 认证证据见 [D2.5 管理员认证](d2.5-admin-auth.md)。真实 C92 单源 Provider API Canary 已通过；仍缺 C92 管理 UI 的真实 Search→Fetch→Preview 点击验收和多源正向能力。
 
 项目路线决策已经完成；上游完整构建基线仍有环境阻断和未验证项，但因为项目不采用 CSF 整仓运行时，这些缺口不再阻塞方案 B。ADR-002 已接受，选择新建轻量 Go 后端，选择性复用 ASS/SRT Parser 核心、语言与命名处理经验、相关测试思路、Emby HTTP 调用经验和少量无状态前端组件。
 
-ChineseSubFinder 的旧扫描器、Cloud/SubtitleBest 下载链、Provider Hub、Cron/PreJob、旧任务队列、按视频物理路径保存和视频 Hash 逻辑不进入新运行时。Installer、Replace、Delete、Upload 和批量写入仍属于后续阶段；D2 UI 只覆盖搜索、Fetch 与预览，D3 UI 仅覆盖专用样本 Add。
+ChineseSubFinder 的旧扫描器、Cloud/SubtitleBest 下载链、Provider Hub、Cron/PreJob、旧任务队列、按视频物理路径保存和视频 Hash 逻辑不进入新运行时。当前只实现了 Installer 的专用单源 Add 切片；日常 Add、Replace、Delete、Upload 和批量写入仍属于后续阶段。D2 UI 只覆盖搜索、Fetch 与预览，D3 UI 仅覆盖专用样本 Add。
 
-Phase 2 的交付顺序和默认部署边界已记录在 [ADR-003](adr/003-phase2-milestones-and-deployment.md)：先做 D1 只读 Canary，再做 D2 搜索预览，最后对专用样本做 D3 Add。D1 的代码、自动化、部署和 Movie/Episode STRM Canary 已完成；[ADR-005](adr/005-conditional-d2-entry-without-live-multisource.md) 允许 D2 契约、实现和单源 Canary 继续推进，真实多媒体源样本改为多源搜索支持的独立门禁。样本验收前，多源搜索必须安全拒绝，功能开关继续默认关闭。D2 的详细契约、安全边界、资源预算和测试矩阵见 [D2 搜索预览契约](d2-search-preview-contract.md)；D1 的剩余验收见 [只读 Canary 验收定义](phase2-readonly-canary.md) 与 [D1 部署验收报告](d1-deployment-acceptance.md)。
+Phase 2 的交付顺序和默认部署边界已记录在 [ADR-003](adr/003-phase2-milestones-and-deployment.md)：D1 只读 Canary、D2 单源搜索预览和 D3 专用单源 Add 均已完成对应真实验收。[ADR-005](adr/005-conditional-d2-entry-without-live-multisource.md) 将多源正向支持保留为独立门禁；在该能力完成前，多源搜索继续安全拒绝，功能开关默认关闭。详细完成度和后续里程碑见 [当前状态与后续路线图](current-status-and-roadmap.md)。
 
 ## 证据
 
 - [Gate 0 实测报告](../GATE0_REPORT.md)
-- [总体规划](../Emby_STRM_Subtitle_Manager_Master_Plan_Revised.md)
+- [总体规划](../SubBridge_Master_Plan_Revised.md)
 - [ADR-002：项目代码路线](adr/002-project-codebase-route.md)
 - [ADR-005：缺少真实多源样本时有条件进入 D2](adr/005-conditional-d2-entry-without-live-multisource.md)
 - [D2-B1 后端实现评审](d2-b1-backend-implementation-review.md)

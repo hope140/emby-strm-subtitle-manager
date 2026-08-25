@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hope140/emby-strm-subtitle-manager/internal/subtitle"
+	"github.com/hope140/subbridge/internal/subtitle"
 )
 
 func TestCandidateStoreRandomBindingTTLAndOneShot410(t *testing.T) {
