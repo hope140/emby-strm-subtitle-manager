@@ -35,7 +35,7 @@ Web UI 使用用户名密码登录，服务端签发短期 HttpOnly 会话 Cooki
 
 ## 最终选择
 
-选择方案 C，作为 D2.5 排期项，目标是在 D3 写入能力和公开发布前完成。D2.5-A/B 已在本地实现并通过自动化验证，并已基于公开 `b9916d1` 完成 C92 app-only 部署与认证验收；SH/FRP/OpenResty 未在本任务处理。D2.5-C scope、CSRF 和 D3 写入仍未完成。当前 D2 的共享 Bearer Token 继续作为自动化兼容契约。
+选择方案 C，作为 D2.5 排期项，目标是在 D3 写入能力和公开发布前完成。D2.5-A/B 已在本地实现并通过自动化验证，并已基于公开 `b9916d1` 完成 C92 app-only 部署与认证验收；随后 a70bf89 完整 MediaSources 修正也已完成 app-only 重建与本机探针验收；SH/FRP/OpenResty 未在本任务处理。D2.5-C scope、CSRF 和 D3 写入仍未完成。当前 D2 的共享 Bearer Token 继续作为自动化兼容契约。
 
 ### 管理员登录
 

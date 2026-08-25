@@ -104,7 +104,7 @@ Compose 部署必须满足：
 6. 请求和响应测试证明 API Key、认证参数、STRM 内容和本机绝对路径不会泄露。
 7. 使用受控测试夹具证明 D1 代码没有向 STRM 内部地址发起请求。
 
-上述结果证明 Go 源码和自动化检查通过。历史 C92 D1 版本的 Docker Compose schema/build、host-network、UID 10001、只读 root、只读媒体、三份 D1 文件凭据权限、`/readyz`、Bearer 401 和版本溯源标签已通过部署验收；D2.5 env-only 版本尚未部署，证据摘要见 [D1 部署验收报告](d1-deployment-acceptance.md)。
+上述结果证明 Go 源码和自动化检查通过。历史 C92 D1 版本的 Docker Compose schema/build、host-network、UID 10001、只读 root、只读媒体、三份 D1 文件凭据权限、`/readyz`、Bearer 401 和版本溯源标签已通过部署验收；D2.5 env-only 版本及 a70bf89 MediaSources 修正已在 C92 app-only 验收，过程见 [D2.5 目标环境迁移预检](d2.5-target-migration-preflight-20260825.md)。
 
 这些自动化检查只能证明代码和受控环境行为，不能替代真实 Emby 验收。
 

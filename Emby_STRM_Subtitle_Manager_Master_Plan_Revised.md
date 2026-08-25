@@ -486,7 +486,7 @@ Phase 3 完成后暂停。只有真实 Movie、Episode 和 STRM 验收都通过�
 - 自动化 Token 先支持只读范围，后续将 `media:read`、`subtitle:search`、`subtitle:preview` 与 D3 写入 scope 分开
 - 补齐会话 TTL、重启失效、失败限速、CSRF、日志脱敏、environment 轮换、Compose 预检和浏览器/CLI 验收
 
-详细决策和排期见 [ADR-006](docs/adr/006-admin-session-and-automation-credentials.md)。D2.5-A/B 已完成管理员 environment 登录、短期 HttpOnly 会话、失败限速和 Bearer 自动化兼容，并已基于公开 `b9916d1` 完成 C92 app-only 部署验收；SH/FRP/OpenResty 未在本任务处理。D2.5-C 的细粒度 scope、CSRF 和 D3 写入门禁仍未完成。不得把当前共享 Bearer Token 宣称为细粒度权限系统；`write_enabled=false` 继续保持默认关闭。
+详细决策和排期见 [ADR-006](docs/adr/006-admin-session-and-automation-credentials.md)。D2.5-A/B 已完成管理员 environment 登录、短期 HttpOnly 会话、失败限速和 Bearer 自动化兼容，并已基于公开 `b9916d1` 完成 C92 app-only 部署验收；随后 a70bf89 的完整 MediaSources 修正也已完成 app-only 重建和本机探针验收。SH/FRP/OpenResty 未在本任务处理。D2.5-C 的细粒度 scope、CSRF 和 D3 写入门禁仍未完成。不得把当前共享 Bearer Token 宣称为细粒度权限系统；`write_enabled=false` 继续保持默认关闭。
 
 ### Phase 4　安全写入
 

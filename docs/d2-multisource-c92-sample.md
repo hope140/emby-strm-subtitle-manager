@@ -72,6 +72,6 @@ Knowledge Findings
 
 未验证范围与残余风险
 
-- 客户端字段请求和 DTO 修正仅在本地工作树完成，尚未部署到 C92。
+- 客户端字段请求和 DTO 修正已合并到公开 `main` 的 `a70bf89`，并以 `d2.5-a70bf89` 镜像完成 C92 app-only 重建和本机探针验收；尚未进行真实 Search、Fetch、Preview 多源 Canary。
 - 尚未在 D2 真实 Canary 中执行 Search、Fetch、Preview，也未验证 UI 的显式 source 选择。
 - 版本组的两个详情 Item 都能返回两个 source，但应用需要按绑定的 Item/source 做一致性检查，不能只依赖列表结果。
