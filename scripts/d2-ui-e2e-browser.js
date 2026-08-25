@@ -6,7 +6,7 @@ async (page) => {
 
   async function login() {
     await page.locator("#app-panel").waitFor({ state: "visible" });
-    if (await page.locator("#token").inputValue()) throw new Error("login input retained the Bearer Token");
+    if (await page.locator("#password").inputValue()) throw new Error("login input retained the administrator password");
     await page.getByRole("button", { name: /D2 UI Fixture Movie/ }).click();
   }
 

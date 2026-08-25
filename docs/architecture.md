@@ -1,6 +1,6 @@
 # 当前架构
 
-本文只描述截至 2026 年 8 月 25 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已验收；D2 后端、内嵌 UI 和本地 Fake Emby 浏览器自动化已完成。真实 Provider/客户端 Canary 与真实多媒体源样本仍待验收。真实多源搜索仍不得宣称支持。Installer 和写入能力仍属于后续阶段。
+本文只描述截至 2026 年 8 月 25 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已验收；D2 后端、内嵌 UI、本地 Fake Emby 浏览器自动化和 D2.5-A/B 管理员会话已完成本地验证。D2.5 尚未部署 C92/SH；真实 Provider/客户端 Canary 与真实多媒体源样本仍待验收。真实多源搜索仍不得宣称支持。Installer 和写入能力仍属于后续阶段。
 
 ## D1 本地实现
 
@@ -22,11 +22,11 @@ UI：  GET /
 
 `/livez` 只表示进程存活；`/readyz` 会对 Emby 发起受超时和缓存控制的真实只读探测；`/v1/health` 返回版本、功能开关和当前 Emby readiness 状态。业务路由始终由服务端使用 ItemID 重新查询 Emby。响应只投影展示字段，不暴露 Emby 绝对路径、字幕正文、认证参数或 STRM 内部地址。
 
-D1.5 UI 只浏览既有媒体库、Movie/Episode 混合分页、媒体详情和字幕清单，不增加搜索或写能力。Bearer Token 只存在当前页面内存，刷新后重新输入；UI、静态资源和 API 必须保持同源。访问方式和公网 HTTP/HTTPS 边界见 [D1.5 最小只读 Web UI](d1.5-readonly-ui.md)。
+D1.5 UI 只浏览既有媒体库、Movie/Episode 混合分页、媒体详情和字幕清单，不增加搜索或写能力。发布版 UI 使用管理员用户名和密码登录，服务端签发短期 HttpOnly 会话 Cookie；密码不进入 JavaScript 存储，刷新后 UI 回到登录界面。CLI、定时任务和 CI 使用独立 Bearer Token。UI、静态资源和 API 必须保持同源。访问方式和公网 HTTP/HTTPS 边界见 [D1.5 最小只读 Web UI](d1.5-readonly-ui.md)，认证细节见 [D2.5 管理员认证](d2.5-admin-auth.md)。
 
 应用 API Key 与独立的 identity secret 分离。identity secret 由 Inventory 用于生成稳定、不可逆的本地字幕标识，不能替代或复用 Emby API Key，也不会进入响应和普通日志。
 
-管理 API 使用独立的 `security.api_auth_token_file` Bearer Token。`/livez` 与只返回极小状态的 `/readyz` 保持公开；所有 `/v1/*` 路由均要求 `Authorization: Bearer <token>`，缺失或错误统一返回 401、`WWW-Authenticate: Bearer` 和脱敏错误 envelope。Token 不接受 query 参数，也不写入日志或响应，并且不能复用 Emby API Key 或 identity secret。
+管理 API 使用独立的 `security.api_auth_token_file` Bearer Token，发布版 UI 另使用 `admin_username_file`、`admin_password_file` 注入的管理员凭据。`POST /v1/auth/login` 只接受无 query 的 JSON 用户名和密码，成功后签发 `HttpOnly`、`SameSite=Lax`、固定 TTL 的内存会话；会话服务重启即失效。`/livez` 与只返回极小状态的 `/readyz` 保持公开；除登录路由外的所有 `/v1/*` 路由均接受有效管理员会话或 `Authorization: Bearer <token>`。缺失或错误统一返回 401、`WWW-Authenticate: Bearer` 和脱敏错误 envelope。Bearer 不接受 query 参数，也不写入日志或响应，并且不能复用 Emby API Key、identity secret 或管理员密码。当前尚未实现 Bearer scope、CSRF 或 D3 写入权限。
 
 MediaContext 对单源自动选择，对多源要求显式 `media_source_id`，不会猜测列表第一项。STRM 的 Inventory 和 PathMapper 始终使用 Emby Item.Path；非 STRM 只有本地 MediaSource.Path 可用时才使用它，远程 source path 只作为内部播放定位事实，不参与本地映射、目录检查、响应或日志。STRM 的 IsStrm 判断只看 Item.Path。即使多源共用同一个 Item.Path 的 STRM sidecar 目录，字幕流仍按选中的 MediaSource 保持隔离。PathMapper 支持 POSIX、Windows drive 和 UNC 形式，采用规范化、最长前缀匹配及目录 containment 检查；路径不安全、未映射或目录不可用时返回降级状态和稳定 warning。Inventory 只枚举受控目录、读取文件元数据并合并 Emby MediaStreams，绝不读取 STRM 内容、媒体正文或字幕正文。
 
@@ -110,7 +110,7 @@ D2-B1 在独立 `d2` Service 中实现 Search、Fetch、Preview 的后端闭环�
 
 Remote Subtitle Bridge 只通过服务端 API Key 调用固定的两个 GET 接口。候选原始 ID 不进入 HTTP 响应、日志或 Artifact；Fetch 先做有界字幕校验和 canonical UTF-8 解析，再写入显式配置的专用稳定短期缓存。启用 D2 时 cache_dir 缺失、为根目录、与媒体映射双向 overlap 或通过 symlink/reparse point 到达其他位置都会 fail closed；启动同一缓存目录会回收旧 Artifact。Candidate/Artifact 绑定认证上下文、Item、source、语言和 allowlist generation，过期状态遵循一次 410、清理后 404 的无 tombstone 语义；成功 Fetch 重放复用 Artifact，Preview 只额外重读一次 Item，不重新 Fetch Provider。
 
-D2 HTTP API 使用现有 Bearer 认证，JSON 请求体上限为 8 KiB，并提供固定错误码、并发/频率限流和脱敏请求日志。D2 不注册 Save、Refresh、媒体目录或 D3 写入路由。内嵌 UI 只在 health 明确报告开关启用、且当前选择单源 Movie/Episode 时展示候选、Fetch 与纯文本预览；Token、Candidate Token 与 Artifact Token 都仅留在页面内存，页面刷新即回到登录态。D2-B1 后端证据见 [D2-B1 后端实现评审](d2-b1-backend-implementation-review.md)，本地浏览器证据见 [D2-B2 UI 评审](d2-b2-readonly-ui-review.md)；真实 Provider Canary 与真实客户端验收仍未完成。
+D2 HTTP API 接受有效管理员会话或现有 Bearer 自动化凭据，JSON 请求体上限为 8 KiB，并提供固定错误码、并发/频率限流和脱敏请求日志。D2 不注册 Save、Refresh、媒体目录或 D3 写入路由。内嵌 UI 只在 health 明确报告开关启用、且当前选择单源 Movie/Episode 时展示候选、Fetch 与纯文本预览；管理员密码和 Bearer 不进入 JavaScript 存储，Candidate Token 与 Artifact Token 仅留在页面内存，页面刷新即回到登录界面。D2-B1 后端证据见 [D2-B1 后端实现评审](d2-b1-backend-implementation-review.md)，本地浏览器证据见 [D2-B2 UI 评审](d2-b2-readonly-ui-review.md)，D2.5 认证证据见 [D2.5 管理员认证](d2.5-admin-auth.md)；真实 Provider Canary 与真实客户端验收仍未完成。
 
 项目路线决策已经完成；上游完整构建基线仍有环境阻断和未验证项，但因为项目不采用 CSF 整仓运行时，这些缺口不再阻塞方案 B。ADR-002 已接受，选择新建轻量 Go 后端，选择性复用 ASS/SRT Parser 核心、语言与命名处理经验、相关测试思路、Emby HTTP 调用经验和少量无状态前端组件。
 

@@ -8,6 +8,8 @@ $npx = (Get-Command npx -ErrorAction Stop).Source
 $browserScript = Join-Path $repoRoot 'scripts/d2-ui-e2e-browser.js'
 $session = 'd2-ui-e2e-' + [guid]::NewGuid().ToString('N')
 $testToken = [guid]::NewGuid().ToString('N')
+$testUsername = 'fixture-admin'
+$testPassword = 'fixture-admin-password-2026'
 $stdoutPath = Join-Path ([System.IO.Path]::GetTempPath()) ('d2-ui-fixture-' + [guid]::NewGuid().ToString('N') + '.stdout.log')
 $stderrPath = Join-Path ([System.IO.Path]::GetTempPath()) ('d2-ui-fixture-' + [guid]::NewGuid().ToString('N') + '.stderr.log')
 $fixtureExe = Join-Path ([System.IO.Path]::GetTempPath()) ('d2-ui-fixture-' + [guid]::NewGuid().ToString('N') + '.exe')
@@ -22,6 +24,8 @@ function Start-Fixture {
     )
 
     $env:D2_UI_TEST_TOKEN = $testToken
+    $env:D2_UI_TEST_USERNAME = $testUsername
+    $env:D2_UI_TEST_PASSWORD = $testPassword
     $env:D2_UI_REMOTE_SEARCH_ENABLED = if ($RemoteSearchEnabled) { 'true' } else { 'false' }
     $env:D2_UI_ARTIFACT_TTL_SECONDS = [string]$ArtifactTTLSeconds
     $script:fixtureProcess = Start-Process -FilePath $fixtureExe -WorkingDirectory $repoRoot -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -WindowStyle Hidden -PassThru
@@ -73,14 +77,16 @@ function Invoke-PageCode {
     [void](Invoke-Playwright @('run-code', '--filename', $browserScript))
 }
 
-function Login-With-TestToken {
+function Login-With-TestCredentials {
     $snapshot = [string](Invoke-Playwright @('snapshot') | Out-String)
-    $tokenMatch = [regex]::Match($snapshot, 'textbox "Bearer Token" \[ref=([^\]]+)\]')
+    $usernameMatch = [regex]::Match($snapshot, 'textbox "管理员用户名" \[ref=([^\]]+)\]')
+    $passwordMatch = [regex]::Match($snapshot, 'textbox "管理员密码" \[ref=([^\]]+)\]')
     $loginMatch = [regex]::Match($snapshot, 'button [^\r\n]*?\[ref=([^\]]+)\]')
-    if (-not $tokenMatch.Success -or -not $loginMatch.Success) {
+    if (-not $usernameMatch.Success -or -not $passwordMatch.Success -or -not $loginMatch.Success) {
         throw "Playwright snapshot did not expose the expected login controls: $snapshot"
     }
-    [void](Invoke-Playwright @('fill', $tokenMatch.Groups[1].Value, $testToken))
+    [void](Invoke-Playwright @('fill', $usernameMatch.Groups[1].Value, $testUsername))
+    [void](Invoke-Playwright @('fill', $passwordMatch.Groups[1].Value, $testPassword))
     [void](Invoke-Playwright @('click', $loginMatch.Groups[1].Value))
 }
 
@@ -92,19 +98,19 @@ try {
 
     $disabledURL = Start-Fixture -RemoteSearchEnabled:$false -ArtifactTTLSeconds 600
     [void](Invoke-Playwright @('open', $disabledURL))
-    Login-With-TestToken
+    Login-With-TestCredentials
     Invoke-PageCode -Phase 'disabled'
     Stop-Fixture
 
     $enabledURL = Start-Fixture -RemoteSearchEnabled:$true -ArtifactTTLSeconds 600
     [void](Invoke-Playwright @('goto', $enabledURL))
-    Login-With-TestToken
+    Login-With-TestCredentials
     Invoke-PageCode -Phase 'enabled'
     Stop-Fixture
 
     $expiryURL = Start-Fixture -RemoteSearchEnabled:$true -ArtifactTTLSeconds 1
     [void](Invoke-Playwright @('goto', $expiryURL))
-    Login-With-TestToken
+    Login-With-TestCredentials
     Invoke-PageCode -Phase 'expiry'
     [void](Invoke-Playwright @('close'))
     Write-Output 'D2 UI Playwright E2E passed.'
@@ -124,6 +130,8 @@ finally {
         Stop-Process -Id @($daemon | Select-Object -ExpandProperty ProcessId) -Force -ErrorAction SilentlyContinue
     }
     Remove-Item Env:D2_UI_TEST_TOKEN -ErrorAction SilentlyContinue
+    Remove-Item Env:D2_UI_TEST_USERNAME -ErrorAction SilentlyContinue
+    Remove-Item Env:D2_UI_TEST_PASSWORD -ErrorAction SilentlyContinue
     Remove-Item Env:D2_UI_REMOTE_SEARCH_ENABLED -ErrorAction SilentlyContinue
     Remove-Item Env:D2_UI_ARTIFACT_TTL_SECONDS -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $stdoutPath, $stderrPath, $fixtureExe -Force -ErrorAction SilentlyContinue

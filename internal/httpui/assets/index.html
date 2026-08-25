@@ -16,18 +16,18 @@
       <h1>SubBridge <span class="brand-short">SB · 字幕桥</span></h1>
       </div>
     </div>
-    <button id="logout" class="secondary hidden" type="button">退出</button>
   </header>
 
   <main class="shell">
     <section id="login-panel" class="panel login-panel">
       <h2>连接服务</h2>
-      <p class="muted">输入管理 API Bearer Token。Token 只保留在当前页面内存，刷新后需要重新输入。</p>
+      <p class="muted">输入 Docker 部署时配置的管理员账号和密码。登录会话由服务端短期保留，密码不在面板中修改。</p>
       <form id="login-form" autocomplete="off">
-        <input class="visually-hidden" type="text" name="username" autocomplete="username" value="viewer" tabindex="-1" aria-hidden="true">
-        <label for="token">Bearer Token</label>
+        <label for="username">管理员用户名</label>
+        <input id="username" name="username" type="text" autocomplete="username" spellcheck="false" required>
+        <label for="password">管理员密码</label>
         <div class="token-row">
-          <input id="token" type="password" autocomplete="new-password" spellcheck="false" required>
+          <input id="password" name="password" type="password" autocomplete="current-password" spellcheck="false" required>
           <button type="submit">登录</button>
         </div>
       </form>

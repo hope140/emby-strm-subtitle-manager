@@ -11,7 +11,7 @@ FRPS --FRP proxy encryption--> FRPC
 FRPC loopback --HTTP--> 应用
 ```
 
-这套拓扑保证 Bearer 不跨主机明文传输，但 FRP 的 `transport.useEncryption` 不提供基于 CA 的服务端身份验证，不能描述为每一跳均为 TLS。
+这套拓扑保证管理员密码、会话 Cookie 和 Bearer 不跨主机明文传输，但 FRP 的 `transport.useEncryption` 不提供基于 CA 的服务端身份验证，不能描述为每一跳均为 TLS。
 
 ## 安装顺序
 
@@ -27,7 +27,7 @@ FRPC loopback --HTTP--> 应用
 - 公网只开放 HTTPS 入口；FRPS 的应用 remote port 必须由主机和云防火墙拒绝公网入站。
 - OpenResty 所在主机应能通过 loopback 访问 FRPS remote port。
 - FRPC 的该代理单独启用 `transport.useEncryption = true`，不因本应用改变共享 FRPC 的全局 TLS 设置。
-- `/livez` 与 `/readyz` 可以公开；所有 `/v1/*` 只接受 `Authorization: Bearer`，不接受 query token。
-- D1.5 的 `/`、`/assets/*` 和 `/v1/*` 必须由同一个根路径 location 原样转发，`Authorization` 原样转发但不进入日志；UI 与 API 必须保持同源。
+- `/livez` 与 `/readyz` 可以公开；`/v1/auth/login` 接受管理员用户名/密码，其余 `/v1/*` 接受管理员 HttpOnly Cookie 或 `Authorization: Bearer`，不接受 query token。
+- D1.5 的 `/`、`/assets/*` 和 `/v1/*` 必须由同一个根路径 location 原样转发，`Authorization` 和管理员 Cookie 原样转发但不进入日志；UI 与 API 必须保持同源。
 
-验收必须同时覆盖：证书严格校验、HTTP 跳转 HTTPS、公开探针 200、无或错误 Bearer 401、正确 Bearer 200、应用 remote port 的独立公网探测失败，以及反代日志中不存在认证参数和 Authorization 内容。面板重新生成站点配置后必须重复检查。
+验收必须同时覆盖：证书严格校验、HTTP 跳转 HTTPS、公开探针 200、无或错误 Bearer/管理员会话 401、正确管理员登录后 Cookie 只读请求 200、正确 Bearer 200、应用 remote port 的独立公网探测失败，以及反代日志中不存在认证参数、Cookie 和 Authorization 内容。面板重新生成站点配置后必须重复检查。

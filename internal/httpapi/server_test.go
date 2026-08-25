@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hope140/emby-strm-subtitle-manager/internal/auth"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
@@ -312,6 +313,112 @@ func TestBearerAuthenticationProtectsV1WithoutQueryFallback(t *testing.T) {
 	if strings.Contains(logs.String(), testAuthToken) {
 		t.Fatal("authentication token leaked in logs")
 	}
+}
+
+func TestAdminPasswordLoginIssuesHttpOnlySessionAndKeepsBearerAutomation(t *testing.T) {
+	admin, err := auth.New("operator", "correct horse battery staple", auth.Options{SessionTTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	handler := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.New(slog.NewJSONHandler(&logs, nil)), Services{Emby: &fakeEmby{}, AuthToken: testAuthToken, AdminAuth: admin}).Handler()
+
+	wrong := loginRequest(handler, `{"username":"operator","password":"wrong password"}`)
+	if wrong.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong login status = %d body=%s", wrong.Code, wrong.Body.String())
+	}
+	assertErrorEnvelope(t, wrong, "invalid_credentials")
+	if strings.Contains(wrong.Body.String(), "wrong password") || strings.Contains(logs.String(), "wrong password") {
+		t.Fatal("administrator password leaked")
+	}
+
+	login := loginRequest(handler, `{"username":"operator","password":"correct horse battery staple"}`)
+	if login.Code != http.StatusOK || login.Body.String() != "{\"status\":\"ok\"}\n" {
+		t.Fatalf("login = %d %s", login.Code, login.Body.String())
+	}
+	cookies := login.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != adminSessionCookie || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode || cookies[0].Secure || cookies[0].Value == "" {
+		t.Fatalf("unexpected session cookie: %#v", cookies)
+	}
+	if strings.Contains(login.Body.String(), cookies[0].Value) || strings.Contains(logs.String(), cookies[0].Value) {
+		t.Fatal("session token leaked")
+	}
+
+	withCookie := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	withCookie.AddCookie(cookies[0])
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, withCookie)
+	if response.Code != http.StatusOK {
+		t.Fatalf("session health status = %d body=%s", response.Code, response.Body.String())
+	}
+	withCookieQuery := httptest.NewRequest(http.MethodGet, "/v1/health?token="+testAuthToken, nil)
+	withCookieQuery.AddCookie(cookies[0])
+	queryResponse := httptest.NewRecorder()
+	handler.ServeHTTP(queryResponse, withCookieQuery)
+	if queryResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("session plus query token status = %d, want 401", queryResponse.Code)
+	}
+	if rec := serve(handler, http.MethodGet, "/v1/health"); rec.Code != http.StatusOK {
+		t.Fatalf("bearer automation status = %d", rec.Code)
+	}
+	if rec := serveWithAuthorization(handler, http.MethodGet, "/v1/health?token="+testAuthToken, ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("query bearer status = %d", rec.Code)
+	}
+}
+
+func TestAdminLoginRouteIsPublicOnlyForPOSTAndNoQuery(t *testing.T) {
+	admin, err := auth.New("operator", "correct horse battery staple", auth.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{AuthToken: testAuthToken, AdminAuth: admin}).Handler()
+	for _, test := range []struct {
+		method string
+		target string
+		code   int
+		error  string
+	}{
+		{method: http.MethodGet, target: "/v1/auth/login", code: http.StatusMethodNotAllowed, error: "method_not_allowed"},
+		{method: http.MethodPost, target: "/v1/auth/login?next=/", code: http.StatusBadRequest, error: "invalid_query"},
+		{method: http.MethodPost, target: "/v1/auth/login", code: http.StatusBadRequest, error: "invalid_request"},
+	} {
+		rec := requestWithBody(handler, test.method, test.target, "application/json", `{"username":"operator"}`)
+		if rec.Code != test.code {
+			t.Fatalf("%s %s status = %d, want %d", test.method, test.target, rec.Code, test.code)
+		}
+		assertErrorEnvelope(t, rec, test.error)
+	}
+}
+
+func TestAdminLoginHonorsSecureCookieConfiguration(t *testing.T) {
+	admin, err := auth.New("operator", "correct horse battery staple", auth.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{Security: config.SecurityConfig{SessionCookieSecure: true}}
+	handler := NewServerWithServices(cfg, version.Info{Version: "test"}, slog.Default(), Services{AdminAuth: admin}).Handler()
+	rec := loginRequest(handler, `{"username":"operator","password":"correct horse battery staple"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("secure login status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 || !cookies[0].Secure || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
+		t.Fatalf("secure session cookie = %#v", cookies)
+	}
+}
+
+func loginRequest(handler http.Handler, body string) *httptest.ResponseRecorder {
+	return requestWithBody(handler, http.MethodPost, "/v1/auth/login", "application/json", body)
+}
+
+func requestWithBody(handler http.Handler, method, target, contentType, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
 }
 
 func TestMediaMovieProjectionAndSubtitleInventory(t *testing.T) {

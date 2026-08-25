@@ -55,3 +55,7 @@ Emby 可能把媒体目录中的 `.ass`、`.ssa` 和 `.srt` 备份再次识别�
 按最新排序页检查真实 Movie/Episode 只能证明该样本范围未命中。若门禁要求真实多 MediaSource Item，应记录媒体库数、取样策略、Item/请求上限和实际覆盖量；首段、中段、尾段取样仍然只是有界证据，不能把未命中扩大成全库不存在。
 
 当缺少这种边缘样本会无限期阻断已有独立证据支撑的单源工作时，应通过 ADR 明确拆分门禁，不能在阶段报告里悄悄放宽：允许单源能力继续推进，同时让未经真实验收的多源路径 fail closed，并保留多源支持声明与启用的独立门禁。本项目的具体决策见 [ADR-005](adr/005-conditional-d2-entry-without-live-multisource.md)。
+
+## 10. HttpOnly 会话的浏览器验收不能只看 JavaScript 存储
+
+管理员登录会把短期会话放在 `HttpOnly` Cookie 中。页面脚本读取不到它，所以 `document.cookie` 为空是预期结果，不能据此断言服务端没有会话。验收必须同时检查 Set-Cookie 的 `HttpOnly`、`SameSite`、`Secure` 和 TTL 属性，并用带 Cookie 的只读 API 请求证明会话确实生效。密码输入框提交后应立即清空；刷新页面回到登录界面不代表 Cookie 被脚本持久化。

@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hope140/emby-strm-subtitle-manager/internal/auth"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/d2"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/embyclient"
@@ -46,6 +47,28 @@ func main() {
 	if err != nil {
 		logger.Error("API auth token configuration rejected", "error", err.Error())
 		os.Exit(1)
+	}
+	var adminAuth *auth.Authenticator
+	if cfg.Security.AdminUsernameFile != "" {
+		username, readErr := config.ReadAdminUsername(cfg.Security.AdminUsernameFile)
+		if readErr != nil {
+			logger.Error("administrator username configuration rejected", "error", readErr.Error())
+			os.Exit(1)
+		}
+		password, readErr := config.ReadAdminPassword(cfg.Security.AdminPasswordFile)
+		if readErr != nil {
+			logger.Error("administrator password configuration rejected", "error", readErr.Error())
+			os.Exit(1)
+		}
+		if readErr := config.ValidateAdminPasswordDistinct(password, apiKey, authToken, identityKey); readErr != nil {
+			logger.Error("administrator password configuration rejected", "error", readErr.Error())
+			os.Exit(1)
+		}
+		adminAuth, err = auth.New(username, password, auth.Options{SessionTTL: time.Duration(cfg.Security.SessionTTLSeconds) * time.Second})
+		if err != nil {
+			logger.Error("administrator authentication configuration rejected", "error", err.Error())
+			os.Exit(1)
+		}
 	}
 	mappings := make([]pathmap.Mapping, 0, len(cfg.PathMappings))
 	localRoots := make([]string, 0, len(cfg.PathMappings))
@@ -103,7 +126,7 @@ func main() {
 	server := &http.Server{
 		Addr: cfg.Server.ListenAddress,
 		Handler: httpapi.NewServerWithServices(cfg, version.Current(), logger, httpapi.Services{
-			Emby: client, D2: d2Service, Mapper: mapper, Guard: guard, Inventory: inventoryService, AuthToken: authToken, UI: httpui.NewHandler(),
+			Emby: client, D2: d2Service, Mapper: mapper, Guard: guard, Inventory: inventoryService, AuthToken: authToken, AdminAuth: adminAuth, UI: httpui.NewHandler(),
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,

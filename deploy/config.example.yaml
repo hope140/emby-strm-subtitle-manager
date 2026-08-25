@@ -11,6 +11,11 @@ emby:
 security:
   identity_key_file: /run/secrets/app_identity_key
   api_auth_token_file: /run/secrets/app_api_auth_token
+  admin_username_file: /run/secrets/app_admin_username
+  admin_password_file: /run/secrets/app_admin_password
+  # Set true when the browser always reaches the service through HTTPS.
+  session_cookie_secure: false
+  session_ttl_seconds: 28800
 
 features:
   write_enabled: false

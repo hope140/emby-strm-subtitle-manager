@@ -1,7 +1,6 @@
 (() => {
   "use strict";
 
-  let authToken = "";
   let selectedLibrary = "";
   let startIndex = 0;
   let currentLimit = 50;
@@ -28,9 +27,9 @@
   const elements = {
     loginPanel: document.getElementById("login-panel"),
     loginForm: document.getElementById("login-form"),
-    token: document.getElementById("token"),
+    username: document.getElementById("username"),
+    password: document.getElementById("password"),
     loginError: document.getElementById("login-error"),
-    logout: document.getElementById("logout"),
     appPanel: document.getElementById("app-panel"),
     library: document.getElementById("library"),
     loadItems: document.getElementById("load-items"),
@@ -60,6 +59,10 @@
 
   const safeMessages = {
     unauthorized: "登录已失效，请重新登录。",
+    invalid_credentials: "管理员用户名或密码错误。",
+    login_rate_limited: "登录尝试过于频繁，请稍后重试。",
+    admin_login_unavailable: "管理员登录尚未配置，请检查 Docker Secret。",
+    session_unavailable: "管理员会话暂时不可用，请稍后重试。",
     remote_search_disabled: "远程搜索未启用，请联系管理员确认 D2 Canary 状态。",
     canary_item_not_allowed: "当前媒体未获准进行 D2 预览，请选择已授权的单源 Movie 或 Episode。",
     media_not_found: "媒体不存在或已不可用。",
@@ -145,15 +148,40 @@
     }
   }
 
+  function clearAppState() {
+    listRequestID += 1;
+    detailRequestID += 1;
+    selectedLibrary = "";
+    d2.remoteSearchEnabled = false;
+    fillLibraries([]);
+    resetPage();
+    resetD2ForItem("", false);
+    clear(elements.items);
+    setText(elements.items, "请选择媒体库。");
+    elements.items.className = "item-list empty-state";
+    clear(elements.detail);
+    setText(elements.detail, "选择一个 Movie 或 Episode 查看详情。");
+    elements.detail.className = "empty-state";
+    clearText(elements.appStatus);
+  }
+
+  function expireSession() {
+    clearAppState();
+    elements.appPanel.classList.add("hidden");
+    elements.loginPanel.classList.remove("hidden");
+    elements.password.value = "";
+    setText(elements.loginError, "登录已失效，请重新登录。");
+  }
+
   async function apiGet(resource) {
-    if (!authToken) throw makeError("unauthorized", 401, 0);
     const response = await fetch(resource, {
       method: "GET",
-      headers: { Authorization: "Bearer " + authToken },
+      credentials: "same-origin",
       cache: "no-store"
     });
     const payload = await parseResponse(response);
     if (!response.ok) {
+      if (response.status === 401) expireSession();
       const errorBody = payload && payload.error ? payload.error : {};
       const error = makeError(errorBody.code, response.status, parseRetryAfter(response));
       if (response.status === 409 && payload && Array.isArray(payload.media_sources)) {
@@ -165,18 +193,18 @@
   }
 
   async function apiPost(resource, body) {
-    if (!authToken) throw makeError("unauthorized", 401, 0);
     const response = await fetch(resource, {
       method: "POST",
       headers: {
-        Authorization: "Bearer " + authToken,
         "Content-Type": "application/json"
       },
+      credentials: "same-origin",
       body: JSON.stringify(body),
       cache: "no-store"
     });
     const payload = await parseResponse(response);
     if (!response.ok) {
+      if (response.status === 401) expireSession();
       const errorBody = payload && payload.error ? payload.error : {};
       throw makeError(errorBody.code, response.status, parseRetryAfter(response));
     }
@@ -740,14 +768,16 @@
 
   async function login(event) {
     event.preventDefault();
-    authToken = elements.token.value;
-    elements.token.value = "";
     clearError(elements.loginError);
-    if (!authToken) {
-      setText(elements.loginError, "请输入 Token");
+    const username = elements.username.value;
+    const password = elements.password.value;
+    elements.password.value = "";
+    if (!username || !password) {
+      setText(elements.loginError, "请输入管理员用户名和密码。");
       return;
     }
     try {
+      await apiPost("/v1/auth/login", { username, password });
       const health = await apiGet("/v1/health");
       setRemoteSearchFeature(health);
       const libraries = await apiGet("/v1/emby/libraries");
@@ -755,36 +785,13 @@
       resetPage();
       elements.loginPanel.classList.add("hidden");
       elements.appPanel.classList.remove("hidden");
-      elements.logout.classList.remove("hidden");
       if (selectedLibrary) await loadItems();
     } catch (error) {
-      authToken = "";
       setError(elements.loginError, error);
     }
   }
 
-  function logout() {
-    authToken = "";
-    listRequestID += 1;
-    detailRequestID += 1;
-    selectedLibrary = "";
-    resetD2ForItem("", false);
-    clear(elements.items);
-    clear(elements.detail);
-    setText(elements.items, "请选择媒体库。");
-    setText(elements.detail, "选择一个 Movie 或 Episode 查看详情。");
-    elements.items.className = "item-list empty-state";
-    elements.detail.className = "empty-state";
-    elements.loginPanel.classList.remove("hidden");
-    elements.appPanel.classList.add("hidden");
-    elements.logout.classList.add("hidden");
-    elements.token.value = "";
-    clearError(elements.loginError);
-    clearText(elements.appStatus);
-  }
-
   elements.loginForm.addEventListener("submit", login);
-  elements.logout.addEventListener("click", logout);
   elements.library.addEventListener("change", () => {
     selectedLibrary = elements.library.value;
     detailRequestID += 1;

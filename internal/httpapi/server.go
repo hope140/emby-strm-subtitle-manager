@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/hope140/emby-strm-subtitle-manager/internal/auth"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/d2"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
@@ -37,6 +39,7 @@ const (
 	defaultLimit          = 50
 	maxHTTPItemsLimit     = 200
 	maxD2RequestBody      = 8 << 10
+	adminSessionCookie    = "emby_strm_admin_session"
 )
 
 // EmbyReader is the smallest interface needed by the HTTP layer. Keeping the
@@ -58,6 +61,7 @@ type Services struct {
 	Guard     *pathmap.PathGuard
 	Inventory *inventory.Service
 	AuthToken string
+	AdminAuth *auth.Authenticator
 	UI        http.Handler
 }
 
@@ -72,6 +76,7 @@ type Server struct {
 	guard     *pathmap.PathGuard
 	inventory *inventory.Service
 	authToken []byte
+	adminAuth *auth.Authenticator
 	ui        http.Handler
 }
 
@@ -98,7 +103,7 @@ func NewServerWithServices(cfg config.Config, ver version.Info, logger *slog.Log
 		cfg: cfg, ver: ver, logger: logger, emby: services.Emby,
 		d2:        services.D2,
 		readiness: &readinessProbe{client: services.Emby}, mapper: services.Mapper,
-		guard: services.Guard, inventory: services.Inventory, authToken: []byte(services.AuthToken), ui: services.UI,
+		guard: services.Guard, inventory: services.Inventory, authToken: []byte(services.AuthToken), adminAuth: services.AdminAuth, ui: services.UI,
 	}
 }
 
@@ -109,6 +114,10 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if (r.URL.Path == "/" || strings.HasPrefix(r.URL.Path, "/assets/")) && s.ui != nil {
 		s.ui.ServeHTTP(w, r)
+		return
+	}
+	if r.URL.Path == "/v1/auth/login" {
+		s.handleLogin(w, r)
 		return
 	}
 	if requiresAuthentication(r.URL.Path) && !s.authorized(r) {
@@ -195,14 +204,86 @@ func requiresAuthentication(path string) bool {
 }
 
 func (s *Server) authorized(r *http.Request) bool {
-	if s == nil || len(s.authToken) == 0 {
+	if s == nil {
 		return false
 	}
-	parts := strings.Fields(r.Header.Get("Authorization"))
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+	if _, exists := r.URL.Query()["token"]; exists {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(parts[1]), s.authToken) == 1
+	if len(s.authToken) > 0 {
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") && subtle.ConstantTimeCompare([]byte(parts[1]), s.authToken) == 1 {
+			return true
+		}
+	}
+	if s.adminAuth != nil {
+		cookie, err := r.Cookie(adminSessionCookie)
+		return err == nil && s.adminAuth.ValidSession(cookie.Value)
+	}
+	return false
+}
+
+type loginBody struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		s.writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if !noQuery(r) {
+		s.writeError(w, r, http.StatusBadRequest, "invalid_query", "query parameters are not allowed")
+		return
+	}
+	if s.adminAuth == nil {
+		s.writeError(w, r, http.StatusServiceUnavailable, "admin_login_unavailable", "administrator login is not configured")
+		return
+	}
+	var body loginBody
+	if err := decodeJSONBody(r, &body, maxD2RequestBody); err != nil {
+		s.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid login request")
+		return
+	}
+	if body.Username == "" || body.Password == "" {
+		s.writeError(w, r, http.StatusBadRequest, "invalid_request", "username and password are required")
+		return
+	}
+	token, err := s.adminAuth.Login(remoteClientKey(r), body.Username, body.Password)
+	if errors.Is(err, auth.ErrRateLimited) {
+		w.Header().Set("Retry-After", "60")
+		s.writeError(w, r, http.StatusTooManyRequests, "login_rate_limited", "too many login attempts")
+		return
+	}
+	if errors.Is(err, auth.ErrInvalidCredentials) {
+		s.writeError(w, r, http.StatusUnauthorized, "invalid_credentials", "invalid administrator credentials")
+		return
+	}
+	if err != nil {
+		s.writeError(w, r, http.StatusServiceUnavailable, "session_unavailable", "administrator session is unavailable")
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: adminSessionCookie, Value: token, Path: "/", HttpOnly: true,
+		Secure: s.cfg.Security.SessionCookieSecure, SameSite: http.SameSiteLaxMode,
+		MaxAge: int(s.adminAuth.SessionTTL().Seconds()),
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func remoteClientKey(r *http.Request) string {
+	if r == nil {
+		return "unknown"
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	if len(r.RemoteAddr) <= 128 {
+		return r.RemoteAddr
+	}
+	return "unknown"
 }
 
 func (s *Server) writeUnauthorized(w http.ResponseWriter, r *http.Request) {
@@ -370,12 +451,16 @@ type d2PreviewBody struct {
 }
 
 func decodeD2JSON(r *http.Request, target any) error {
+	return decodeJSONBody(r, target, maxD2RequestBody)
+}
+
+func decodeJSONBody(r *http.Request, target any, maxBytes int64) error {
 	contentType := strings.TrimSpace(strings.ToLower(r.Header.Get("Content-Type")))
 	if contentType != "" && !strings.HasPrefix(contentType, "application/json") {
 		return errors.New("JSON content type is required")
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxD2RequestBody+1))
-	if err != nil || len(body) > maxD2RequestBody {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBytes+1))
+	if err != nil || int64(len(body)) > maxBytes {
 		return errors.New("request body too large")
 	}
 	trimmed := bytes.TrimSpace(body)
@@ -668,7 +753,7 @@ func newRequestID() string {
 
 func routeLabel(path string) string {
 	switch path {
-	case "/", "/livez", "/readyz", "/v1/health", "/v1/emby/libraries", "/v1/emby/items":
+	case "/", "/livez", "/readyz", "/v1/health", "/v1/auth/login", "/v1/emby/libraries", "/v1/emby/items":
 		return path
 	}
 	if strings.HasPrefix(path, "/assets/") {

@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hope140/emby-strm-subtitle-manager/internal/auth"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/config"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/d2"
 	"github.com/hope140/emby-strm-subtitle-manager/internal/domain"
@@ -93,6 +94,18 @@ func main() {
 	if testToken == "" {
 		log.Fatal("D2_UI_TEST_TOKEN is required")
 	}
+	testUsername := strings.TrimSpace(os.Getenv("D2_UI_TEST_USERNAME"))
+	if testUsername == "" {
+		testUsername = "fixture-admin"
+	}
+	testPassword := os.Getenv("D2_UI_TEST_PASSWORD")
+	if testPassword == "" {
+		testPassword = "fixture-admin-password-2026"
+	}
+	adminAuth, err := auth.New(testUsername, testPassword, auth.Options{})
+	if err != nil {
+		log.Fatal("create fixture administrator authentication")
+	}
 	listenAddress := strings.TrimSpace(os.Getenv("D2_UI_LISTEN_ADDRESS"))
 	if listenAddress == "" {
 		listenAddress = "127.0.0.1:0"
@@ -150,7 +163,7 @@ func main() {
 		log.Fatal("create D2 service")
 	}
 	app := httpapi.NewServerWithServices(config.Config{Features: config.FeatureConfig{RemoteSearchEnabled: remoteEnabled}}, version.Info{Version: "d2-ui-fixture"}, slog.New(slog.NewJSONHandler(io.Discard, nil)), httpapi.Services{
-		Emby: fixtureEmby{item: item}, D2: d2Service, Mapper: mapper, Inventory: inventoryService, AuthToken: testToken, UI: httpui.NewHandler(),
+		Emby: fixtureEmby{item: item}, D2: d2Service, Mapper: mapper, Inventory: inventoryService, AuthToken: testToken, AdminAuth: adminAuth, UI: httpui.NewHandler(),
 	}).Handler()
 
 	listener, err := net.Listen("tcp", listenAddress)

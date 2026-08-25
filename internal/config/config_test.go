@@ -182,6 +182,98 @@ func TestReadAPIAuthTokenRequiresHighEntropyAndDistinctSecrets(t *testing.T) {
 	}
 }
 
+func TestReadAdminCredentials(t *testing.T) {
+	dir := t.TempDir()
+	usernameFile := filepath.Join(dir, "admin-username")
+	passwordFile := filepath.Join(dir, "admin-password")
+	if err := os.WriteFile(usernameFile, []byte("operator\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(passwordFile, []byte("correct horse battery staple\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	username, err := ReadAdminUsername(usernameFile)
+	if err != nil || username != "operator" {
+		t.Fatalf("ReadAdminUsername() = %q, %v", username, err)
+	}
+	password, err := ReadAdminPassword(passwordFile)
+	if err != nil || password != "correct horse battery staple" {
+		t.Fatalf("ReadAdminPassword() = %q, %v", password, err)
+	}
+}
+
+func TestReadAdminCredentialsRejectInvalidValuesWithoutLeakage(t *testing.T) {
+	dir := t.TempDir()
+	for name, contents := range map[string]string{
+		"empty":      "\n",
+		"short":      "short\n",
+		"multi-line": "correct horse battery staple\nsecond\n",
+		"control":    "correct horse battery staple\x00\n",
+		"long":       strings.Repeat("x", 257),
+	} {
+		t.Run(name, func(t *testing.T) {
+			filename := filepath.Join(dir, name)
+			if err := os.WriteFile(filename, []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ReadAdminPassword(filename); err == nil || strings.Contains(err.Error(), contents) || strings.Contains(err.Error(), filename) {
+				t.Fatalf("unexpected password result: %v", err)
+			}
+		})
+	}
+	usernameFile := filepath.Join(dir, "username-invalid")
+	if err := os.WriteFile(usernameFile, []byte("operator name\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadAdminUsername(usernameFile); err == nil || strings.Contains(err.Error(), "operator name") {
+		t.Fatalf("invalid username accepted or leaked: %v", err)
+	}
+}
+
+func TestValidateAdministratorSessionConfiguration(t *testing.T) {
+	base := Config{
+		Server:       ServerConfig{ListenAddress: "127.0.0.1:8080"},
+		Emby:         EmbyConfig{URL: "https://emby.example.test", APIKeyFile: "/run/secrets/emby", TimeoutSeconds: 10},
+		Security:     SecurityConfig{IdentityKeyFile: "/run/secrets/identity", APIAuthTokenFile: "/run/secrets/api-auth-token"},
+		PathMappings: []PathMapping{{Emby: "/srv/media", Local: "/media"}},
+	}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("legacy bearer-only config should remain valid during migration: %v", err)
+	}
+	for name, security := range map[string]SecurityConfig{
+		"missing-password":  {IdentityKeyFile: "/run/secrets/identity", APIAuthTokenFile: "/run/secrets/api-auth-token", AdminUsernameFile: "/run/secrets/admin-username"},
+		"relative-username": {IdentityKeyFile: "/run/secrets/identity", APIAuthTokenFile: "/run/secrets/api-auth-token", AdminUsernameFile: "admin-username", AdminPasswordFile: "/run/secrets/admin-password"},
+		"short-ttl":         {IdentityKeyFile: "/run/secrets/identity", APIAuthTokenFile: "/run/secrets/api-auth-token", AdminUsernameFile: "/run/secrets/admin-username", AdminPasswordFile: "/run/secrets/admin-password", SessionTTLSeconds: 59},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := base
+			cfg.Security = security
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("Validate accepted invalid administrator session configuration")
+			}
+		})
+	}
+}
+
+func TestValidateAdminPasswordDistinct(t *testing.T) {
+	identity := bytes.Repeat([]byte{0x5a}, 32)
+	for name, password := range map[string]string{
+		"emby":         "emby-key",
+		"api-token":    "api-token",
+		"identity":     string(identity),
+		"identity-b64": base64.StdEncoding.EncodeToString(identity),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateAdminPasswordDistinct(password, "emby-key", "api-token", identity); err == nil {
+				t.Fatal("reused secret was accepted as administrator password")
+			}
+		})
+	}
+	if err := ValidateAdminPasswordDistinct("different password", "emby-key", "api-token", identity); err != nil {
+		t.Fatalf("distinct password rejected: %v", err)
+	}
+}
+
 func TestIsAbsolutePathPortable(t *testing.T) {
 	for _, path := range []string{"/srv/media", `C:\media`, `D:/media`, `\\server\share\media`, `//server/share/media`} {
 		if !isAbsolutePath(path) {
@@ -428,8 +520,8 @@ func TestBaseComposeHasNoD2Dependencies(t *testing.T) {
 			if !ok || !app.ReadOnly {
 				t.Fatal("base app must keep read_only: true")
 			}
-			if len(app.Secrets) != 3 {
-				t.Fatalf("base Compose must keep exactly the three D1 secrets, got %d", len(app.Secrets))
+			if len(app.Secrets) != 5 {
+				t.Fatalf("base Compose must keep exactly the three D1 secrets plus two administrator secrets, got %d", len(app.Secrets))
 			}
 			mediaFound := false
 			for _, mount := range app.Volumes {

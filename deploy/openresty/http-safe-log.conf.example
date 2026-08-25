@@ -1,6 +1,6 @@
 # Load this file inside nginx's http context before the site server block.
 # It emits only coarse route names, never raw paths, query strings, referers,
-# Authorization headers, Emby item IDs, or subtitle candidate IDs.
+# Authorization/Cookie headers, Emby item IDs, or subtitle candidate IDs.
 map $uri $embysm_route {
     default                                      other;
     /                                            ui;
@@ -8,6 +8,7 @@ map $uri $embysm_route {
     /livez                                       livez;
     /readyz                                      readyz;
     /v1/health                                   health;
+    /v1/auth/login                                auth_login;
     /v1/emby/libraries                           libraries;
     /v1/emby/items                               items;
     ~^/v1/media/[^/]+/subtitles$                 media_subtitles;

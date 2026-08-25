@@ -1,9 +1,9 @@
 # D2 搜索预览契约与安全设计
 
-- 状态　D2 后端与内嵌只读 UI 已实现；真实 Canary 待授权
+- 状态　D2 后端、内嵌只读 UI 与 D2.5-A/B 管理员会话已在本地实现；真实 Canary 待授权
 - 日期　2026-08-24
 - 适用范围　ADR-003 的 D2、ADR-005 规定的单源条件入口
-- 当前实现　后端、安全门禁、内嵌 UI 和 Fake Emby 测试已实现；真实 Provider Canary、部署和重启不在本轮范围
+- 当前实现　后端、安全门禁、内嵌 UI、管理员 Secret 登录和 Fake Emby 测试已实现；真实 Provider Canary、部署和重启不在本轮范围
 
 本文把 D2 的搜索、Fetch、预览和安全边界固定下来。它不授权真实环境启用远程搜索，不改变 `remote_search_enabled=false` 的默认值，也不授权部署、重启、媒体库写入或 Emby 配置修改。
 
@@ -76,7 +76,7 @@ GET /Providers/Subtitles/Subtitles/{ServerOnlySubtitleId}
 
 ### 4.1 通用约定
 
-- 路由继续位于 `/v1/*`，使用现有独立 Bearer Token；Token 不接受 query 参数。
+- 路由继续位于 `/v1/*`。`POST /v1/auth/login` 使用部署者配置的管理员用户名和密码签发短期 HttpOnly 会话；其他 D2 路由接受有效管理员会话或现有独立 Bearer 自动化 Token。即使请求同时带有有效会话，`token` query 参数也会被拒绝；Bearer 当前仍是单一只读凭据，尚未细分 scope。
 - 请求和响应使用 UTF-8 JSON。每个 D2 JSON 请求体上限为 8 KiB，未知字段应拒绝，避免客户端误以为 Provider 或搜索词已被上游接受。
 - 失败响应沿用当前 envelope：
 
@@ -243,7 +243,8 @@ Preview 不提供返回整个 Artifact 的下载接口。`text` 是纯文本，�
 | HTTP | `error.code` | 适用条件 |
 |---:|---|---|
 | 400 | `invalid_request` | JSON、字段、语言、分页或路径参数不合法 |
-| 401 | `unauthorized` | Bearer Token 缺失或错误 |
+| 401 | `unauthorized` | 管理员会话/Bearer Token 缺失或错误 |
+| 401 | `invalid_credentials` | 管理员登录用户名或密码错误 |
 | 403 | `remote_search_disabled` | 功能开关关闭，或独立 D2 授权/Canary 条件未满足 |
 | 403 | `canary_item_not_allowed` | Canary 窗口已开启，但 Item 不在服务端 allowlist |
 | 404 | `media_not_found` | Item 不存在 |
@@ -258,12 +259,15 @@ Preview 不提供返回整个 Artifact 的下载接口。`text` 是纯文本，�
 | 422 | `subtitle_invalid` | 空内容、编码、结构、时间轴或内容安全校验失败 |
 | 422 | `subtitle_format_unsupported` | 不是首轮允许的 SRT、ASS 或 SSA |
 | 429 | `rate_limited` | 用户、Item 或全局并发/频率预算耗尽 |
+| 429 | `login_rate_limited` | 管理员登录失败次数达到有界限速阈值 |
 | 502 | `media_source_unavailable` | Emby 没有返回可用的唯一 source |
 | 502 | `emby_unavailable` | Emby 网络不可用或返回不可分类的服务失败 |
 | 502 | `emby_invalid_response` | Emby 响应形状、重定向或大小违反契约 |
 | 502 | `provider_search_failed` | Search 无法得到可用的候选列表 |
 | 502 | `candidate_fetch_failed` | 当前候选 Fetch 失败；其他候选仍保留 |
 | 503 | `preview_store_unavailable` | 私有 Artifact 存储不可用 |
+| 503 | `admin_login_unavailable` | 未配置管理员 Secret，UI 登录不可用 |
+| 503 | `session_unavailable` | 管理员会话无法签发 |
 | 504 | `emby_timeout` | Emby Search 请求超时 |
 | 504 | `candidate_fetch_timeout` | 当前候选 Fetch 在预算内未完成 |
 | 500 | `internal_error` | 未分类的服务端错误；不得带内部细节 |
@@ -283,7 +287,7 @@ Preview 不提供返回整个 Artifact 的下载接口。`text` 是纯文本，�
 
 D2 不维护过期 tombstone。若映射仍在内存中但已超过 TTL，首次查找返回 `410 candidate_expired` 并立即删除该映射；清理任务已经删除、服务重启后没有映射、allowlist 窗口已关闭或绑定从未存在时，统一返回 `404 candidate_invalid`。因此客户端必须把两种结果都处理为“重新 Search”，不能依赖 410 永远可重复获得。Artifact 采用完全相同的规则：仍在存储索引中的已过期记录返回 `410 artifact_expired`，清理/重启后返回 `404 artifact_invalid`。
 
-当前 D1 使用共享的应用 Bearer Token，因此“认证上下文绑定”代表同一应用凭据和实例范围，不等同于按人区分的账号绑定。未来若引入用户身份，必须把服务端用户/会话身份加入绑定后才能宣称用户级隔离。
+当前 D2 的 Bearer 与管理员会话都只代表同一单实例管理员边界，因此“认证上下文绑定”仍是实例范围，不等同于按人区分的账号绑定。未来若引入多用户身份，必须把服务端用户/会话身份加入绑定后才能宣称用户级隔离。
 
 ### 6.2 PreviewArtifact
 
@@ -380,7 +384,7 @@ Fetch 得到的内容必须先有界读取，再解码和解析。不能因为�
 1. 普通部署和 Canary 关闭状态下，`remote_search_enabled=false`、`d2.canary.enabled=false`。三个接口在访问 Emby 前统一返回 `403 remote_search_disabled`，上游请求数必须为零。
 2. 本轮 D2-B 只实现“服务端 Canary Item allowlist”方案。allowlist 文件位于媒体根目录和仓库之外的受保护配置目录，一行一个精确 Item ID，权限按 Secret 文件处理；不进入 Git、响应、日志或前端。
 3. 获得独立 D2 授权后，Canary 窗口临时设置 `remote_search_enabled=true`、`d2.canary.enabled=true`，并要求 allowlist 非空。服务启动或配置加载时如果 `remote_search_enabled=true` 但 Canary 未启用、allowlist 缺失或为空，必须 fail closed，拒绝启动或保持所有 D2 请求关闭；不能退化成全库开放。
-4. Canary 请求在服务端重新读取 Item 后，按规范化后的真实 Item ID 做精确 allowlist 匹配。未命中返回 `403 canary_item_not_allowed`；共享 Bearer Token 不能绕过该检查。Search、Fetch、Preview 都必须执行该检查，Token/Artifact 还要绑定 allowlist generation，allowlist 变化后旧状态失效。
+4. Canary 请求在服务端重新读取 Item 后，按规范化后的真实 Item ID 做精确 allowlist 匹配。未命中返回 `403 canary_item_not_allowed`；管理员会话和 Bearer Token 都不能绕过该检查。Search、Fetch、Preview 都必须执行该检查，Token/Artifact 还要绑定 allowlist generation，allowlist 变化后旧状态失效。
 5. Canary 窗口结束立即同时关闭 `d2.canary.enabled` 和 `remote_search_enabled`，之后所有 D2 请求恢复 `remote_search_disabled`。Canary 通过后是否长期开放另行授权，并需新的契约/配置审查；本轮不实现无 allowlist 的全库长期开放模式。
 
 安全配置示例（默认关闭，只展示受保护路径形状）：
@@ -450,7 +454,7 @@ Canary 只允许 allowlist 中已批准的单源 Movie/Episode，且必须验证
 ### Fake Emby 集成测试
 
 - `remote_search_enabled=false` 时三个 D2 接口均在访问上游前返回 `remote_search_disabled`，上游请求数为零；`remote_search_enabled=true` 但 Canary 未启用或 allowlist 缺失时配置 fail closed。
-- Canary allowlist 命中时共享 Bearer 可以执行 D2；未命中 Item 返回 `403 canary_item_not_allowed`，不能通过改写客户端请求绕过。
+- Canary allowlist 命中时有效管理员会话或 Bearer 可以执行 D2；未命中 Item 返回 `403 canary_item_not_allowed`，不能通过改写客户端请求绕过。
 - 单源 Movie/Episode Search 请求始终带服务端唯一 `MediaSourceId`，并明确传 `IsForced`、`IsPerfectMatch=false`、`IsHearingImpaired=false`；响应不含候选原始 ID/URL，结果上限和 `truncated` 正确。
 - 多 source 对 Search、Fetch、Preview 都返回 `409 d2_multisource_unsupported`，即使提交了显式 source ID 也不猜测；Fake 409 不能替代真实多源验收。
 - Item 不存在、错误 source、非支持类型、Emby timeout、畸形响应、重定向和超大响应映射到稳定错误码。

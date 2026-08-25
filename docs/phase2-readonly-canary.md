@@ -54,6 +54,9 @@ emby:
 security:
   identity_key_file: /run/secrets/app_identity_key
   api_auth_token_file: /run/secrets/app_api_auth_token
+  admin_username_file: /run/secrets/app_admin_username
+  admin_password_file: /run/secrets/app_admin_password
+  session_cookie_secure: false
 
 server:
   listen_address: <APP_BIND_ADDRESS>
@@ -70,15 +73,15 @@ Compose 部署必须满足：
 
 - 应用容器加入 Emby 所在私网，或通过已存在的 SSH 隧道访问，不新增公网暴露。
 - 媒体目录挂载为只读；应用数据目录与媒体目录分离。
-- API Key 使用 Secret 或权限受控文件注入，不能写入镜像、前端资源、响应、普通日志或 Git。应用还需要独立的 `security.identity_key_file`，仅用于 Inventory 的稳定本地标识，不能复用 Emby API Key；`security.api_auth_token_file` 提供管理 API 的 Bearer Token，也必须与这两类 Secret 分离。Docker file source 的 uid/gid/mode 在不同实现中不作为可信授权依据，宿主机启动前应实际将该文件设为 `10001:10001`、`0400`。
+- API Key 使用 Secret 或权限受控文件注入，不能写入镜像、前端资源、响应、普通日志或 Git。应用还需要独立的 `security.identity_key_file`，仅用于 Inventory 的稳定本地标识，不能复用 Emby API Key；`security.api_auth_token_file` 提供 CLI/自动化使用的 Bearer Token；`security.admin_username_file` 与 `security.admin_password_file` 提供 Web UI 管理员登录。四类凭据必须分离。Docker file source 的 uid/gid/mode 在不同实现中不作为可信授权依据，宿主机启动前应实际将每个文件设为 `10001:10001`、`0400`。
 - `write_enabled=false` 是默认且可验证的启动配置；D1 没有启用它的操作步骤。
 - 日志默认脱敏，不记录 Token、候选原始 ID、认证参数 URL、字幕正文或本机绝对路径。
 - 公网反代使用仓库提供的安全日志基线，只记录粗粒度路由和状态，不记录完整请求行、query、Authorization、Referer、原始 Item ID 或候选 ID；模板见 [OpenResty 公网入口基线](../deploy/openresty/README.md)。
 - Docker 默认只运行 D1 只读能力：`write_enabled=false`、`remote_search_enabled=false`，媒体挂载为只读，配置/Secret 与媒体目录分离，不默认公开管理端口。
 - 若后续获得 D2 单独授权，Compose 必须把宿主机专用的 `/replace/with/dedicated/d2-preview-cache` 仅绑定到容器 `/var/lib/emby-strm-subtitle-manager/d2-preview-cache`，该宿主目录实际 owner 为 `10001:10001`、mode 为 `0700`，且位于媒体映射之外；rootfs 仍保持只读、`/media` 仍保持只读。Canary allowlist 使用新增 `d2_canary_items` file-source Secret，只读注入到 `/run/secrets/d2_canary_items`，宿主文件实际按 `10001:10001`、`0400` 准备，不能只依赖 Compose uid/gid/mode 字段。
-- `/livez` 与只返回极小状态的 `/readyz` 是公开探针；所有 `/v1/*` 必须携带 `Authorization: Bearer <token>`。缺失、错误或通过 query 传入 Token 均返回统一 401，不回显凭据。
+- `/livez` 与只返回极小状态的 `/readyz` 是公开探针；`POST /v1/auth/login` 接受管理员 Secret 登录，其余 `/v1/*` 必须携带有效管理员会话或 `Authorization: Bearer <token>`。缺失、错误或通过 query 传入 Token 均返回统一 401，不回显凭据。当前 Bearer 尚未细分 scope。
 
-文件型 Secret 的 `uid`、`gid`、`mode` 选项在不同 Docker 实现中不能作为授权依据。宿主机应先实际执行 `chown 10001:10001` 和 `chmod 0400`，再用应用用户做容器内可读性预检，例如 `docker compose run --rm --no-deps --entrypoint sh app -c 'test -r /run/secrets/app_api_auth_token && test -r /run/secrets/emby_api_key && test -r /run/secrets/app_identity_key'`。预检只返回成功/失败，不输出 Secret 内容。
+文件型 Secret 的 `uid`、`gid`、`mode` 选项在不同 Docker 实现中不能作为授权依据。宿主机应先实际执行 `chown 10001:10001` 和 `chmod 0400`，再用应用用户做容器内可读性预检，例如 `docker compose run --rm --no-deps --entrypoint sh app -c 'test -r /run/secrets/app_api_auth_token && test -r /run/secrets/emby_api_key && test -r /run/secrets/app_identity_key && test -r /run/secrets/app_admin_username && test -r /run/secrets/app_admin_password'`。预检只返回成功/失败，不输出 Secret 内容。
 
 镜像构建使用 Compose 的 `IMAGE_TAG`、`BUILD_VERSION`、`BUILD_COMMIT`、`BUILD_TIME` 和 `BUILD_SOURCE` 参数。正式部署应将 `IMAGE_TAG` 固定为不可变发布标签或摘要，并在启动前用 `docker image inspect` 核对 `org.opencontainers.image.version`、`revision`、`created` 和 `source` 标签与构建记录一致；回滚时重新指定已验收的旧标签或摘要，不使用浮动标签覆盖当前版本。
 
@@ -103,7 +106,7 @@ Compose 部署必须满足：
 6. 请求和响应测试证明 API Key、认证参数、STRM 内容和本机绝对路径不会泄露。
 7. 使用受控测试夹具证明 D1 代码没有向 STRM 内部地址发起请求。
 
-上述结果证明 Go 源码和自动化检查通过。C92 的 Docker Compose schema/build、host-network、UID 10001、只读 root、只读媒体、三份 Secret 权限、`/readyz`、Bearer 401 和版本溯源标签已通过部署验收；证据摘要见 [D1 部署验收报告](d1-deployment-acceptance.md)。
+上述结果证明 Go 源码和自动化检查通过。历史 C92 D1 版本的 Docker Compose schema/build、host-network、UID 10001、只读 root、只读媒体、三份 D1 Secret 权限、`/readyz`、Bearer 401 和版本溯源标签已通过部署验收；D2.5 新版本新增管理员 Secret，尚未部署，证据摘要见 [D1 部署验收报告](d1-deployment-acceptance.md)。
 
 这些自动化检查只能证明代码和受控环境行为，不能替代真实 Emby 验收。
 
