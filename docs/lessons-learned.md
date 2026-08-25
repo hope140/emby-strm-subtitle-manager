@@ -109,3 +109,11 @@ Replace、Delete、Restore 或 Add 的失败分支不能把恢复旧文件、移
 ## 22. 成功补偿不能让同一 operation ID 变成不可重试
 
 成功 rollback 会按设计保留 archive、trash 和 quarantine；这些文件再次遇到时不能一律视为冲突。`moveToRecovery` 必须先重新核对已有恢复文件的 Hash：只有与当前已核验源文件完全一致时才可复用并移除当前媒体副本，Hash 不同或文件不安全时继续拒绝。这样 Replace/Delete 的同一 `operation_id` 可在成功补偿后安全重试，同时不会把不同内容误当成同一恢复材料。
+
+## 23. daily write 配置必须先通过四目录和挂载双重门禁
+
+`write_enabled=true` 时，`d3.history_dir`、`d3.quarantine_dir`、`d3.archive_dir` 和 `d3.trash_dir` 都是启动必需项。Compose 中存在 RW 挂载不能替代 config 字段校验；缺字段时应用应在启动阶段 fail closed。本次 C92 Core A/B 尝试第一次 daily 启动正是因为复制配置缺少四个字段而被拒绝，补齐版本化 config 后才通过启动预检。
+
+## 24. Item.Path 可映射不代表选中 MediaSource.Path 可写
+
+Core A/B 的写入目标必须从当前选中的 MediaSource.Path 重新解析，并通过 PathMapper、PathGuard 和目录权限检查。C92 有界真实查询中，Movie/Episode 的 Item.Path 可以映射到 `/media`，但样本的选中 source path 是远程播放 URL；没有任何候选满足本地 source path 门禁。不能把 Item.Path、默认 source 或 source 顺序当作 fallback，否则会把多 source 写入或恢复导向错误版本。重新进入真实写窗口前，应把“至少一个可映射 source path”作为独立前置门禁。

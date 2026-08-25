@@ -9,7 +9,7 @@
 - **部分完成**：底层能力或安全拒绝已经完成，但正向产品流程、真实客户端或分发体验仍有缺口。
 - **待做**：尚无可交付实现，主计划中的描述仍只是目标。
 
-历史报告中的“D3 已完成”只指 [ADR-003](adr/003-phase2-milestones-and-deployment.md) 定义的**专用单源 Add Canary**。Core A/B 已在本地源码、Fake Emby 和最小浏览器 E2E 中实现日常受控模式、多 source、Replace、Upload、可恢复 Delete 和 Restore；它仍不代表已经部署或完成真实 C92 综合验收。
+历史报告中的“D3 已完成”只指 [ADR-003](adr/003-phase2-milestones-and-deployment.md) 定义的**专用单源 Add Canary**。Core A/B 已在本地源码、Fake Emby 和最小浏览器 E2E 中实现日常受控模式、多 source、Replace、Upload、可恢复 Delete 和 Restore。2026-08-25 的精确 C92 app-only 综合部署尝试在真实 source-bound 前置门禁处阻断于媒体操作之前，随后恢复 closed/只读；它仍不代表真实 C92 综合验收通过。
 
 ## 已完成
 
@@ -32,14 +32,14 @@ D3.1 的客户端证据包含两层：自动化控制的 Emby Web 播放器读�
 | 能力 | 已有部分 | 仍缺什么 |
 |---|---|---|
 | D2 真实管理 UI | 本地 Fake Emby 浏览器 E2E、真实 C92 API Search→Fetch→Preview 已通过 | 真实 C92 管理 UI 中完整点击 Search→Fetch→Preview 尚未形成独立验收报告 |
-| 多 MediaSource | 本地实现已要求显式 source，并在 Fake Emby/浏览器 E2E 覆盖正向流程 | 真实 C92 多 source、浏览器 UI、Refresh/字幕流和客户端对应验收尚未执行；不得把本地证据扩大为线上支持声明 |
-| Add 日常使用 | 日常 gate、写入 overlay 示例、目标目录隔离、scope/CSRF 和清晰稳定错误码已完成本地实现 | 仍需独立授权后做普通 Compose/实际目录权限与真实运行验收 |
+| 多 MediaSource | 本地实现已要求显式 source，并在 Fake Emby/浏览器 E2E 覆盖正向流程；C92 真实 source 对应和安全拒绝已有历史证据 | 本轮对 7,321 个 Movie/Episode 做 source path 有界预检（37 页，最多 7,400 个槽位），未找到可映射的本地 source，因此真实多源正向和写入仍未执行；不得把 Item.Path fallback 当作支持 |
+| Add 日常使用 | 日常 gate、写入 overlay 示例、目标目录隔离、scope/CSRF 和清晰稳定错误码已完成本地实现；本轮 daily config 和启动边界已在 C92 预检 | C92 真实写入在 source-bound 门禁处阻断，仍需提供可映射的选中 source 样本或完成独立契约评审 |
 | V1 管理 UI | 浏览、清单、搜索预览、Add、Replace、Upload、可恢复 Delete、历史/Restore 的最小入口已完成 | Provider 状态页、完整设置/日志页、媒体库层级重构和面向发布镜像的安装体验仍未完成 |
 | 公开分发 | 公开 GitHub 仓库、Dockerfile 和 Compose 示例已存在 | 尚无正式版本标签、GHCR/其他镜像发布、升级/回滚指南和面向新用户的端到端安装验收 |
 
 ## 尚未实现
 
-- Core A/B 的真实 C92 综合验收：Movie、Episode、单源、多 source、字幕流和实际客户端读取，结束后恢复 closed/只读边界。
+- Core A/B 的真实 C92 综合验收：已完成精确提交的 app-only 构建、daily 启动预检和恢复；因 7,321 个有界 Movie/Episode Item（37 页，最多 7,400 个槽位）没有可映射的选中 MediaSource.Path，阻断在媒体操作前。Movie、Episode、单源、多 source、字幕流和实际客户端读取仍未验收。
 - Provider 状态页、完整设置/日志页、发布版设置说明和正式镜像发布。
 - 缺字幕筛选、批量任务、自动下载、评分和时间轴校正；这些仍属于 V1 之后或独立研究线。
 
@@ -55,7 +55,7 @@ Core A/B 的接口、模块、恢复语义、自动化矩阵和执行边界已�
 
 在同一个开发任务中实现 Replace、Upload 和可恢复 Delete，共用现有 Item 锁、Artifact、Validator、原子写入、Refresh、Hash、history 和 quarantine。Replace 必须先验证新版本再归档旧字幕；Upload 忽略不可信文件名；Delete 默认移动到媒体库外回收目录，不执行即时永久删除。
 
-Core A 与 Core B 已在同一核心开发会话连续完成，中间只做本地自动化和代码审核，未逐项部署。下一步只能在独立授权后进行一次 Movie、Episode、单源、多源、字幕流和手机端的综合 C92 验收。
+Core A 与 Core B 已在同一核心开发会话连续完成。本轮已按独立授权构建并短时部署精确提交，但在真实 source-bound 样本门禁处停止，未逐项执行媒体操作；下一步必须先提供可映射的选中 source 或完成契约评审，再重新进行 Movie、Episode、单源、多源、字幕流和客户端综合 C92 验收。
 
 ### Core 0.x　核心测试版
 
@@ -67,7 +67,7 @@ Core A 与 Core B 已在同一核心开发会话连续完成，中间只做本�
 
 ## 当前运行边界
 
-最近一次 C92 验收结束时，应用已恢复 `write_enabled=false`、`remote_search_enabled=false` 和 `/media:ro`。D2/D3 的重新启用、容器重建、媒体目录权限修改和真实写入仍需要独立授权与实时预检。SH、FRP 和 OpenResty 不属于上述开发里程碑的默认修改范围。
+本轮 C92 验收结束时，应用已恢复 `write_enabled=false`、`remote_search_enabled=false` 和 `/media:ro`，容器 healthy、restart=0。D2/D3 的重新启用、容器重建、媒体目录权限修改和真实写入仍需要独立授权、实时预检以及可映射的选中 source。SH、FRP 和 OpenResty 不属于上述开发里程碑的默认修改范围。
 
 ## 暂不作为阻断项
 
@@ -100,4 +100,8 @@ Knowledge Findings：
 
 分流判断：更新当前架构、ADR-003、总体规划、README、文档索引和 `LOCAL_OPERATIONS.md`；手机端反馈补入 D3 验收和实现评审。状态复核本身没有新的底层技术规则需要写入维护经验；后续发生的 SubBridge 技术标识迁移与 C92 兼容边界另见 [ADR-007](adr/007-subbridge-brand-and-legacy-deployment-identifiers.md)。
 
-未验证范围与残余风险：本轮没有实时连接 C92，运行边界来自最近一次验收报告；日常 Add、多源正向能力、Replace、Upload 和 Delete 仍须完成实现，并在核心周期结束后统一真实验收。
+未验证范围与残余风险：实施前复核本身没有实时连接 C92；后续 [Core A/B C92 综合部署验收](core-ab-c92-acceptance.md) 已记录一次真实部署尝试，但在 source-bound 门禁处阻断。日常 Add、多源正向能力、Replace、Upload、Delete、Restore、字幕流和客户端读取仍未形成真实 C92 通过证据。
+
+## 2026-08-25 Core A/B C92 尝试结果
+
+精确提交 `947d847bb8ee620fc0362081fdff981069472081` 已完成源码归档、OCI 构建、版本化 Compose/config、daily 启动和 app-only 回滚。daily 窗口健康运行时，真实 C92 有界查询覆盖 7,321 个 Movie/Episode Item（37 页，最多 7,400 个槽位），但没有找到选中 `MediaSource.Path` 位于应用 `/media` 映射下的本地 source。当前实现按 ADR-008 拒绝以 Item.Path 替代 source path，因此没有产生任何媒体写操作，C92 已恢复 closed/只读。完整证据见 [Core A/B C92 综合部署验收](core-ab-c92-acceptance.md)。

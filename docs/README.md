@@ -2,7 +2,7 @@
 
 这套文档把当前事实、长期决策、维护经验和本机信息分开保存。开发前按需要读取，任务结束后通过 Knowledge Review 决定是否更新。
 
-当前统一状态见 [当前状态与后续路线图](current-status-and-roadmap.md)。截至 2026-08-25，D1、D2 单源后端、D2.5 和 D3.1 专用单源 Add 已完成相应自动化与真实验收，D3.1 又补充了手机端实际客户端读取确认。Core A/B 已完成本地源码、Fake Emby 和最小浏览器 E2E 的多 source、日常 Add、Replace、Upload、Delete 和 Restore；真实 C92 综合验收、正式镜像发布和 V1 产品收口仍未完成。历史阶段报告继续保存当时的范围和证据，不再各自充当“当前进度”的正式来源。
+当前统一状态见 [当前状态与后续路线图](current-status-and-roadmap.md)。截至 2026-08-25，D1、D2 单源后端、D2.5 和 D3.1 专用单源 Add 已完成相应自动化与真实验收，D3.1 又补充了手机端实际客户端读取确认。Core A/B 已完成本地源码、Fake Emby 和最小浏览器 E2E 的多 source、日常 Add、Replace、Upload、Delete 和 Restore；真实 C92 综合部署已按授权尝试，但在 source-bound 样本门禁处阻断并恢复 closed，正式镜像发布和 V1 产品收口仍未完成。历史阶段报告继续保存当时的范围和证据，不再各自充当“当前进度”的正式来源。
 
 ## 正式文档
 
@@ -11,6 +11,7 @@
 | [当前状态与后续路线图](current-status-and-roadmap.md) | 当前完成度、剩余缺口、推进优先级和运行边界 | 一次性执行命令、凭据和实时部署状态 |
 | [Core A/B 连续实施计划](core-ab-implementation-plan.md) | 日常 Add、多源、Replace、Upload、Delete、Restore 的实现范围、测试和审核方式 | C92 实际部署、凭据和 UI 重构 |
 | [Core A/B 实现评审](core-ab-implementation-review.md) | 本地实现、测试证据、Knowledge Review 和真实验收边界 | C92 实际部署、凭据和真实客户端结论 |
+| [Core A/B C92 综合部署验收](core-ab-c92-acceptance.md) | 精确提交的 C92 app-only 部署、source-bound 阻断、恢复状态和 Knowledge Review | Item/source 标识、凭据、私有路径和未执行的写入结论 |
 | [当前架构](architecture.md) | 已实现或实测确认的组件、数据流和边界 | 未来愿景和未验证设计 |
 | [维护经验](lessons-learned.md) | 隐蔽、高复用、有证据的规则 | 一次性排错流水账 |
 | [ADR](adr/README.md) | 长期架构选择、原因和代价 | 局部实现细节 |
@@ -29,7 +30,7 @@
 | [D3 Add 实现评审](d3-add-implementation-review.md) | D3 本地实现、测试证据、C92 真实闭环和宿主权限门禁 | 后续写能力 |
 | [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md) | 单源 Search→Fetch→Preview→Add、Hash、Refresh/MediaStreams、字幕流、客户端读取、幂等和 closed 回滚 | Replace/Delete/Upload/批量能力 |
 | [ADR-006 管理员会话与自动化凭据](adr/006-admin-session-and-automation-credentials.md) | 发布镜像的管理员登录、Compose environment 配置、自动化 Token 分离和 D2.5 排期 | D3 写入和多用户系统 |
-| [ADR-008 日常模式与可恢复字幕操作](adr/008-core-ab-daily-source-bound-recovery.md) | Core A/B Item gate、显式 source、多源、可恢复写入和默认 closed 边界 | 部署授权与真实 C92 综合验收 |
+| [ADR-008 日常模式与可恢复字幕操作](adr/008-core-ab-daily-source-bound-recovery.md) | Core A/B Item gate、显式 source、多源、可恢复写入和默认 closed 边界 | 部署授权与真实 C92 综合验收结论 |
 | [D2.5 管理员认证](d2.5-admin-auth.md) | D2.5-A/B/C 当前实现、会话与 scope 契约、Compose environment、测试证据和 D3 认证边界 | 后续写能力与多用户系统 |
 | [D2.5 目标环境迁移预检](d2.5-target-migration-preflight-20260825.md) | 本轮本地发布核对、C92 只读状态、暂停原因和恢复顺序 | Secret 内容、部署操作和 D3 写入 |
 | [D1 部署验收报告](d1-deployment-acceptance.md) | 已验证的部署、真实 STRM Canary 和剩余门禁 | 私有部署细节、凭据和一次性操作记录 |

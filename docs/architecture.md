@@ -1,6 +1,6 @@
 # SubBridge 当前架构
 
-本文只描述截至 2026 年 8 月 25 日已经由当前源码、自动化检查或真实运行确认的内容；完成度和后续优先级统一见 [当前状态与后续路线图](current-status-and-roadmap.md)。D1 的只读切片与 C92 部署、D2 单源后端真实 API Canary、D2.5 管理员认证和 D3.1 专用单源 Add 已通过相应验收。Core A/B 已在本地完成日常 gate、正向多 source Search→Fetch→Preview→Add、Upload、Replace、可恢复 Delete、History 与 Restore，并通过单元、Fake Emby 与最小浏览器 E2E；未部署或执行真实 C92 综合验收，默认 closed/只读运行边界不变。
+本文只描述截至 2026 年 8 月 25 日已经由当前源码、自动化检查或真实运行确认的内容；完成度和后续优先级统一见 [当前状态与后续路线图](current-status-and-roadmap.md)。D1 的只读切片与 C92 部署、D2 单源后端真实 API Canary、D2.5 管理员认证和 D3.1 专用单源 Add 已通过相应验收。Core A/B 已在本地完成日常 gate、正向多 source Search→Fetch→Preview→Add、Upload、Replace、可恢复 Delete、History 与 Restore，并通过单元、Fake Emby 与最小浏览器 E2E。2026-08-25 以精确提交 `947d847bb8ee620fc0362081fdff981069472081` 做 C92 app-only 综合部署尝试时，在真实 source-bound 前置门禁处阻断于媒体操作之前，随后恢复 closed/只读；当前不能宣称真实 C92 综合验收通过。
 
 当前品牌、GitHub 仓库、Go module、构建二进制和新安装 Compose 示例统一使用 `SubBridge`/`subbridge`。已经验收的 C92 Compose project、镜像、容器、目录和 FRP proxy 保留旧技术标识，直到后续获得有功能收益的部署授权；历史报告不追溯改写当时的资源名称。
 
@@ -32,7 +32,7 @@ UI：  GET /
 
 MediaContext 对单源自动选择，对多源要求显式 `media_source_id`，不会猜测列表第一项。STRM 的 Inventory 和 PathMapper 始终使用 Emby Item.Path；非 STRM 只有本地 MediaSource.Path 可用时才使用它，远程 source path 只作为内部播放定位事实，不参与本地映射、目录检查、响应或日志。Core A/B 同时保留当前 source 的安全映射路径：Inventory 只在 Item.Path 与所选 source 两个受控范围内扫描 sidecar，并在同 basename 指向多个位置时拒绝修改。STRM 的 IsStrm 判断只看 Item.Path。PathMapper 支持 POSIX、Windows drive 和 UNC 形式，采用规范化、最长前缀匹配及目录 containment 检查；路径不安全、未映射或目录不可用时返回降级状态和稳定 warning。Inventory 只读取文件元数据；D3 resolver 在锁内有界读取并校验目标字幕，绝不读取 STRM 内容或媒体正文。
 
-本地 `scripts/verify.ps1` 和 Linux 全包测试均已通过且无 skip；C92 的 Docker Compose schema/build、启动安全边界、`/readyz`、Bearer 认证和版本标签，以及 FRP 公网 HTTPS、单代理加密和公网应用端口防火墙边界另有部署证据。C92 真实版本组样本已补齐，客户端已固定请求 `AlternateMediaSources` 并通过本地回归测试；真实 API/source 对应和 D2 多源安全拒绝 Canary 已完成，但浏览器 UI source 点击和多源正向支持仍未完成，因此不能支撑真实多源搜索的支持声明；该缺口不阻断单源 D2。D3 C92 专用样本 Add 的 Docker、宿主目录权限、Hash、Refresh、字幕流、客户端读取和 closed 回滚另见 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)。
+本地 `scripts/verify.ps1` 和 Linux 全包测试均已通过且无 skip；C92 的 Docker Compose schema/build、启动安全边界、`/readyz`、Bearer 认证和版本标签，以及 FRP 公网 HTTPS、单代理加密和公网应用端口防火墙边界另有部署证据。C92 真实版本组样本已补齐，客户端已固定请求 `AlternateMediaSources` 并通过本地回归测试；真实 API/source 对应和 D2 多源安全拒绝 Canary 已完成，但浏览器 UI source 点击和多源正向支持仍未完成，因此不能支撑真实多源搜索的支持声明；该缺口不阻断单源 D2。D3 C92 专用样本 Add 的 Docker、宿主目录权限、Hash、Refresh、字幕流、客户端读取和 closed 回滚另见 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)。Core A/B C92 综合部署尝试、source-bound 阻断和恢复后的 closed 状态见 [Core A/B C92 综合部署验收](core-ab-c92-acceptance.md)。
 
 ## 当前系统边界
 
@@ -110,7 +110,7 @@ Core A/B 的当前实现由 [ADR-008](adr/008-core-ab-daily-source-bound-recover
 
 Replace 仅在新版本可见后才归档旧版本，后续失败时恢复旧版本并隔离新版本。Delete 仅转移到媒体外 trash；Restore 在当前 Item/source 下重新解析目录、复核 archive/trash Hash、拒绝同名覆盖后恢复。每次补偿都会重新核对文件 Hash 和 Emby MediaStreams；补偿任一步无法验证时返回稳定 `subtitle_rollback_failed`，保留 archive/trash/quarantine 并明确需要人工恢复。Upload 只生成 PreviewArtifact，不直接落盘或写持久 history。History 使用默认值及最大值均受限的 `limit` 查询。私有 history 不保存媒体路径或上传原文件名；恢复位置以受限目录类别表示。默认 `remote_search_enabled=false`、`write_enabled=false` 仍保持关闭，日常模式与 Canary 都需要独立写入 overlay 和目录权限预检。
 
-该实现通过本地单元、Fake Emby 和浏览器 E2E 验证，尚未替代真实 C92 的多 source、文件系统权限、MediaStreams、字幕流和客户端综合验收。
+该实现通过本地单元、Fake Emby 和浏览器 E2E 验证；真实 C92 综合部署已按授权尝试，但因有界样本没有可映射的选中 MediaSource.Path，在媒体操作前 fail closed。它仍未替代真实 C92 的多 source、文件系统权限、MediaStreams、字幕流和客户端综合验收。
 
 V1 通过 Emby Bridge 使用 Meiam Provider。Native Thunder 和 Native ASSRT 暂缓，详见 [ADR-001](adr/001-v1-uses-emby-remote-subtitle-bridge.md)。
 

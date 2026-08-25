@@ -8,7 +8,7 @@ SubBridge（SB，字幕桥）为 Emby 与 STRM 媒体库提供中文字幕浏览
 
 ## 当前状态
 
-当前统一的完成度、缺口和建议顺序见 [当前状态与后续路线图](docs/current-status-and-roadmap.md)。简要结论是：D1、D2 单源后端、D2.5 和 D3.1 专用单源 Add 已完成真实验收；Core A/B 已在本地完成日常 Add、正向多 source、Replace、Upload、可恢复 Delete 与 Restore 的源码、Fake Emby 和最小浏览器 E2E，真实 C92 综合验收和正式镜像发布仍待独立授权。
+当前统一的完成度、缺口和建议顺序见 [当前状态与后续路线图](docs/current-status-and-roadmap.md)。简要结论是：D1、D2 单源后端、D2.5 和 D3.1 专用单源 Add 已完成真实验收；Core A/B 已在本地完成日常 Add、正向多 source、Replace、Upload、可恢复 Delete 与 Restore 的源码、Fake Emby 和最小浏览器 E2E。Core A/B C92 综合部署已按授权尝试，但因真实 source-bound 样本门禁阻断并恢复 closed，不能宣称真实综合验收通过。
 
 [Gate 0 实测](GATE0_REPORT.md)已经正式通过。真实环境已经验证 Emby API Key 搜索与 Fetch、STRM 网络边界、外部字幕写入、Emby 直连读取和受限范围内的缓存行为。
 
@@ -20,9 +20,9 @@ D1 只读代码切片、Linux 全包自动化验证、C92 部署和 FRP 公网 H
 
 同一 Go 服务内嵌的最小管理 UI 保留既有媒体库、Movie/Episode 分页、媒体详情和字幕清单布局。Core A/B 只补当前 source、搜索预览、Add、Upload、Replace、可恢复 Delete、History/Restore 入口，不提供完整设置、日志或媒体库层级重构。发布版 UI 使用私有 Compose environment 配置的管理员用户名和密码登录，服务端签发短期 HttpOnly 会话；密码不进入页面存储，面板不提供改密或注销。CLI、定时任务和 CI 继续使用独立 Bearer Token。使用方式和公网 HTTP/HTTPS 边界见 [D1.5 最小只读 Web UI](docs/d1.5-readonly-ui.md)，管理员认证实现见 [D2.5 管理员认证](docs/d2.5-admin-auth.md)，部署前检查见 [D1.5 部署前预检](docs/d1.5-deployment-preflight.md)。
 
-D3 专用样本 Add 已完成本地实现和 C92 真实闭环验收，包含管理员会话 CSRF、独立 `subtitle:write` scope、D3 allowlist、Artifact 绑定、原子非覆盖版本文件、Emby Refresh/轮询、history/quarantine、字幕流回读，以及 Emby Web 和手机端实际客户端读取。Core A/B 在本地扩展为统一 Item gate、显式多 source、日常 Add、Upload、Replace、可恢复 Delete 和 Restore，复用相同安全边界；没有部署、重启或修改 C92/SH/Emby，真实综合验收仍待进行。验收后的运行环境仍保持 closed 配置、`write_enabled=false`、`remote_search_enabled=false` 和 `/media:ro`。详见 [ADR-008](docs/adr/008-core-ab-daily-source-bound-recovery.md)、[Core A/B 实现评审](docs/core-ab-implementation-review.md)、[D3 专用样本 Add 契约](docs/d3-dedicated-add-contract.md) 与 [D3 C92 Canary 验收](docs/d3-c92-canary-acceptance-20260825.md)。
+D3 专用样本 Add 已完成本地实现和 C92 真实闭环验收，包含管理员会话 CSRF、独立 `subtitle:write` scope、D3 allowlist、Artifact 绑定、原子非覆盖版本文件、Emby Refresh/轮询、history/quarantine、字幕流回读，以及 Emby Web 和手机端实际客户端读取。Core A/B 在本地扩展为统一 Item gate、显式多 source、日常 Add、Upload、Replace、可恢复 Delete 和 Restore，复用相同安全边界；本轮已完成精确提交的 C92 app-only 构建和 daily 启动预检，但在真实 source-bound 样本门禁处阻断于媒体操作之前，随后恢复 closed/只读。详见 [ADR-008](docs/adr/008-core-ab-daily-source-bound-recovery.md)、[Core A/B 实现评审](docs/core-ab-implementation-review.md)、[Core A/B C92 综合部署验收](docs/core-ab-c92-acceptance.md)、[D3 专用样本 Add 契约](docs/d3-dedicated-add-contract.md) 与 [D3 C92 Canary 验收](docs/d3-c92-canary-acceptance-20260825.md)。
 
-当前服务还提供 `/` 与 `/assets/{asset}` 的内嵌 UI、D1 的 GET API/运维路由、默认关闭的 D2 Search、Fetch、Preview、Upload 路由，以及默认关闭的 D3 Add、Replace、Delete、History、Restore 路由。UI 只在服务端 health 明确报告相应开关启用时显示当前明确 source 的入口；D3 还要求统一 Item gate、已绑定 Artifact（对 Add/Replace）、私有目录和写入条件。`/livez` 与只返回极小状态的 `/readyz` 公开；`/v1/auth/login` 使用 Compose environment 中的管理员凭据登录，其余 `/v1/*` 接受短期管理员会话或按路由检查 scope 的独立 Bearer，Bearer 不接受 query 参数。`/readyz` 会实际探测 Emby，不能只根据进程存活返回就绪。应用凭据、`security.identity_key_file`、`security.api_auth_token_file` 和管理员 environment 分离，管理员密码不能复用 Emby API Key。真实 C92 单源 Provider API Canary 已通过；Core A/B 本地证据见 [Core A/B 实现评审](docs/core-ab-implementation-review.md)，真实综合验收仍未执行。
+当前服务还提供 `/` 与 `/assets/{asset}` 的内嵌 UI、D1 的 GET API/运维路由、默认关闭的 D2 Search、Fetch、Preview、Upload 路由，以及默认关闭的 D3 Add、Replace、Delete、History、Restore 路由。UI 只在服务端 health 明确报告相应开关启用时显示当前明确 source 的入口；D3 还要求统一 Item gate、已绑定 Artifact（对 Add/Replace）、私有目录和写入条件。`/livez` 与只返回极小状态的 `/readyz` 公开；`/v1/auth/login` 使用 Compose environment 中的管理员凭据登录，其余 `/v1/*` 接受短期管理员会话或按路由检查 scope 的独立 Bearer，Bearer 不接受 query 参数。`/readyz` 会实际探测 Emby，不能只根据进程存活返回就绪。应用凭据、`security.identity_key_file`、`security.api_auth_token_file` 和管理员 environment 分离，管理员密码不能复用 Emby API Key。真实 C92 单源 Provider API Canary 已通过；Core A/B 本地证据和 C92 阻断边界见 [Core A/B 实现评审](docs/core-ab-implementation-review.md) 与 [Core A/B C92 综合部署验收](docs/core-ab-c92-acceptance.md)。
 
 部署入口包括根目录 [Dockerfile](Dockerfile)、通用 bridge 示例 [deploy/compose.example.yaml](deploy/compose.example.yaml)、Emby 已使用 host 网络时的 [deploy/compose.host-network.example.yaml](deploy/compose.host-network.example.yaml)，以及仅在独立授权后合并的 [日常写入 overlay](deploy/compose.write.example.yaml)、[D2 Canary Compose overlay](deploy/compose.d2-canary.example.yaml) 和 [D3 专用样本 Add overlay](deploy/compose.d3-canary.example.yaml)。默认 base Compose 不依赖 D2 cache、D3 history/quarantine/archive/trash 或 allowlist 文件；所有示例默认保持写能力和远程搜索关闭，实际部署前必须替换占位路径并重新核对只读挂载。
 
@@ -35,6 +35,7 @@ Compose 的 `IMAGE_TAG`、`BUILD_VERSION`、`BUILD_COMMIT`、`BUILD_TIME` 和 `B
 | [当前状态与后续路线图](docs/current-status-and-roadmap.md) | 已完成、部分完成、待做和建议推进顺序的统一入口 |
 | [Core A/B 连续实施计划](docs/core-ab-implementation-plan.md) | 核心字幕管理能力的连续实现范围、测试矩阵和停止条件 |
 | [Core A/B 实现评审](docs/core-ab-implementation-review.md) | 本地实现、自动化、Knowledge Review 和真实验收边界 |
+| [Core A/B C92 综合部署验收](docs/core-ab-c92-acceptance.md) | 精确提交的 C92 app-only 部署、真实 source-bound 阻断、恢复和 Knowledge Review |
 | [ADR-008](docs/adr/008-core-ab-daily-source-bound-recovery.md) | 日常 gate、显式 source、多 source 与可恢复操作的长期决策 |
 | [总体规划](SubBridge_Master_Plan_Revised.md) | 产品范围、数据模型、阶段和验收条件 |
 | [Gate 0 实测报告](GATE0_REPORT.md) | 真实环境验证结果和证据边界 |
