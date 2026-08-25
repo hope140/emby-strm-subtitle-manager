@@ -2,7 +2,7 @@
 
 这套文档把当前事实、长期决策、维护经验和本机信息分开保存。开发前按需要读取，任务结束后通过 Knowledge Review 决定是否更新。
 
-当前状态：Phase 1 已完成路线决策和文档收口，ADR-002 和 ADR-003 已接受并选择方案 B 及其 D1→D2→D3 里程碑。D1 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM 真实 Canary 已验收；D2 实现已形成不可变 commit，并完成一次 C92 单源真实 Search→Fetch→Preview Canary，随后已关闭 D2 开关。真实多媒体源样本仍未找到；[ADR-005](adr/005-conditional-d2-entry-without-live-multisource.md) 允许有条件进入 D2 的契约、实现和单源 Canary，但真实多源搜索在样本验收前保持安全拒绝且不得宣称支持。上游构建基线的失败和未验证项仍以 [Phase 1 基线报告](../BASELINE.md) 为准；它们不等同于新 Go 服务的验证结果。
+当前状态：Phase 1 已完成路线决策和文档收口，ADR-002 和 ADR-003 已接受并选择方案 B 及其 D1→D2→D3 里程碑。D1 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM 真实 Canary 已验收；D2 实现已形成不可变 commit，并完成一次 C92 单源真实 Search→Fetch→Preview Canary，随后已关闭 D2 开关。面向发布镜像的管理员会话与自动化 API 凭据分离已列入 D2.5，计划在 D3 写入前完成。真实多媒体源样本仍未找到；[ADR-005](adr/005-conditional-d2-entry-without-live-multisource.md) 允许有条件进入 D2 的契约、实现和单源 Canary，但真实多源搜索在样本验收前保持安全拒绝且不得宣称支持。上游构建基线的失败和未验证项仍以 [Phase 1 基线报告](../BASELINE.md) 为准；它们不等同于新 Go 服务的验证结果。
 
 ## 正式文档
 
@@ -20,6 +20,7 @@
 | [D2-C C92 部署前核对](d2-c92-deployment-preflight.md) | C92 现网 D1 安全边界、回滚点和 D2 发布阻断证据 | D2 部署、重启和真实 Canary |
 | [D2 发布候选审计](d2-release-candidate-audit.md) | 本地 Git、敏感信息、测试构建证据与发布阻断项 | C92 部署、重启和真实 canary |
 | [D2-C C92 单源真实 Canary 验收](d2-c92-canary-acceptance.md) | C92 可回滚 D2 部署、真实 Search/Fetch/Preview、候选失败隔离和关闭后的状态 | 多源支持、真实客户端、公网 UI 和 D3 写入 |
+| [ADR-006 管理员会话与自动化凭据](adr/006-admin-session-and-automation-credentials.md) | 发布镜像的管理员登录、Docker Secret 配置、自动化 Token 分离和 D2.5 排期 | 当前实现、D3 写入和多用户系统 |
 | [D1 部署验收报告](d1-deployment-acceptance.md) | 已验证的部署、真实 STRM Canary 和剩余门禁 | 私有部署细节、凭据和一次性操作记录 |
 | [D1.5 最小只读 Web UI](d1.5-readonly-ui.md) | 内嵌 UI、Token 内存边界和三种访问方式 | 真实部署验收和私有环境细节 |
 | [D1.5 部署前预检](d1.5-deployment-preflight.md) | 发布不变量、三种访问方式、目标主机预检、验收顺序和回滚准备 | 实际 Secret、私有路径和一次性部署操作 |

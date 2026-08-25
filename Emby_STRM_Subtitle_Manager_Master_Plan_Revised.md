@@ -475,9 +475,22 @@ Movie/Episode 的 D1 真实验收必须覆盖；多 MediaSource 自动化也必�
 
 Phase 3 完成后暂停。只有真实 Movie、Episode 和 STRM 验收都通过，才进入写操作。
 
+### Phase 3.5　发布版管理员认证与自动化 API 权限分离（D2.5）
+
+本阶段服务于镜像发布后的服务器管理员，不引入面向 Emby 观众的用户注册、多租户或复杂账户后台。当前 D2 的共享 Bearer Token 作为过渡兼容方式保留；在 D3 写入和正式发布前，增加更适合人工使用的管理员登录层。
+
+- Web UI 使用部署者配置的管理员用户名和密码登录
+- 管理员凭据通过 Docker Secret 或等价的受保护文件注入，不提供通用默认密码
+- 登录成功后使用短期 HttpOnly 会话 Cookie；面板不提供改密码、注销或账号管理，轮换通过替换 Secret 和重建容器完成
+- CLI、定时任务和 CI 使用独立 Bearer Token，不能复用管理员密码或 Emby API Key
+- 自动化 Token 先支持只读范围，后续将 `media:read`、`subtitle:search`、`subtitle:preview` 与 D3 写入 scope 分开
+- 补齐会话 TTL、重启失效、失败限速、CSRF、日志脱敏、Secret 轮换、Compose 预检和浏览器/CLI 验收
+
+详细决策和排期见 [ADR-006](docs/adr/006-admin-session-and-automation-credentials.md)。D2.5 未完成前不得把当前共享 Bearer Token 宣称为细粒度权限系统；`write_enabled=false` 继续保持默认关闭。
+
 ### Phase 4　安全写入
 
-本阶段先以 ADR-003 的 D3 专用样本 Add 作为第一步。Replace、Delete、Upload、批量处理和其他写操作必须在专用样本验收证据充分后另行开放。
+本阶段先以 ADR-003 的 D3 专用样本 Add 作为第一步，并要求 D2.5 管理员会话、CSRF 和写入 scope 门禁已经通过。Replace、Delete、Upload、批量处理和其他写操作必须在专用样本验收证据充分后另行开放。
 
 - Add、Replace、Delete、Upload
 - Item 锁、幂等操作和原子写入
