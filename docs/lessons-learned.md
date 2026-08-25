@@ -79,3 +79,7 @@ XTerminal 已提供带连接状态的 SSH MCP。先列出服务器并按明确�
 ## 15. Compose 文件权限必须用容器内实际读取验证
 
 Docker Compose 对 file-source Secret/config 的 `uid`、`gid`、`mode` 字段可能只给出 warning 并忽略。部署前应让目标镜像以实际运行 UID 执行 `test -r`，并把非凭据 config 的宿主权限设为该 UID 可读；管理员 environment 所在私有 Compose 可以保持 root-only。C92 的 b9916d1 迁移用 `root:root 0600` 私有 Compose、`root:root 0644` config 和 UID 10001 容器读取测试通过，避免把 YAML 权限假象当成运行时证据。
+
+## 16. Emby 4.9.x 版本组详情必须请求 AlternateMediaSources
+
+Emby 的版本组在列表查询中可能表现为多个关联 Item，并且默认只带一个 `MediaSource`。对选中的 Item 做详情读取时，`Fields` 必须显式包含 `AlternateMediaSources`，服务端才会返回完整的版本 source 列表。2026-08-25 在 C92 的已知 Movie 版本组上复核：省略该字段时每个结果只有一个 source；加入该字段后每个详情 Item 返回两个 source。D2 客户端不能把列表结果或默认 source 当成完整事实，必须固定请求字段并在服务端按完整 source 列表执行多源 fail-closed 检查。

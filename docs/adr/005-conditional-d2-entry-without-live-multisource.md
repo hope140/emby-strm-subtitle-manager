@@ -1,8 +1,14 @@
 # ADR-005　在缺少真实多源样本时有条件进入 D2
 
-- 状态　accepted
+- 状态　accepted（真实样本已发现；客户端字段修正已完成，多源支持门禁仍待完整 Canary）
 - 日期　2026-08-24
 - 相关组件　D1 真实验收、D2 搜索预览、多 MediaSource、功能开关
+
+## 后续事实更新（2026-08-25）
+
+C92 已提供一个真实 Movie 版本组。只读复核发现：列表或详情请求若不在 `Fields` 中包含 `AlternateMediaSources`，每个关联 Item 可能只返回默认 `MediaSource`；加入该字段后，每个详情 Item 返回两个完整 `MediaSources`。因此原 ADR 的“真实样本尚未找到”背景已结束，但“完成 API、UI 和 source 对应验收前保持多源 fail closed”的决策仍然有效。
+
+本轮已在 `internal/embyclient` 详情请求中固定加入 `AlternateMediaSources`，并补充完整 source 列表的 DTO 合并、去重边界和 D2 409 回归测试。该事实更新不授权真实 Search、Fetch、Preview、部署、重启或任何写入。
 
 ## 背景
 
@@ -28,7 +34,7 @@ D1 的代码、自动化、C92 Docker Compose 部署、公网 HTTPS 和真实 Mo
 2. D2 初始范围只包括单 MediaSource 的 Movie/Episode。实现、部署和验收期间 `remote_search_enabled=false` 继续作为默认值；没有 D2 专项授权和验收，不得启用实际远程搜索。
 3. D2 遇到多个 `MediaSource` 时必须安全拒绝，不得猜测第一个 source，也不得把 D1 的显式 source 浏览能力自动扩大为已验证的多源搜索能力。稳定错误码和响应契约在 D2 设计阶段确定，并由测试固定。
 4. Fake Emby 的多源 409、显式 source 选择和候选隔离测试仍是自动化必需项，但不能替代真实多源验收。
-5. 找到真实多源样本并完成 API、UI 和 source 对应验收前，不得宣称或启用真实多源搜索、Fetch 或预览支持。该项是多源能力的独立门禁，不再阻断整个 D2。
+5. 找到真实多源样本只是解除“样本缺失”这一前置条件；在完成 API、UI 和 source 对应验收前，不得宣称或启用真实多源搜索、Fetch 或预览支持。该项是多源能力的独立门禁，不再阻断单源 D2。
 6. 不再为解除 D2 而继续无界扫描。后续只在环境负责人提供已知样本，或另行明确授权有界扩大扫描时复查。
 7. D3 及任何 Add、Replace、Delete、Upload、Refresh 或批量写入门禁不变；本 ADR 不授权写入、部署、重启或修改 Emby/媒体。
 

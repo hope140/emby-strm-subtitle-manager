@@ -66,14 +66,15 @@ func TestReadEndpointsHeadersQueryAndMapping(t *testing.T) {
 				return
 			}
 			q := r.URL.Query()
-			if q.Get("Ids") != "movie-1" || q.Get("Fields") != "Path,ProviderIds,MediaStreams,MediaSources" || q.Get("Limit") != "2" || q.Get("EnableImages") != "false" || q.Get("EnableUserData") != "false" || len(q) != 5 {
+			if q.Get("Ids") != "movie-1" || q.Get("Fields") != "Path,ProviderIds,MediaStreams,MediaSources,AlternateMediaSources" || q.Get("Limit") != "2" || q.Get("EnableImages") != "false" || q.Get("EnableUserData") != "false" || len(q) != 5 {
 				t.Errorf("get query = %v", q)
 			}
 			writeJSON(t, w, map[string]any{"Items": []map[string]any{{
 				"Id": "movie-1", "Name": "Movie", "Type": "Movie", "Path": "C:\\private\\movie.strm",
-				"ProviderIds":  map[string]string{"Imdb": "tt123"},
-				"MediaSources": []map[string]any{{"Id": "source-1", "Path": "C:\\private\\movie.strm", "Protocol": "file", "Container": "strm", "Default": false, "MediaStreams": []map[string]any{{"Index": 3, "Type": "Subtitle", "Title": "中文", "DisplayLanguage": "Chinese", "IsTextSubtitleStream": true, "DeliveryMethod": "External", "Protocol": "http"}}}},
-				"MediaStreams": []map[string]any{{"Index": 2, "Type": "Subtitle", "IsExternal": false, "IsForced": false, "IsDefault": true}},
+				"ProviderIds":           map[string]string{"Imdb": "tt123"},
+				"MediaSources":          []map[string]any{{"Id": "source-1", "Path": "C:\\private\\movie.strm", "Protocol": "file", "Container": "strm", "Default": false, "MediaStreams": []map[string]any{{"Index": 3, "Type": "Subtitle", "Title": "中文", "DisplayLanguage": "Chinese", "IsTextSubtitleStream": true, "DeliveryMethod": "External", "Protocol": "http"}}}},
+				"AlternateMediaSources": []map[string]any{{"Id": "source-2", "Name": "Alternate", "Path": "C:\\private\\movie-alt.strm", "Protocol": "file", "Container": "strm", "Default": false}},
+				"MediaStreams":          []map[string]any{{"Index": 2, "Type": "Subtitle", "IsExternal": false, "IsForced": false, "IsDefault": true}},
 			}}})
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
@@ -89,7 +90,7 @@ func TestReadEndpointsHeadersQueryAndMapping(t *testing.T) {
 		t.Fatalf("items = %#v, err=%v", items, err)
 	}
 	item, err := client.GetItem(context.Background(), "movie-1")
-	if err != nil || item.Path == "" || item.ProviderIDs["Imdb"] != "tt123" || len(item.MediaSources) != 1 || item.MediaSources[0].Protocol != "file" || item.MediaSources[0].MediaStreams == nil || len(*item.MediaSources[0].MediaStreams) != 1 || (*item.MediaSources[0].MediaStreams)[0].Title != "中文" || item.MediaStreams == nil || len(*item.MediaStreams) != 1 {
+	if err != nil || item.Path == "" || item.ProviderIDs["Imdb"] != "tt123" || len(item.MediaSources) != 2 || item.MediaSources[0].Protocol != "file" || item.MediaSources[0].MediaStreams == nil || len(*item.MediaSources[0].MediaStreams) != 1 || (*item.MediaSources[0].MediaStreams)[0].Title != "中文" || item.MediaSources[1].ID != "source-2" || item.MediaStreams == nil || len(*item.MediaStreams) != 1 {
 		t.Fatalf("item = %#v, err=%v", item, err)
 	}
 	if calls.Load() != 3 {
@@ -215,6 +216,45 @@ func TestDTOMissingFieldsRemainDistinguishable(t *testing.T) {
 	}
 	if decoded.IndexNumber == nil || *decoded.IndexNumber != 0 || decoded.MediaStreams == nil || decoded.MediaSources == nil {
 		t.Fatalf("decoded pointers lost zero/empty distinction: %#v", decoded)
+	}
+}
+
+func TestDTOCombinesAlternateMediaSourcesAndDeduplicatesIDs(t *testing.T) {
+	var decoded itemDTO
+	if err := json.Unmarshal([]byte(`{"Id":"item","Name":"Movie","Type":"Movie","MediaSources":[{"Id":"source-1","Name":"primary"},{"Id":"","Name":"unnamed"}],"AlternateMediaSources":[{"Id":"source-1","Name":"duplicate"},{"Id":"source-2","Name":"alternate"}]}`), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	item := decoded.toDomain()
+	if len(item.MediaSources) != 3 {
+		t.Fatalf("MediaSources = %#v, want primary, unnamed and alternate", item.MediaSources)
+	}
+	if item.MediaSources[0].ID != "source-1" || item.MediaSources[1].ID != "" || item.MediaSources[2].ID != "source-2" {
+		t.Fatalf("MediaSources order/IDs = %#v", item.MediaSources)
+	}
+	if item.MediaSources[0].Name != "primary" {
+		t.Fatalf("primary source was replaced by duplicate: %#v", item.MediaSources[0])
+	}
+}
+
+func TestDTOPreservesDuplicateIDsWithinPrimarySources(t *testing.T) {
+	var decoded itemDTO
+	if err := json.Unmarshal([]byte(`{"Id":"item","Name":"Movie","Type":"Movie","MediaSources":[{"Id":"source-1"},{"Id":"source-1"}]}`), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	item := decoded.toDomain()
+	if len(item.MediaSources) != 2 || item.MediaSources[0].ID != "source-1" || item.MediaSources[1].ID != "source-1" {
+		t.Fatalf("duplicate primary sources were hidden: %#v", item.MediaSources)
+	}
+}
+
+func TestDTOPreservesDuplicateIDsWithinAlternateSources(t *testing.T) {
+	var decoded itemDTO
+	if err := json.Unmarshal([]byte(`{"Id":"item","Name":"Movie","Type":"Movie","AlternateMediaSources":[{"Id":"source-2"},{"Id":"source-2"}]}`), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	item := decoded.toDomain()
+	if len(item.MediaSources) != 2 || item.MediaSources[0].ID != "source-2" || item.MediaSources[1].ID != "source-2" {
+		t.Fatalf("duplicate alternate sources were hidden: %#v", item.MediaSources)
 	}
 }
 

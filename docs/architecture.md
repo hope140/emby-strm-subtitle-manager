@@ -1,6 +1,6 @@
 # 当前架构
 
-本文只描述截至 2026 年 8 月 25 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已验收；D2 后端、内嵌 UI、本地 Fake Emby 浏览器自动化和 D2.5-A/B 管理员会话已完成本地验证。D2.5 已基于公开 b9916d1 完成 C92 app-only 部署与认证验收，SH/FRP/OpenResty 和公网 18080 未在本任务处理；真实 Provider/客户端 Canary 与真实多媒体源样本仍待验收。真实多源搜索仍不得宣称支持。Installer 和写入能力仍属于后续阶段。
+本文只描述截至 2026 年 8 月 25 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已验收；D2 后端、内嵌 UI、本地 Fake Emby 浏览器自动化和 D2.5-A/B 管理员会话已完成本地验证。D2.5 已基于公开 b9916d1 完成 C92 app-only 部署与认证验收，SH/FRP/OpenResty 和公网 18080 未在本任务处理。C92 已找到真实版本组，并确认 Emby 4.9.x 详情请求必须包含 `AlternateMediaSources` 才能读取完整 source 列表；客户端字段修正和回归测试已在本地完成，完整多源 API/UI/source Canary 仍待完成。真实多源搜索仍不得宣称支持。Installer 和写入能力仍属于后续阶段。
 
 ## D1 本地实现
 
@@ -30,7 +30,7 @@ D1.5 UI 只浏览既有媒体库、Movie/Episode 混合分页、媒体详情和�
 
 MediaContext 对单源自动选择，对多源要求显式 `media_source_id`，不会猜测列表第一项。STRM 的 Inventory 和 PathMapper 始终使用 Emby Item.Path；非 STRM 只有本地 MediaSource.Path 可用时才使用它，远程 source path 只作为内部播放定位事实，不参与本地映射、目录检查、响应或日志。STRM 的 IsStrm 判断只看 Item.Path。即使多源共用同一个 Item.Path 的 STRM sidecar 目录，字幕流仍按选中的 MediaSource 保持隔离。PathMapper 支持 POSIX、Windows drive 和 UNC 形式，采用规范化、最长前缀匹配及目录 containment 检查；路径不安全、未映射或目录不可用时返回降级状态和稳定 warning。Inventory 只枚举受控目录、读取文件元数据并合并 Emby MediaStreams，绝不读取 STRM 内容、媒体正文或字幕正文。
 
-本地 `scripts/verify.ps1` 和 Linux 全包测试均已通过且无 skip；C92 的 Docker Compose schema/build、启动安全边界、`/readyz`、Bearer 认证和版本标签，以及 FRP 公网 HTTPS、单代理加密和公网应用端口防火墙边界另有部署证据。自动化与已验收的 STRM Canary 仍不能替代尚未完成的真实多媒体源验收，因此它们不能支撑真实多源搜索的支持声明；该缺口不再阻断单源 D2。
+本地 `scripts/verify.ps1` 和 Linux 全包测试均已通过且无 skip；C92 的 Docker Compose schema/build、启动安全边界、`/readyz`、Bearer 认证和版本标签，以及 FRP 公网 HTTPS、单代理加密和公网应用端口防火墙边界另有部署证据。C92 真实版本组样本已补齐，客户端已固定请求 `AlternateMediaSources` 并通过本地回归测试，但 API/UI/source 对应 Canary 未完成，因此不能支撑真实多源搜索的支持声明；该缺口不阻断单源 D2。
 
 ## 当前系统边界
 
@@ -106,7 +106,7 @@ V1 通过 Emby Bridge 使用 Meiam Provider。Native Thunder 和 Native ASSRT �
 
 ## D2-B1 后端实现
 
-D2-B1 在独立 `d2` Service 中实现 Search、Fetch、Preview 的后端闭环，并由 `config`、`embyclient`、`subtitleprovider`、`subtitle`、`preview` 和 `httpapi` 提供边界能力。默认开关关闭；启用时必须同时满足 Canary 和服务端 Item allowlist。每次操作重新读取 Item，首轮只接受单源 Movie/Episode，多源统一 fail closed。
+D2-B1 在独立 `d2` Service 中实现 Search、Fetch、Preview 的后端闭环，并由 `config`、`embyclient`、`subtitleprovider`、`subtitle`、`preview` 和 `httpapi` 提供边界能力。默认开关关闭；启用时必须同时满足 Canary 和服务端 Item allowlist。每次操作重新读取包含 `AlternateMediaSources` 的 Item 详情，先合并并仅抑制主、备用字段之间重复的非空 source ID，同一字段内部的重复交给 source 校验，再执行单源 Movie/Episode 前置检查；多源统一 fail closed。
 
 Remote Subtitle Bridge 只通过服务端 API Key 调用固定的两个 GET 接口。候选原始 ID 不进入 HTTP 响应、日志或 Artifact；Fetch 先做有界字幕校验和 canonical UTF-8 解析，再写入显式配置的专用稳定短期缓存。启用 D2 时 cache_dir 缺失、为根目录、与媒体映射双向 overlap 或通过 symlink/reparse point 到达其他位置都会 fail closed；启动同一缓存目录会回收旧 Artifact。Candidate/Artifact 绑定认证上下文、Item、source、语言和 allowlist generation，过期状态遵循一次 410、清理后 404 的无 tombstone 语义；成功 Fetch 重放复用 Artifact，Preview 只额外重读一次 Item，不重新 Fetch Provider。
 

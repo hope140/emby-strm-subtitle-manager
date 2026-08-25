@@ -2,7 +2,7 @@
 
 这套文档把当前事实、长期决策、维护经验和本机信息分开保存。开发前按需要读取，任务结束后通过 Knowledge Review 决定是否更新。
 
-当前状态：Phase 1 已完成路线决策和文档收口，ADR-002 和 ADR-003 已接受并选择方案 B 及其 D1→D2→D3 里程碑。D1 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM 真实 Canary 已验收；D2 实现已形成不可变 commit，并完成一次 C92 单源真实 Search→Fetch→Preview Canary，随后已关闭 D2 开关。D2.5-A/B 已完成 Compose environment 管理员登录、短期 HttpOnly 会话、失败限速和 Bearer 自动化兼容；2026-08-25 已基于公开 b9916d1 完成 C92 app-only 部署及既有 HTTPS 路径验收，记录见 [D2.5 目标环境迁移预检](d2.5-target-migration-preflight-20260825.md)。SH/FRP/OpenResty、公网 18080、D2.5-C scope、CSRF 和 D3 写入仍未在本任务处理或实现。真实多媒体源样本仍未找到；[ADR-005](adr/005-conditional-d2-entry-without-live-multisource.md) 允许有条件进入 D2 的契约、实现和单源 Canary，但真实多源搜索在样本验收前保持安全拒绝且不得宣称支持。上游构建基线的失败和未验证项仍以 [Phase 1 基线报告](../BASELINE.md) 为准；它们不等同于新 Go 服务的验证结果。
+当前状态：Phase 1 已完成路线决策和文档收口，ADR-002 和 ADR-003 已接受并选择方案 B 及其 D1→D2→D3 里程碑。D1 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM 真实 Canary 已验收；D2 实现已形成不可变 commit，并完成一次 C92 单源真实 Search→Fetch→Preview Canary，随后已关闭 D2 开关。D2.5-A/B 已完成 Compose environment 管理员登录、短期 HttpOnly 会话、失败限速和 Bearer 自动化兼容；2026-08-25 已基于公开 b9916d1 完成 C92 app-only 部署及既有 HTTPS 路径验收，记录见 [D2.5 目标环境迁移预检](d2.5-target-migration-preflight-20260825.md)。C92 已找到真实 Movie 版本组，并确认详情请求必须包含 `AlternateMediaSources` 才能得到完整 source 列表；客户端字段修正和本地回归测试已完成，真实 API/UI/source 对应 Canary 待完成。SH/FRP/OpenResty、公网 18080、D2.5-C scope、CSRF 和 D3 写入仍未在本任务处理或实现。多源搜索在完整门禁前保持安全拒绝且不得宣称支持。上游构建基线的失败和未验证项仍以 [Phase 1 基线报告](../BASELINE.md) 为准；它们不等同于新 Go 服务的验证结果。
 
 ## 正式文档
 
@@ -13,13 +13,14 @@
 | [ADR](adr/README.md) | 长期架构选择、原因和代价 | 局部实现细节 |
 | [Phase 1 基线检查表](phase1-baseline-checklist.md) | Phase 1 当前收口状态、基线任务和下一阶段门禁 | Phase 2 实现 |
 | [Phase 2 只读 Canary](phase2-readonly-canary.md) | D1 已实现切片的 API、配置、安全边界和自动/真实验收门禁 | D2 搜索预览和 D3 写入实现 |
-| [D2 搜索预览契约](d2-search-preview-contract.md) | D2 Search、Fetch、Preview、错误码、Token/Artifact 生命周期、安全预算和测试矩阵 | 真实 Canary、部署和写入能力 |
+| [D2 搜索预览契约](d2-search-preview-contract.md) | D2 Search、Fetch、Preview、错误码、Token/Artifact 生命周期、安全预算、完整 MediaSources 读取和测试矩阵 | 真实 Canary、部署和写入能力 |
 | [D2-B1 后端实现评审](d2-b1-backend-implementation-review.md) | D2-B1 代码、单元测试、Fake Emby 证据和残余门禁 | 真实 Canary、部署和 UI 验收 |
 | [D2-B2 UI 评审](d2-b2-readonly-ui-review.md) | D2 UI、内存 Token 边界与本地 Fake Emby 浏览器 E2E | 真实 Provider/客户端 Canary、部署和写入能力 |
 | [D2-C C92 预检](d2-c-c92-canary-preflight.md) | C92 有界只读 Item 选择、实时版本核对和 Canary 阻断证据 | 真实 D2 Search、Fetch、Preview Canary |
 | [D2-C C92 部署前核对](d2-c92-deployment-preflight.md) | C92 现网 D1 安全边界、回滚点和 D2 发布阻断证据 | D2 部署、重启和真实 Canary |
 | [D2 发布候选审计](d2-release-candidate-audit.md) | 本地 Git、敏感信息、测试构建证据与发布阻断项 | C92 部署、重启和真实 canary |
 | [D2-C C92 单源真实 Canary 验收](d2-c92-canary-acceptance.md) | C92 可回滚 D2 部署、真实 Search/Fetch/Preview、候选失败隔离和关闭后的状态 | 多源支持、真实客户端、公网 UI 和 D3 写入 |
+| [D2 多版本 MediaSources 实测记录](d2-multisource-c92-sample.md) | C92 真实版本组、`AlternateMediaSources` 字段证据和客户端修正入口 | 多源 Search/Fetch/Preview 完整 Canary、写入能力 |
 | [ADR-006 管理员会话与自动化凭据](adr/006-admin-session-and-automation-credentials.md) | 发布镜像的管理员登录、Compose environment 配置、自动化 Token 分离和 D2.5 排期 | D3 写入和多用户系统 |
 | [D2.5 管理员认证](d2.5-admin-auth.md) | D2.5-A/B 当前实现、会话契约、Compose environment、测试证据和剩余门禁 | C92/SH 部署、scope、CSRF 和 D3 写入 |
 | [D2.5 目标环境迁移预检](d2.5-target-migration-preflight-20260825.md) | 本轮本地发布核对、C92 只读状态、暂停原因和恢复顺序 | Secret 内容、部署操作和 D3 写入 |

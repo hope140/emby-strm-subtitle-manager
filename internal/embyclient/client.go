@@ -228,9 +228,10 @@ func (c *Client) GetItem(ctx context.Context, itemID string) (domain.EmbyItem, e
 	query := url.Values{}
 	query.Set("EnableImages", "false")
 	query.Set("EnableUserData", "false")
-	// MediaSources is a detail field rather than a default item field. Keep it
-	// explicit so source selection never depends on an incomplete response.
-	query.Set("Fields", "Path,ProviderIds,MediaStreams,MediaSources")
+	// MediaSources and AlternateMediaSources are detail fields rather than
+	// default item fields. Emby 4.9.x can return only the default version
+	// unless AlternateMediaSources is explicitly requested.
+	query.Set("Fields", "Path,ProviderIds,MediaStreams,MediaSources,AlternateMediaSources")
 	query.Set("Ids", itemID)
 	query.Set("Limit", "2")
 	var raw itemsResponseDTO

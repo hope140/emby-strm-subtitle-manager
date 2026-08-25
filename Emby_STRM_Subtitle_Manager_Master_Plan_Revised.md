@@ -451,7 +451,7 @@ Gate 0 通过后才能决定是否沿用 Emby Bridge。若 Fetch 不稳定或 Pr
 
 本阶段按 [ADR-003](docs/adr/003-phase2-milestones-and-deployment.md) 作为 D1 只读 Canary 执行，并由 [ADR-005](docs/adr/005-conditional-d2-entry-without-live-multisource.md) 规定缺少真实多源样本时的 D2 条件入口。默认使用 Linux Docker Compose 单应用容器、媒体只读挂载和 `write_enabled=false`，通过私网或 SSH 隧道做实际验收。具体 API、安全边界和门禁见 [D1 验收定义](docs/phase2-readonly-canary.md)。
 
-当前进度：D1 的 Go 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 以及 Movie、Episode STRM 真实 Canary 已完成并记录在 [D1 部署验收报告](docs/d1-deployment-acceptance.md)。Docker Compose schema/build、host-network、UID 10001、只读 root、只读媒体、三份 Secret 权限、`/readyz`、Bearer 认证、版本溯源标签、FRP 单代理加密和公网应用端口防火墙边界均已通过。真实多媒体源样本尚未找到，自动化 409 与显式 source 选择测试已通过但不能替代真实样本。按 ADR-005，可以开始 D2 契约、实现和单源 Canary；真实多源搜索在样本验收前必须安全拒绝且不得宣称支持。`write_enabled=false` 和 `remote_search_enabled=false` 继续保持默认关闭，D3 及所有写入门禁不变。
+当前进度：D1 的 Go 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 以及 Movie、Episode STRM 真实 Canary 已完成并记录在 [D1 部署验收报告](docs/d1-deployment-acceptance.md)。Docker Compose schema/build、host-network、UID 10001、只读 root、只读媒体、三份 Secret 权限、`/readyz`、Bearer 认证、版本溯源标签、FRP 单代理加密和公网应用端口防火墙边界均已通过。C92 已找到真实 Movie 版本组；详情读取只有在 `Fields` 包含 `AlternateMediaSources` 时才能得到完整两个 `MediaSources`，客户端字段修正和回归测试已完成，真实多源 API/UI/source 对应验收仍待完成。按 ADR-005，可以继续 D2 契约、实现和单源 Canary；多源 Search、Fetch、Preview 在完整门禁通过前必须安全拒绝且不得宣称支持。`write_enabled=false` 和 `remote_search_enabled=false` 继续保持默认关闭，D3 及所有写入门禁不变。
 
 - 实现 MediaContext 和 PathMapper
 - 从 Emby 浏览电影与剧集
@@ -459,11 +459,11 @@ Gate 0 通过后才能决定是否沿用 Emby Bridge。若 Fetch 不稳定或 Pr
 - 显示 Embedded、External、Manageable 状态
 - 正确识别 STRM
 
-Movie/Episode 的 D1 真实验收必须覆盖；多 MediaSource 自动化也必须覆盖。真实多源样本缺失时，必须标记为“自动化已通过、真实样本待补”，不能写成真实多源完整通过。按 ADR-005，这一缺口阻断多源搜索支持声明和启用，但不阻断单源 D2 的实现与 Canary。
+Movie/Episode 的 D1 真实验收必须覆盖；多 MediaSource 自动化也必须覆盖。真实多源样本已找到，但在详情字段修正、API/UI/source 对应验收前，必须标记为“真实样本已找到、完整多源门禁待补”，不能写成真实多源完整通过。按 ADR-005，这一门禁阻断多源搜索支持声明和启用，但不阻断单源 D2 的实现与 Canary。
 
 ### Phase 3　远程搜索与预览
 
-本阶段对应 ADR-003 的 D2，并采用 ADR-005 的条件入口。D1 自动化和真实 Movie/Episode STRM Canary 已通过，因此先实现单源 Movie/Episode 的搜索和预览；多源 Item 在真实样本验收前必须安全拒绝，不得猜测 source。本阶段继续保持功能开关默认关闭，未获专项授权不在真实环境启用，也不写入媒体库。
+本阶段对应 ADR-003 的 D2，并采用 ADR-005 的条件入口。D1 自动化和真实 Movie/Episode STRM Canary 已通过，因此先实现单源 Movie/Episode 的搜索和预览；C92 已找到真实版本组，`embyclient` 已在详情请求中包含 `AlternateMediaSources` 并完成本地回归测试，多源 Item 在完整 API/UI/source 门禁通过前必须安全拒绝，不得猜测 source。本阶段继续保持功能开关默认关闭，未获专项授权不在真实环境启用，也不写入媒体库。
 
 本阶段的 Search、Fetch、Preview、稳定错误码、Candidate Token、PreviewArtifact、候选级失败、资源上限、安全边界和实现测试矩阵以 [D2 搜索预览契约与安全设计](docs/d2-search-preview-contract.md) 为准。
 

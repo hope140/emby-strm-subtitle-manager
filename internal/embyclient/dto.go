@@ -28,19 +28,20 @@ type itemsResponseDTO struct {
 }
 
 type itemDTO struct {
-	ID                *string            `json:"Id"`
-	Name              *string            `json:"Name"`
-	Type              *string            `json:"Type"`
-	ParentID          *string            `json:"ParentId"`
-	SeriesID          *string            `json:"SeriesId"`
-	SeriesName        *string            `json:"SeriesName"`
-	ParentIndexNumber *int               `json:"ParentIndexNumber"`
-	IndexNumber       *int               `json:"IndexNumber"`
-	ProductionYear    *int               `json:"ProductionYear"`
-	Path              *string            `json:"Path"`
-	ProviderIDs       *map[string]string `json:"ProviderIds"`
-	MediaSources      *[]mediaSourceDTO  `json:"MediaSources"`
-	MediaStreams      *[]mediaStreamDTO  `json:"MediaStreams"`
+	ID                    *string            `json:"Id"`
+	Name                  *string            `json:"Name"`
+	Type                  *string            `json:"Type"`
+	ParentID              *string            `json:"ParentId"`
+	SeriesID              *string            `json:"SeriesId"`
+	SeriesName            *string            `json:"SeriesName"`
+	ParentIndexNumber     *int               `json:"ParentIndexNumber"`
+	IndexNumber           *int               `json:"IndexNumber"`
+	ProductionYear        *int               `json:"ProductionYear"`
+	Path                  *string            `json:"Path"`
+	ProviderIDs           *map[string]string `json:"ProviderIds"`
+	MediaSources          *[]mediaSourceDTO  `json:"MediaSources"`
+	AlternateMediaSources *[]mediaSourceDTO  `json:"AlternateMediaSources"`
+	MediaStreams          *[]mediaStreamDTO  `json:"MediaStreams"`
 }
 
 type remoteSubtitleDTO struct {
@@ -122,23 +123,44 @@ func (d itemDTO) toDomain() domain.EmbyItem {
 	if d.ProviderIDs != nil {
 		item.ProviderIDs = cloneStringMap(*d.ProviderIDs)
 	}
-	if d.MediaSources != nil {
-		item.MediaSources = make([]domain.MediaSource, 0, len(*d.MediaSources))
-		for _, source := range *d.MediaSources {
-			mapped := domain.MediaSource{
-				ID: sourceString(source.ID), Name: sourceString(source.Name), Path: sourceString(source.Path), Type: sourceString(source.Type),
-				Protocol: sourceString(source.Protocol), Container: sourceString(source.Container),
-				IsRemote: source.IsRemote, IsDefault: source.IsDefault, SupportsDirectPlay: source.SupportsDirectPlay,
+	if d.MediaSources != nil || d.AlternateMediaSources != nil {
+		item.MediaSources = make([]domain.MediaSource, 0, mediaSourceCount(d.MediaSources, d.AlternateMediaSources))
+		appendSources := func(sources *[]mediaSourceDTO, skipIDs map[string]struct{}) {
+			if sources == nil {
+				return
 			}
-			if source.MediaStreams != nil {
-				streams := make([]domain.MediaStream, 0, len(*source.MediaStreams))
-				for _, stream := range *source.MediaStreams {
-					streams = append(streams, mapMediaStream(stream))
+			for _, source := range *sources {
+				id := sourceString(source.ID)
+				if id != "" && skipIDs != nil {
+					if _, exists := skipIDs[id]; exists {
+						continue
+					}
 				}
-				mapped.MediaStreams = &streams
+				mapped := domain.MediaSource{
+					ID: id, Name: sourceString(source.Name), Path: sourceString(source.Path), Type: sourceString(source.Type),
+					Protocol: sourceString(source.Protocol), Container: sourceString(source.Container),
+					IsRemote: source.IsRemote, IsDefault: source.IsDefault, SupportsDirectPlay: source.SupportsDirectPlay,
+				}
+				if source.MediaStreams != nil {
+					streams := make([]domain.MediaStream, 0, len(*source.MediaStreams))
+					for _, stream := range *source.MediaStreams {
+						streams = append(streams, mapMediaStream(stream))
+					}
+					mapped.MediaStreams = &streams
+				}
+				item.MediaSources = append(item.MediaSources, mapped)
 			}
-			item.MediaSources = append(item.MediaSources, mapped)
 		}
+		appendSources(d.MediaSources, nil)
+		primaryIDs := make(map[string]struct{})
+		if d.MediaSources != nil {
+			for _, source := range *d.MediaSources {
+				if id := sourceString(source.ID); id != "" {
+					primaryIDs[id] = struct{}{}
+				}
+			}
+		}
+		appendSources(d.AlternateMediaSources, primaryIDs)
 	}
 	if d.MediaStreams != nil {
 		streams := make([]domain.MediaStream, 0, len(*d.MediaStreams))
@@ -148,6 +170,17 @@ func (d itemDTO) toDomain() domain.EmbyItem {
 		item.MediaStreams = &streams
 	}
 	return item
+}
+
+func mediaSourceCount(primary, alternate *[]mediaSourceDTO) int {
+	count := 0
+	if primary != nil {
+		count += len(*primary)
+	}
+	if alternate != nil {
+		count += len(*alternate)
+	}
+	return count
 }
 
 func (d remoteSubtitleDTO) toDomain() domain.RemoteSubtitleInfo {

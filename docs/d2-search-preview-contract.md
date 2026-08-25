@@ -1,6 +1,6 @@
 # D2 搜索预览契约与安全设计
 
-- 状态　D2 后端、内嵌只读 UI 与 D2.5-A/B 管理员会话已在本地实现；真实 Canary 待授权
+- 状态　D2 后端、内嵌只读 UI 与 D2.5-A/B 管理员会话已在本地实现；C92 已找到真实版本组并完成只读 source 字段核对，完整多源 Canary 待客户端修正和独立授权
 - 日期　2026-08-24
 - 适用范围　ADR-003 的 D2、ADR-005 规定的单源条件入口
 - 当前实现　后端、安全门禁、内嵌 UI、Compose environment 管理员登录和 Fake Emby 测试已实现；真实 Provider Canary、部署和重启不在本轮范围
@@ -11,7 +11,7 @@
 
 D2 只做以下只读工作：
 
-- 对一个 Movie 或 Episode 重新读取 Emby Item，并确认它恰好有一个有效 `MediaSource`。
+- 对一个 Movie 或 Episode 重新读取 Emby Item，并以包含 `AlternateMediaSources` 的详情响应确认完整 source 列表。
 - 通过 Emby Remote Subtitle Bridge 搜索候选。
 - 以服务端签发的短期候选 Token 触发单个候选 Fetch。
 - 对 Fetch 到的字幕做大小、编码、格式和解析校验，生成短期 `PreviewArtifact`。
@@ -28,17 +28,27 @@ D2 明确不做以下工作：
 
 ## 2. 首轮支持范围与安全前置检查
 
-首轮只支持 `Type` 为 `Movie` 或 `Episode` 且刚刚从 Emby 读取到的 `MediaSources` 数量为 1 的 Item。
+首轮 Search、Fetch、Preview 只支持 `Type` 为 `Movie` 或 `Episode` 且刚刚从 Emby 详情接口读取到的完整 `MediaSources` 数量为 1 的 Item。真实版本组样本已经证明，列表响应或缺少 `AlternateMediaSources` 的请求不能作为完整 source 事实。
 
 每次 Search、Fetch 和 Preview 都要在服务端重新取得 Item 并检查以下条件：
 
 1. Item 存在，类型是 Movie 或 Episode。
-2. `MediaSources` 恰好有一项，source ID 非空且没有重复。
+2. 详情请求的 `Fields` 必须包含 `AlternateMediaSources`；客户端将响应中的完整 `MediaSources`（以及某些版本单独返回的备用 source 字段）合并，只抑制两个字段之间重复的非空 source ID；同一字段内部的重复必须保留给源校验拒绝，最终恰好有一项且 source ID 非空。
 3. 请求中的 `media_source_id` 若提供，必须精确匹配这唯一 source；省略时只允许在数量为 1 时自动使用该 source。
 4. Candidate Token 或 PreviewArtifact 绑定的 Item、source、语言和当前认证上下文仍然一致。
 5. Item 或 source 在两次请求之间发生变化时，旧 Token/Artifact 不能继续驱动上游请求。
 
 多 MediaSource 在真实样本验收前始终 fail closed。无论客户端是否提交了显式 source ID，只要当前 Item 的 source 数量大于 1，三个接口都返回 `409 d2_multisource_unsupported`，不得选择第一项、默认项或上一次使用的 source。零 source 或 source 结构无效分别返回 `media_source_unavailable` 或 `emby_invalid_response`，也不能降级为猜测。D1 的显式 source 浏览能力不自动扩大为 D2 的多源搜索、Fetch 或预览支持。
+
+### 2.1 Emby 版本组读取规则
+
+Emby 4.9.x 的版本组可能在列表查询中返回多个关联 Item，且默认响应只带当前默认 source。对选中的 Item 重新读取详情时，必须显式请求：
+
+```text
+Fields=Path,ProviderIds,MediaStreams,MediaSources,AlternateMediaSources
+```
+
+加入 `AlternateMediaSources` 后，C92 的真实版本组详情响应为每个 Item 提供两个 `MediaSources`。D2 以该详情响应作为 source 绑定事实；不能根据列表中的 Item 数量、默认 source、同名标题或 `PresentationUniqueKey` 猜测 source。若备用 source 字段被 Emby 版本单独返回，客户端在 DTO 边界合并，只抑制两个字段之间的重复 source；同一字段内部的重复仍交给 source 校验拒绝，再进入本节的多源门禁。
 
 ## 3. 总体调用边界
 
@@ -427,7 +437,7 @@ Canary 只允许 allowlist 中已批准的单源 Movie/Episode，且必须验证
 | `internal/config` | 增加 D2 超时、专用稳定缓存目录、大小/并发/TTL、`d2.canary.enabled` 和受保护 `item_allowlist_file` 配置；默认关闭，拒绝“远程搜索开启但 cache_dir/Canary allowlist 缺失”以及私有路径与媒体映射 overlap 的配置 |
 | `internal/domain` | 增加服务端 Candidate、Artifact、cue 和状态模型；原始候选 ID 不能带 JSON 序列化标签 |
 | `internal/media` | 复用 Item/MediaSource 重新读取和绑定逻辑，增加 D2 的“恰好单 source”前置检查；不改变 D1 的多源浏览语义 |
-| `internal/embyclient` | 增加 Remote Subtitle Search/Fetch 的只读调用、强制传入服务端 `MediaSourceId`、固定 `IsForced`/`IsPerfectMatch`/`IsHearingImpaired`、路径转义、响应大小上限、分阶段超时和错误分类；不增加 Save/Refresh/Write 方法 |
+| `internal/embyclient` | 详情读取固定请求 `AlternateMediaSources` 并保留完整 source 列表；增加 Remote Subtitle Search/Fetch 的只读调用、强制传入服务端 `MediaSourceId`、固定 `IsForced`/`IsPerfectMatch`/`IsHearingImpaired`、路径转义、响应大小上限、分阶段超时和错误分类；不增加 Save/Refresh/Write 方法 |
 | 新增 `internal/subtitleprovider` | 实现 `EmbyRemoteSubtitleProvider`、ProviderCapabilities、候选投影和候选级错误/重试分类 |
 | 新增 `internal/subtitle` 或等价 Parser 层 | 实现 Validator、格式/编码识别、canonical UTF-8、SRT/ASS/SSA Parser 和 cue 资源上限；只选择性复用已确认的 Parser 核心 |
 | 新增 `internal/preview` | 实现 CandidateStore、PreviewArtifactStore、Token 绑定、TTL、无 tombstone 的过期/清理状态、allowlist generation、幂等 Fetch、清理、并发和缓存目录权限 |
@@ -469,7 +479,7 @@ Canary 只允许 allowlist 中已批准的单源 Movie/Episode，且必须验证
 
 D2 代码和 Fake Emby 通过后，才可在独立授权下对服务端 allowlist 中批准的单源 Movie/Episode 做有界真实 Canary。必须分别记录静态检查、Fake Emby、Emby 直连和真实客户端结果；D2 只需要证明搜索、Fetch、校验和预览的只读链路，不把 Refresh 或客户端写入作为 D2 通过条件。
 
-真实多 MediaSource 样本出现后，另行进行脱敏的 API/UI/source 对应验收，更新 ADR-005 或新增 ADR；在此之前不能用合成 Fake、自动化 409 或单源 Canary 宣称多源支持。
+真实多 MediaSource 样本已出现，下一步需进行脱敏的 API/UI/source 对应验收并更新 ADR-005 支持范围；在完整门禁前仍不能用合成 Fake、自动化 409 或单源 Canary 宣称多源支持。
 
 ## 13. Knowledge Review
 
@@ -482,6 +492,7 @@ Knowledge Findings
 - 新增约束　D2 对外区分 Search、Fetch、Preview；Canary 采用服务端 Item allowlist；Fetch 只生成短期 Artifact，Preview 只重读一次 Item/source 而不重新 Provider Fetch；三个接口在多源条件下统一 fail closed；启用 D2 必须使用显式稳定 `cache_dir`，启动时回收该目录中的旧 Artifact 文件。
 - 隐蔽坑　私有路径安全检查必须双向判断，媒体祖先与媒体子目录都属于 overlap；启动清理前还要拒绝文件系统根和 cache_dir 本身/父链的 symlink/reparse point，避免只读 D2 通过 `chmod` 或清理误触媒体/系统路径。
 - 隐蔽坑　Emby Bridge 的候选搜索和 Provider 选择是两个不同能力；一个候选的 500 可能来自候选自身失效，不能用通用 5xx 重试或使其他候选失效；缓存清理后也不能承诺永远返回 410。
+- 新增约束　Emby 4.9.x 的版本组详情必须显式请求 `AlternateMediaSources`；客户端在 DTO 边界合并备用 source，并只抑制主、备用字段之间重复的非空 ID，同一字段内部的重复必须保留给源校验拒绝。C92 实测记录见 [`docs/d2-multisource-c92-sample.md`](d2-multisource-c92-sample.md)。
 - 被证明错误的假设　D1 `GetItem` 只接受 Movie/Episode 会阻止 D2 对非支持类型返回稳定错误；D2 需要先保留详细 Item 类型，再由 D2 门禁判断。Provider 展示语言和绑定 canonical language 也不能共用一个语义。
 - 建议沉淀项　候选级失败、短期 Token/Artifact、allowlist generation、4 MiB 字节上限、两次候选尝试、Search/Fetch/Preview 预算，以及稳定缓存目录的启动回收和路径安全门禁已进入本轮代码与测试；通用失败隔离经验与既有 `docs/lessons-learned.md` 去重后不重复追加。
 
@@ -508,4 +519,4 @@ Knowledge Findings
 
 - 真实单源 Emby/Provider Search/Fetch/Preview 和真实客户端读取未在本轮运行；Fake Emby 证据不能替代真实 Canary。
 - 4 MiB、TTL、并发和频率是本设计的初始安全预算，需在代码压力测试和授权 Canary 中按证据调整，不能当作当前运行时能力。
-- 真实多源样本仍缺失；在新的真实样本、API/UI/source 对应验收和独立授权完成前，多源搜索、Fetch 和预览继续不可用。
+- 真实版本组样本已找到；在客户端字段修正、API/UI/source 对应验收和独立授权完成前，多源搜索、Fetch 和预览继续不可用。

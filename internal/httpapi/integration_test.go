@@ -250,8 +250,8 @@ func assertIntegrationUpstreamRequests(t *testing.T, requests []integrationReque
 		{"/Library/MediaFolders", url.Values{"IsHidden": {"false"}}},
 		{"/Library/MediaFolders", url.Values{"IsHidden": {"false"}}},
 		{"/Items", url.Values{"EnableImages": {"false"}, "EnableUserData": {"false"}, "GroupItemsIntoCollections": {"false"}, "IncludeItemTypes": {"Movie,Episode"}, "Limit": {"50"}, "ParentId": {"library-1"}, "Recursive": {"true"}, "SortBy": {"SortName"}, "SortOrder": {"Ascending"}, "StartIndex": {"0"}}},
-		{"/Items", url.Values{"EnableImages": {"false"}, "EnableUserData": {"false"}, "Fields": {"Path,ProviderIds,MediaStreams,MediaSources"}, "Ids": {"movie-1"}, "Limit": {"2"}}},
-		{"/Items", url.Values{"EnableImages": {"false"}, "EnableUserData": {"false"}, "Fields": {"Path,ProviderIds,MediaStreams,MediaSources"}, "Ids": {"movie-1"}, "Limit": {"2"}}},
+		{"/Items", url.Values{"EnableImages": {"false"}, "EnableUserData": {"false"}, "Fields": {"Path,ProviderIds,MediaStreams,MediaSources,AlternateMediaSources"}, "Ids": {"movie-1"}, "Limit": {"2"}}},
+		{"/Items", url.Values{"EnableImages": {"false"}, "EnableUserData": {"false"}, "Fields": {"Path,ProviderIds,MediaStreams,MediaSources,AlternateMediaSources"}, "Ids": {"movie-1"}, "Limit": {"2"}}},
 	}
 	for i, request := range requests {
 		if request.Method != http.MethodGet {

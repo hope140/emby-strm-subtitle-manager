@@ -1,8 +1,8 @@
 # Phase 2-D1 只读 Canary 验收定义
 
-状态：D1 代码切片、Linux 自动化门禁、C92 Docker Compose 部署、公网 HTTPS 及 Movie/Episode STRM Canary 已验收；真实多媒体源样本尚未验收。按 ADR-005，D1 已满足有条件进入 D2 的门禁，但真实多源搜索支持仍未收口。
+状态：D1 代码切片、Linux 自动化门禁、C92 Docker Compose 部署、公网 HTTPS 及 Movie/Episode STRM Canary 已验收；真实版本组样本已找到，但完整多源 API/UI/source 门禁尚未验收。按 ADR-005，D1 已满足有条件进入 D2 的门禁，但真实多源搜索支持仍未收口。
 
-本文件定义 ADR-003 的 D1 范围，并按 [ADR-005](adr/005-conditional-d2-entry-without-live-multisource.md) 区分进入单源 D2 的门禁和真实多源搜索支持门禁。D2 的接口、安全预算和测试矩阵，以及 D2-B1 当前后端状态见 [D2 搜索预览契约](d2-search-preview-contract.md)。它不授权真实 Canary、部署或重启。
+本文件定义 ADR-003 的 D1 范围，并按 [ADR-005](adr/005-conditional-d2-entry-without-live-multisource.md) 区分进入单源 D2 的门禁和真实多源搜索支持门禁。C92 已找到真实版本组；详情读取必须在 `Fields` 中包含 `AlternateMediaSources`，相关证据见 [D2 多版本 MediaSources 实测记录](d2-multisource-c92-sample.md)。D2 的接口、安全预算和测试矩阵，以及 D2-B1 当前后端状态见 [D2 搜索预览契约](d2-search-preview-contract.md)。它不授权真实 Canary、部署或重启。
 
 ## 1. D1 目标与范围
 
@@ -110,7 +110,7 @@ Compose 部署必须满足：
 
 ## 6. 真实 Canary 验收门禁
 
-在私网或 SSH 隧道环境部署单容器后，使用专用测试账号和已确认的只读配置完成以下门禁。Movie 与 Episode STRM 已完成；2026-08-24 两轮有界真实 Emby 扫描覆盖 11 个媒体库、1,026 个最新样本和 938 个分层样本，仍未补齐真实多媒体源。下列 Movie/Episode 项已经完成，多源对应项保留为独立待验门禁：
+在私网或 SSH 隧道环境部署单容器后，使用专用测试账号和已确认的只读配置完成以下门禁。Movie 与 Episode STRM 已完成；2026-08-24 两轮有界真实 Emby 扫描覆盖 11 个媒体库、1,026 个最新样本和 938 个分层样本未命中多媒体源；2026-08-25 环境负责人提供的已知 Movie 版本组通过 `AlternateMediaSources` 详情读取补齐了真实样本，但 API/UI/source 对应门禁仍待完成。下列 Movie/Episode 项已经完成，多源对应项保留为独立待验门禁：
 
 - 一个真实 Movie 和一个真实 Episode 均可浏览；找到多媒体源 Item 后补验同一流程。
 - `ItemID`、`MediaSourceID`、媒体类型、STRM 标记和字幕状态与 Emby 页面/API 一致。
@@ -120,7 +120,7 @@ Compose 部署必须满足：
 - 浏览器开发者工具、应用日志和容器环境导出中均不存在 API Key 或认证参数 URL。
 - 将 `write_enabled=false` 作为配置和运行时状态分别核对，不能只查看配置文件。
 
-按 ADR-005，自动化门禁、Movie/Episode STRM Canary、部署和安全边界通过后，可以有条件进入 D2 的契约、实现和单源 Canary。当前多源自动化的 409 与显式 source 选择测试已通过，但真实 Item 尚未找到；因此 D2 首轮只支持单源 Movie/Episode，多源搜索必须安全拒绝，稳定响应契约由 [D2 搜索预览契约](d2-search-preview-contract.md) 和测试固定。`remote_search_enabled=false` 继续作为默认值，实际启用仍需 D2 专项授权和验收。真实多源 Item 验收仍是宣称或启用多源搜索支持的前置条件；D3 和所有写入门禁不变。任何已要求门禁失败都保留证据并回到对应边界修复。
+按 ADR-005，自动化门禁、Movie/Episode STRM Canary、部署和安全边界通过后，可以有条件进入 D2 的契约、实现和单源 Canary。当前多源自动化的 409 与显式 source 选择测试已通过，真实版本组也已找到，客户端 `AlternateMediaSources` 详情字段修正和回归测试已完成，但真实 API/UI/source 对应验收仍待完成；因此 D2 首轮仍只支持单源 Movie/Episode，多源搜索必须安全拒绝，稳定响应契约由 [D2 搜索预览契约](d2-search-preview-contract.md) 和测试固定。`remote_search_enabled=false` 继续作为默认值，实际启用仍需 D2 专项授权和验收。D3 和所有写入门禁不变。任何已要求门禁失败都保留证据并回到对应边界修复。
 
 ## 7. 非目标
 
@@ -133,4 +133,4 @@ D1 明确不包含：
 - STRM 内容读取、115/CD2 访问、媒体代理或第二套媒体索引
 - 公开互联网部署、账号系统、多实例锁和生产数据迁移
 
-本文件只确认已经完成的部署、公网 HTTPS 和 STRM Canary。当前可以宣称 D1 已满足 ADR-005 的单源 D2 条件入口；在真实多媒体源样本验收完成前，不得宣称真实多源搜索支持或把多源真实门禁写成已通过。
+本文件只确认已经完成的部署、公网 HTTPS 和 STRM Canary。当前可以宣称 D1 已满足 ADR-005 的单源 D2 条件入口；真实版本组样本已补齐但完整 API/UI/source 门禁尚未通过，不得宣称真实多源搜索支持或把多源真实门禁写成已通过。
