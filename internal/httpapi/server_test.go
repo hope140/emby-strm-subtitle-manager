@@ -605,7 +605,7 @@ func TestMediaMultipleSourcesRequireExplicitSafeSelection(t *testing.T) {
 		t.Fatalf("source selection response = %d %s", rec.Code, rec.Body.String())
 	}
 	rec = serve(handler, http.MethodGet, "/v1/media/episode-1?media_source_id=source-b")
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"media_source_id":"source-b"`) || !strings.Contains(rec.Body.String(), `"is_strm":true`) {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"media_source_id":"source-b"`) || !strings.Contains(rec.Body.String(), `"is_strm":true`) || !strings.Contains(rec.Body.String(), `"reason_code":"strm_multisource_write_unsupported"`) || strings.Contains(rec.Body.String(), "/secret") || strings.Contains(rec.Body.String(), "media.example.invalid") {
 		t.Fatalf("selected source response = %d %s", rec.Code, rec.Body.String())
 	}
 	rec = serve(handler, http.MethodGet, "/v1/media/episode-1?media_source_id=missing")
@@ -662,23 +662,26 @@ func TestMediaRejectsContradictoryUpstreamSources(t *testing.T) {
 
 func TestSubtitleOperationQueryUsesBoundedLimit(t *testing.T) {
 	for raw, wantID := range map[string]struct {
-		id    string
-		limit int
-		ok    bool
+		id     string
+		source string
+		limit  int
+		ok     bool
 	}{
-		"item_id=movie-1":            {"movie-1", defaultHistoryLimit, true},
-		"item_id=movie-1&limit=3":    {"movie-1", 3, true},
-		"item_id=movie-1&limit=101":  {"", 0, false},
-		"item_id=movie-1&limit=zero": {"", 0, false},
-		"item_id=movie-1&extra=x":    {"", 0, false},
+		"item_id=movie-1":                          {"movie-1", "", defaultHistoryLimit, true},
+		"item_id=movie-1&media_source_id=source-a": {"movie-1", "source-a", defaultHistoryLimit, true},
+		"item_id=movie-1&limit=3":                  {"movie-1", "", 3, true},
+		"item_id=movie-1&limit=101":                {"", "", 0, false},
+		"item_id=movie-1&limit=zero":               {"", "", 0, false},
+		"item_id=movie-1&media_source_id=":         {"", "", 0, false},
+		"item_id=movie-1&extra=x":                  {"", "", 0, false},
 	} {
 		query, err := url.ParseQuery(raw)
 		if err != nil {
 			t.Fatal(err)
 		}
-		gotID, gotLimit, gotOK := subtitleOperationQuery(query)
-		if gotID != wantID.id || gotLimit != wantID.limit || gotOK != wantID.ok {
-			t.Fatalf("query %q = (%q, %d, %t), want (%q, %d, %t)", raw, gotID, gotLimit, gotOK, wantID.id, wantID.limit, wantID.ok)
+		gotID, gotSource, gotLimit, gotOK := subtitleOperationQuery(query)
+		if gotID != wantID.id || gotSource != wantID.source || gotLimit != wantID.limit || gotOK != wantID.ok {
+			t.Fatalf("query %q = (%q, %q, %d, %t), want (%q, %q, %d, %t)", raw, gotID, gotSource, gotLimit, gotOK, wantID.id, wantID.source, wantID.limit, wantID.ok)
 		}
 	}
 }

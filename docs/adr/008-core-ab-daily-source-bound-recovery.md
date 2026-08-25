@@ -26,8 +26,8 @@ ADR-003 的 D3.1 只覆盖一个受 allowlist 约束的单源 Add Canary。Core 
 
 1. `canary.enabled=true` 时保留 allowlist 与 generation 绑定；关闭 Canary 时使用允许有效 Movie/Episode 的日常 Item gate，并提供稳定 generation。模式变化和服务重启均使内存 Candidate/Artifact 失效。
 2. Search 可在单 source Item 时省略 `media_source_id`；Fetch/Preview 只从已绑定 Token 取得 source。Upload、Add、Replace、Delete 与 Restore 在单源和多源时都要求明确且精确的 `media_source_id`。History 的最小查询按 Item 读取，但每条返回记录均携带不可变的 Item/source 绑定，UI 仅显示当前已选 source 的记录。每一步重新读取 Item，重新选择 source；缺失、错误、重复或变化的 source 一律安全拒绝。
-3. Add 的目标 basename 只来自当前选中 source 已安全映射的媒体路径。Inventory 对 STRM 同时有界扫描 Item.Path 和当前 source 的安全路径；重复位置或不完整清单不允许修改。
-4. Replace、Delete 与 Restore 只接收服务端 Inventory 签发的 opaque `subtitle_id`。它在 Item 锁内重新解析为私有路径事实，绝不从 HTTP 请求、history 公共字段或日志接收路径或文件名。
+3. Add 的目标锚点按媒体类别分流：单源 STRM 使用当前 Item.Path 映射出的现存普通 `.strm` 文件；普通本地媒体使用当前选中 source 已安全映射的普通文件。多源 STRM 的写入不属于本 ADR 的正向能力，具体边界由 [ADR-009](009-strm-write-target-and-multisource-boundary.md) 固定。Inventory 对普通本地媒体可以扫描 Item/source 的受控范围；多源 STRM 的共享 Item sidecar 只读展示并标记为不可管理。
+4. Replace、Delete 与 Restore 只接收服务端 Inventory 签发的 opaque `subtitle_id`。它在 Item 锁内重新解析为私有路径事实，绝不从 HTTP 请求、history 公共字段或日志接收路径或文件名。新 history 保存 `item`/`source` 目录类别；当前 Item 为 STRM 时，旧 `source` 类别 history 的 Restore 安全拒绝。
 5. Replace 先核验新版本，再归档旧文件；Delete 只移动到私有 trash；Restore 从 archive/trash 重新核验 Hash，并以不覆盖方式恢复。恢复 history 只保存 `item`/`source` 目录类别，不保存媒体绝对路径，因而可在重新解析后回到原有安全目录。没有永久删除或批量写入接口。
 6. Upload 只通过现有 Validator 生成已绑定、短期的 PreviewArtifact，忽略客户端文件名和 MIME 类型；Add/Replace 复用该 Artifact，不另建写入链，也不写持久 history。
 7. 默认 `remote_search_enabled=false`、`write_enabled=false` 不变。日常写入使用单独的最小 Compose overlay，仍要求认证 scope、CSRF、PathMapper、PathGuard、私有目录与精确可写挂载；本 ADR 不授权部署、重启或改变 C92/SH/Emby。
@@ -35,9 +35,9 @@ ADR-003 的 D3.1 只覆盖一个受 allowlist 约束的单源 Add Canary。Core 
 ## 选择原因
 
 - 统一 gate 使 Canary 与日常模式共享 Token/Artifact 的失效语义，而不是以 `nil` 或特殊 generation 绕过绑定。
-- 强制 source 重解析可覆盖一个 Item 多 source 与多个独立 Item 两种版本组织方式，不依赖 UI 排序或标题猜测。
+- 强制 source 重解析可覆盖一个 Item 多 source 与多个独立 Item 两种版本组织方式，不依赖 UI 排序或标题猜测；写入锚点由 STRM/普通本地媒体类别明确分流。
 - Item 锁、原子不覆盖写入、Hash、Refresh、history 与 quarantine 继续被所有写操作复用，减少独立写链产生的恢复差异。
-- 恢复位置用私有类别表达，避免把媒体路径写入持久化状态，同时不把 source-specific STRM sidecar 错误恢复到另一目录。
+- 恢复位置用私有类别表达，避免把媒体路径写入持久化状态，同时不把共享 STRM sidecar 按 source 管理或把旧 source history 静默恢复到 Item 目录。
 
 ## 已知代价
 
@@ -56,3 +56,4 @@ ADR-003 的 D3.1 只覆盖一个受 allowlist 约束的单源 Add Canary。Core 
 - `internal/d2`、`internal/d3`、`internal/inventory`、`internal/media`、`internal/preview`、`internal/httpapi` 与 `internal/httpui` 的单元和 Fake Emby 集成测试。
 - 本地 `scripts/core-ab-ui-e2e.ps1`：真实浏览器的多源选择、Search→Fetch→Preview→Add、Upload→Preview、Delete/Restore 与 Replace/Restore。
 - [Core A/B 连续实施计划](../core-ab-implementation-plan.md) 与 [Core A/B 实现评审](../core-ab-implementation-review.md)。
+- [ADR-009：STRM 写入锚点与多源写入边界](009-strm-write-target-and-multisource-boundary.md)。

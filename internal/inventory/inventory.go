@@ -127,6 +127,9 @@ func Build(ctx media.MediaContext, options Options) (Inventory, error) {
 	if ctx.MediaStreams == nil {
 		result.Warnings = append(result.Warnings, "media_streams_unavailable")
 	}
+	if sharedSTRMSidecar(ctx) {
+		result.Warnings = append(result.Warnings, media.WarningStrmMultiSourceWriteUnsupported)
+	}
 	if ctx.MappingStatus != media.MappingStatusMapped || ctx.LocalDirectory == "" {
 		result.Warnings = append(result.Warnings, "media_directory_unavailable")
 	}
@@ -251,6 +254,7 @@ type sidecar struct {
 	canonical string
 	eligible  bool
 	merged    bool
+	readOnly  bool
 }
 
 type sidecarScope struct {
@@ -258,12 +262,18 @@ type sidecarScope struct {
 	base      string
 }
 
-// scanContextSidecars bounds filesystem discovery to the Item path plus the
-// explicitly selected source path when it is safely mapped. This preserves
-// STRM inventory behavior while allowing a multi-version source to expose
-// only sidecars written with its own basename.
+// scanContextSidecars bounds filesystem discovery to the Item path and, for
+// ordinary local media, the explicitly selected source path. A multi-source
+// STRM item has one shared Item directory; it is read-only until Emby source
+// association semantics are independently established, so its sidecars are
+// never scanned as source-specific writable objects.
 func scanContextSidecars(fsys FileSystem, ctx media.MediaContext, key []byte, result *Inventory) ([]sidecar, bool) {
 	scopes := make([]sidecarScope, 0, 2)
+	sharedSTRM := sharedSTRMSidecar(ctx)
+	sourceID := ctx.MediaSourceID
+	if sharedSTRM {
+		sourceID = ""
+	}
 	addScope := func(directory, path string) {
 		base := baseName(path)
 		if directory == "" || base == "" {
@@ -277,7 +287,9 @@ func scanContextSidecars(fsys FileSystem, ctx media.MediaContext, key []byte, re
 		scopes = append(scopes, sidecarScope{directory: directory, base: base})
 	}
 	addScope(ctx.LocalDirectory, ctx.LocalPath)
-	addScope(ctx.SourceLocalDirectory, ctx.SourceLocalPath)
+	if !sharedSTRM {
+		addScope(ctx.SourceLocalDirectory, ctx.SourceLocalPath)
+	}
 	if len(scopes) == 0 {
 		return nil, false
 	}
@@ -285,7 +297,7 @@ func scanContextSidecars(fsys FileSystem, ctx media.MediaContext, key []byte, re
 	complete := true
 	byName := make(map[string]int)
 	for _, scope := range scopes {
-		current, currentComplete := scanSidecars(fsys, scope.directory, scope.base, ctx.ItemID, ctx.MediaSourceID, key, result)
+		current, currentComplete := scanSidecars(fsys, scope.directory, scope.base, ctx.ItemID, sourceID, key, sharedSTRM, result)
 		if !currentComplete {
 			complete = false
 		}
@@ -316,7 +328,7 @@ type streamResult struct {
 	issues    []Issue
 }
 
-func scanSidecars(fsys FileSystem, dir, mediaBase, itemID, sourceID string, key []byte, result *Inventory) ([]sidecar, bool) {
+func scanSidecars(fsys FileSystem, dir, mediaBase, itemID, sourceID string, key []byte, readOnly bool, result *Inventory) ([]sidecar, bool) {
 	if dir == "" || mediaBase == "" {
 		return nil, false
 	}
@@ -359,14 +371,22 @@ func scanSidecars(fsys FileSystem, dir, mediaBase, itemID, sourceID string, key 
 			continue
 		}
 		canonical = canonicalPath(canonical)
-		files = append(files, sidecar{path: full, canonical: canonical, subtitle: Subtitle{
+		reason := ""
+		if readOnly {
+			reason = media.WarningStrmMultiSourceWriteUnsupported
+		}
+		files = append(files, sidecar{path: full, canonical: canonical, eligible: true, readOnly: readOnly, subtitle: Subtitle{
 			ID: subtitleID(key, itemID, sourceID, string(KindSidecar), name), Kind: KindSidecar,
 			DiscoveredBy: []Discovery{DiscoveryFilesystem}, FileName: name,
-			Format: strings.ToLower(ext), IsText: true, Manageable: true,
-		}, eligible: true})
+			Format: strings.ToLower(ext), IsText: true, Manageable: !readOnly, Reason: reason,
+		}})
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].subtitle.FileName < files[j].subtitle.FileName })
 	return files, true
+}
+
+func sharedSTRMSidecar(ctx media.MediaContext) bool {
+	return ctx.IsStrm && ctx.MediaSourceCount > 1
 }
 
 func collectStreams(ctx media.MediaContext, options Options, files []sidecar, issues []Issue, key []byte) (streamResult, bool, error) {
@@ -376,6 +396,10 @@ func collectStreams(ctx media.MediaContext, options Options, files []sidecar, is
 	}
 	seen := make(map[int]streamFingerprint)
 	complete := true
+	sidecarSourceID := ctx.MediaSourceID
+	if sharedSTRMSidecar(ctx) {
+		sidecarSourceID = ""
+	}
 	for ordinal, stream := range *ctx.MediaStreams {
 		if !strings.EqualFold(strings.TrimSpace(stream.Type), "subtitle") {
 			continue
@@ -400,7 +424,11 @@ func collectStreams(ctx media.MediaContext, options Options, files []sidecar, is
 		if stream.Index != nil {
 			indexes = []int{idx}
 		}
-		sub := Subtitle{ID: subtitleID(key, ctx.ItemID, ctx.MediaSourceID, string(kind), safeBaseName(stream.Path), fmt.Sprintf("%d", idx)), Kind: kind,
+		identitySourceID := ctx.MediaSourceID
+		if kind == KindSidecar || (kind == KindExternal && sharedSTRMSidecar(ctx)) {
+			identitySourceID = sidecarSourceID
+		}
+		sub := Subtitle{ID: subtitleID(key, ctx.ItemID, identitySourceID, string(kind), safeBaseName(stream.Path), fmt.Sprintf("%d", idx)), Kind: kind,
 			DiscoveredBy: []Discovery{DiscoveryEmby}, FileName: safeBaseName(stream.Path),
 			Language: subtitleLanguage(stream), Format: streamFormat(stream),
 			IsDefault: boolValue(stream.IsDefault), IsForced: boolValue(stream.IsForced),
@@ -418,8 +446,11 @@ func collectStreams(ctx media.MediaContext, options Options, files []sidecar, is
 		}
 		matched := mergeExternal(&sub, stream, ctx, options, files)
 		if matched != nil {
-			sub.Manageable = true
-			sub.ID = subtitleID(key, ctx.ItemID, ctx.MediaSourceID, string(KindSidecar), matched.file.subtitle.FileName)
+			sub.Manageable = !matched.file.readOnly
+			if matched.file.readOnly {
+				sub.Reason = media.WarningStrmMultiSourceWriteUnsupported
+			}
+			sub.ID = subtitleID(key, ctx.ItemID, sidecarSourceID, string(KindSidecar), matched.file.subtitle.FileName)
 			sub.Kind = KindSidecar
 			sub.DiscoveredBy = []Discovery{DiscoveryEmby, DiscoveryFilesystem}
 			if matched.file.merged {
@@ -444,6 +475,10 @@ func collectStreams(ctx media.MediaContext, options Options, files []sidecar, is
 			matched.file.subtitle.IsForced = sub.IsForced
 			matched.file.subtitle.ID = sub.ID
 			matched.file.subtitle.Kind = KindSidecar
+			matched.file.subtitle.Manageable = !matched.file.readOnly
+			if matched.file.readOnly {
+				matched.file.subtitle.Reason = media.WarningStrmMultiSourceWriteUnsupported
+			}
 			matched.file.subtitle.DiscoveredBy = append([]Discovery(nil), sub.DiscoveredBy...)
 			matched.file.subtitle.Indexes = append([]int(nil), indexes...)
 			result.subtitles = append(result.subtitles, matched.file.subtitle)

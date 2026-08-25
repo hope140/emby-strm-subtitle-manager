@@ -34,7 +34,10 @@ import (
 	"github.com/hope140/subbridge/internal/version"
 )
 
-const fixtureItemID = "core-ab-ui-fixture"
+const (
+	fixtureItemID            = "core-ab-ui-fixture"
+	multiSourceFixtureItemID = "core-ab-ui-multisource"
+)
 
 type fixtureEmby struct {
 	mu   sync.Mutex
@@ -46,31 +49,44 @@ func (f *fixtureEmby) ListLibraries(context.Context) ([]domain.Library, error) {
 }
 
 func (f *fixtureEmby) ListItems(context.Context, string, int, int) (domain.ItemPage, error) {
-	return domain.ItemPage{Items: []domain.ItemSummary{{ID: fixtureItemID, Name: "Core A/B UI Fixture Movie", Type: "Movie"}}, TotalRecordCount: 1, StartIndex: 0, Limit: 50}, nil
+	return domain.ItemPage{Items: []domain.ItemSummary{
+		{ID: fixtureItemID, Name: "Core A/B UI Fixture Movie", Type: "Movie"},
+		{ID: multiSourceFixtureItemID, Name: "Core A/B UI Multi-source STRM Movie", Type: "Movie"},
+	}, TotalRecordCount: 2, StartIndex: 0, Limit: 50}, nil
 }
 
 func (f *fixtureEmby) GetItem(_ context.Context, itemID string) (domain.EmbyItem, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if itemID != fixtureItemID {
+	defaultSource := true
+	switch itemID {
+	case fixtureItemID:
+		streams := f.subtitleStreams("Fixture")
+		return domain.EmbyItem{
+			ItemSummary: domain.ItemSummary{ID: fixtureItemID, Name: "Core A/B UI Fixture Movie", Type: "Movie", ProductionYear: intPointer(2026)},
+			Path:        "/fixture/media/Fixture.strm",
+			MediaSources: []domain.MediaSource{
+				{ID: "source-a", Name: "单源 STRM", Path: "https://fixture.example/movie", Container: "strm", IsDefault: &defaultSource, MediaStreams: &streams},
+			},
+		}, nil
+	case multiSourceFixtureItemID:
+		streams := f.subtitleStreams("Multi")
+		return domain.EmbyItem{
+			ItemSummary: domain.ItemSummary{ID: multiSourceFixtureItemID, Name: "Core A/B UI Multi-source STRM Movie", Type: "Movie", ProductionYear: intPointer(2026)},
+			Path:        "/fixture/media/Multi.strm",
+			MediaSources: []domain.MediaSource{
+				{ID: "multi-source-a", Name: "多源 A", Path: "https://fixture.example/multi-a", Container: "strm", IsDefault: &defaultSource, MediaStreams: &streams},
+				{ID: "multi-source-b", Name: "多源 B", Path: "https://fixture.example/multi-b", Container: "strm", MediaStreams: &streams},
+			},
+		}, nil
+	default:
 		return domain.EmbyItem{}, errors.New("fixture item not found")
 	}
-	defaultSource := true
-	sourceA := f.subtitleStreams("source-a")
-	sourceB := f.subtitleStreams("source-b")
-	return domain.EmbyItem{
-		ItemSummary: domain.ItemSummary{ID: fixtureItemID, Name: "Core A/B UI Fixture Movie", Type: "Movie", ProductionYear: intPointer(2026)},
-		Path:        "/fixture/media/Fixture.strm",
-		MediaSources: []domain.MediaSource{
-			{ID: "source-a", Name: "Version A", Path: "/fixture/media/Version-A.mkv", Container: "mkv", IsDefault: &defaultSource, MediaStreams: &sourceA},
-			{ID: "source-b", Name: "Version B", Path: "/fixture/media/Version-B.mkv", Container: "mkv", MediaStreams: &sourceB},
-		},
-	}, nil
 }
 
 func (f *fixtureEmby) RefreshItem(context.Context, string) error { return nil }
 
-func (f *fixtureEmby) subtitleStreams(sourceID string) []domain.MediaStream {
+func (f *fixtureEmby) subtitleStreams(mediaBase string) []domain.MediaStream {
 	entries, err := os.ReadDir(f.root)
 	if err != nil {
 		return []domain.MediaStream{}
@@ -85,10 +101,7 @@ func (f *fixtureEmby) subtitleStreams(sourceID string) []domain.MediaStream {
 		if ext != ".srt" && ext != ".ass" && ext != ".ssa" {
 			continue
 		}
-		if strings.HasPrefix(name, "Version-A.") && sourceID != "source-a" {
-			continue
-		}
-		if strings.HasPrefix(name, "Version-B.") && sourceID != "source-b" {
+		if !strings.HasPrefix(name, mediaBase+".") {
 			continue
 		}
 		index := len(streams)
@@ -126,8 +139,14 @@ func main() {
 	if err := os.WriteFile(filepath.Join(mediaRoot, "Fixture.strm"), []byte("https://fixture.example/movie"), 0o600); err != nil {
 		log.Fatal("create fixture media")
 	}
+	if err := os.WriteFile(filepath.Join(mediaRoot, "Multi.strm"), []byte("https://fixture.example/multi"), 0o600); err != nil {
+		log.Fatal("create fixture multi-source media")
+	}
 	if err := os.WriteFile(filepath.Join(mediaRoot, "Fixture.zh-CN.srt"), []byte("1\n00:00:01,000 --> 00:00:02,000\n已有字幕\n"), 0o644); err != nil {
 		log.Fatal("create fixture subtitle")
+	}
+	if err := os.WriteFile(filepath.Join(mediaRoot, "Multi.zh-CN.srt"), []byte("1\n00:00:01,000 --> 00:00:02,000\n共享字幕\n"), 0o644); err != nil {
+		log.Fatal("create fixture multi-source subtitle")
 	}
 
 	adminAuth, err := auth.New(username, password, auth.Options{})

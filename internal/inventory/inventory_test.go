@@ -97,7 +97,7 @@ func TestBuildScansOneDirectoryWithoutReadingBodies(t *testing.T) {
 	}
 }
 
-func TestBuildIncludesSelectedSourceBasenameForSTRMMultiVersion(t *testing.T) {
+func TestBuildTreatsMultiSourceSTRMSidecarsAsSharedReadOnly(t *testing.T) {
 	dir := "/media"
 	files := []string{"Movie.zh.srt", "Version-B.subbridge.zh-CN.srt"}
 	f := &recordingFS{info: map[string]fs.FileInfo{}, canonical: map[string]string{}}
@@ -108,14 +108,31 @@ func TestBuildIncludesSelectedSourceBasenameForSTRMMultiVersion(t *testing.T) {
 		f.canonical[full] = full
 	}
 	ctx := completeContext()
+	ctx.MediaSourceCount = 2
+	ctx.MediaSourceID = "source-b"
 	ctx.SourceLocalPath = "/media/Version-B.mkv"
 	ctx.SourceLocalDirectory = dir
 	result, err := Build(ctx, Options{FileSystem: f, IdentityKey: testKey()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Complete || len(result.Subtitles) != 2 || sidecarID(result, "Version-B.subbridge.zh-CN.srt") == "" {
-		t.Fatalf("selected source sidecar inventory = %#v", result)
+	if !result.Complete || len(result.Subtitles) != 1 || sidecarID(result, "Version-B.subbridge.zh-CN.srt") != "" {
+		t.Fatalf("shared STRM sidecar inventory = %#v", result)
+	}
+	shared := result.Subtitles[0]
+	if shared.FileName != "Movie.zh.srt" || shared.Manageable || shared.Reason != media.WarningStrmMultiSourceWriteUnsupported {
+		t.Fatalf("shared sidecar state = %#v", shared)
+	}
+	if len(f.readDirs) != 1 || f.readDirs[0] != dir {
+		t.Fatalf("multi-source STRM scan scopes = %#v", f.readDirs)
+	}
+	ctx.MediaSourceID = "source-a"
+	other, err := Build(ctx, Options{FileSystem: f, IdentityKey: testKey()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sidecarID(other, "Movie.zh.srt") != shared.ID {
+		t.Fatalf("shared sidecar ID changed with source: %q -> %q", shared.ID, sidecarID(other, "Movie.zh.srt"))
 	}
 }
 
@@ -368,7 +385,7 @@ func TestBuildReportsPresentEvenWhenInventoryIsIncomplete(t *testing.T) {
 
 func completeContext() media.MediaContext {
 	empty := []domain.MediaStream{}
-	return media.MediaContext{ItemID: "item", MediaSourceID: "source", LocalPath: "/media/Movie.strm", LocalDirectory: "/media", MappingStatus: media.MappingStatusMapped, MediaStreams: &empty, InventoryComplete: true}
+	return media.MediaContext{ItemID: "item", MediaSourceID: "source", LocalPath: "/media/Movie.strm", LocalDirectory: "/media", MediaSourceCount: 1, IsStrm: true, MappingStatus: media.MappingStatusMapped, MediaStreams: &empty, InventoryComplete: true}
 }
 
 func boolPtr(value bool) *bool { return &value }

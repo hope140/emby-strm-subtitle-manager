@@ -79,7 +79,7 @@ func TestCoreABUIUsesOnlyTheBoundedSameOriginSurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	indexText := string(index)
-	for _, required := range []string{"d2-panel", "d2-search", "d2-candidates", "d2-preview", "d2-preview-limit", "d2-preview-reset", "管理员用户名", "管理员密码"} {
+	for _, required := range []string{"d2-panel", "d2-search", "d2-candidates", "d2-preview", "d2-preview-limit", "d2-preview-reset", "d3-write-status", "管理员用户名", "管理员密码"} {
 		if !strings.Contains(indexText, required) {
 			t.Errorf("index is missing D2 element %q", required)
 		}
@@ -108,6 +108,10 @@ func TestCoreABUIUsesOnlyTheBoundedSameOriginSurface(t *testing.T) {
 		"/replace",
 		"/delete",
 		"/v1/subtitle-operations",
+		"media_source_id=",
+		"write_capabilities",
+		"strm_multisource_write_unsupported",
+		"strm_history_location_unsupported",
 		"FormData",
 		"restore_target_conflict",
 	} {

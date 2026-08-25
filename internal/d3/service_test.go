@@ -84,7 +84,7 @@ func newD3TestService(t *testing.T, refreshErr error) (*Service, *fakeItemReader
 		t.Fatal(err)
 	}
 	streams := []domain.MediaStream{}
-	item := domain.EmbyItem{ItemSummary: domain.ItemSummary{ID: "movie-1", Name: "Movie", Type: "Movie"}, Path: "/srv/media/movie.strm", MediaSources: []domain.MediaSource{{ID: "source-1", Path: "/srv/media/movie.strm", MediaStreams: &streams}}}
+	item := domain.EmbyItem{ItemSummary: domain.ItemSummary{ID: "movie-1", Name: "Movie", Type: "Movie"}, Path: "/srv/media/movie.strm", MediaSources: []domain.MediaSource{{ID: "source-1", Path: "https://media.example/movie.mkv?opaque=private", Protocol: "Http", MediaStreams: &streams}}}
 	reader := &fakeItemReader{item: item}
 	refresher := &fakeRefresher{reader: reader, err: refreshErr}
 	allowlist := preview.NewAllowlist([]string{"movie-1"})

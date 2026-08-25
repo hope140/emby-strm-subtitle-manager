@@ -8,12 +8,29 @@ async (page) => {
     await page.locator("#app-status").getByText(expression, { exact: false }).waitFor({ state: "visible" });
   }
 
+  if (phase === "core-ab-multisource-unsupported") {
+    await page.getByRole("button", { name: /Core A\/B UI Multi-source STRM Movie/ }).click();
+    await page.getByRole("button", { name: /多源 A/ }).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: /多源 A/ }).click();
+    await page.locator("#d2-actions").waitFor({ state: "visible" });
+    await page.locator("#d3-write-status").getByText("多源 STRM", { exact: false }).waitFor({ state: "visible" });
+    await page.locator("#d2-search").click();
+    const candidate = page.locator("#d2-candidates .candidate-card").first();
+    await candidate.waitFor({ state: "visible" });
+    await candidate.getByRole("button", { name: "获取预览" }).click();
+    await page.locator("#d2-cues").getByText("远程预览字幕", { exact: true }).waitFor({ state: "visible" });
+    if (await page.locator("#d3-add").isVisible()) throw new Error("multi-source STRM Add control was visible");
+    if (await page.locator(".subtitle-actions").count()) throw new Error("multi-source STRM subtitle write controls were visible");
+    await page.locator("#d3-history").waitFor({ state: "visible" });
+    if (!(await page.locator("#d3-history-reload").isDisabled())) throw new Error("multi-source STRM history reload was enabled");
+    await page.locator("#d3-history-status").getByText("多源 STRM", { exact: false }).waitFor({ state: "visible" });
+    return;
+  }
+
   if (phase === "core-ab-before-upload-1") {
     await page.locator("#app-panel").waitFor({ state: "visible" });
     if (await page.locator("#password").inputValue()) throw new Error("login input retained the administrator password");
     await page.getByRole("button", { name: /Core A\/B UI Fixture Movie/ }).click();
-    await page.getByRole("button", { name: /Version A/ }).waitFor({ state: "visible" });
-    await page.getByRole("button", { name: /Version A/ }).click();
     await page.locator("#d2-actions").waitFor({ state: "visible" });
     await page.locator("#d2-search").click();
     const candidate = page.locator("#d2-candidates .candidate-card").first();
@@ -23,7 +40,7 @@ async (page) => {
     await page.locator("#d3-add").waitFor({ state: "visible" });
     await page.locator("#d3-add-button").click();
     await waitAppStatus("字幕已添加");
-    await page.locator(".subtitle").filter({ hasText: "Version-A.subbridge.zh-CN.srt" }).waitFor({ state: "visible" });
+    await page.locator(".subtitle").filter({ hasText: "Fixture.subbridge.zh-CN.srt" }).waitFor({ state: "visible" });
     return;
   }
 

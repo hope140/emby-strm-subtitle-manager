@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -56,18 +55,20 @@ type RestoreRequest struct {
 // OperationResponse is the safe public result shared by the recovery APIs.
 // It intentionally contains no private recovery path or uploaded file name.
 type OperationResponse struct {
-	OperationID   string        `json:"operation_id"`
-	Type          OperationType `json:"type"`
-	ItemID        string        `json:"item_id"`
-	MediaSourceID string        `json:"media_source_id"`
-	SubtitleID    string        `json:"subtitle_id,omitempty"`
-	FileName      string        `json:"file_name,omitempty"`
-	Language      string        `json:"language,omitempty"`
-	Format        string        `json:"format,omitempty"`
-	ByteLength    int           `json:"byte_length,omitempty"`
-	ContentHash   string        `json:"content_sha256,omitempty"`
-	Status        string        `json:"status"`
-	CreatedAt     time.Time     `json:"created_at"`
+	OperationID      string        `json:"operation_id"`
+	Type             OperationType `json:"type"`
+	ItemID           string        `json:"item_id"`
+	MediaSourceID    string        `json:"media_source_id"`
+	SubtitleID       string        `json:"subtitle_id,omitempty"`
+	FileName         string        `json:"file_name,omitempty"`
+	Language         string        `json:"language,omitempty"`
+	Format           string        `json:"format,omitempty"`
+	ByteLength       int           `json:"byte_length,omitempty"`
+	ContentHash      string        `json:"content_sha256,omitempty"`
+	Status           string        `json:"status"`
+	CreatedAt        time.Time     `json:"created_at"`
+	RestoreSupported *bool         `json:"restore_supported,omitempty"`
+	RestoreErrorCode string        `json:"restore_error_code,omitempty"`
 }
 
 type OperationSummary = OperationResponse
@@ -120,8 +121,9 @@ type recoveryRecord struct {
 	RecoveryFile     string        `json:"recovery_file,omitempty"`
 	OriginalFileName string        `json:"original_file_name,omitempty"`
 	// OriginalLocation is deliberately a location class rather than a path.
-	// It lets Restore return a source-specific STRM sidecar to the directory
-	// inventory originally resolved, without exposing or persisting a media path.
+	// Restore uses it only to select the previously verified item/source
+	// category. Legacy source history on a current STRM is rejected rather
+	// than reinterpreted as an Item sidecar, without exposing or persisting a media path.
 	OriginalLocation  string `json:"original_location,omitempty"`
 	OriginalHash      string `json:"original_hash,omitempty"`
 	OriginalFormat    string `json:"original_format,omitempty"`
@@ -163,7 +165,7 @@ func (s *Service) Replace(ctx context.Context, itemID, subtitleID string, reques
 	if err != nil {
 		return OperationResponse{}, err
 	}
-	originalLocation, err := recoveryLocation(resolved.Path(), mediaCtx.LocalDirectory, target.LocalDirectory)
+	originalLocation, err := recoveryLocation(target)
 	if err != nil {
 		return OperationResponse{}, &Error{Status: 409, Code: "subtitle_inventory_incomplete", Message: "subtitle inventory is incomplete", Cause: err}
 	}
@@ -231,7 +233,7 @@ func (s *Service) Delete(ctx context.Context, itemID, subtitleID string, request
 	if err != nil {
 		return OperationResponse{}, err
 	}
-	originalLocation, err := recoveryLocation(resolved.Path(), mediaCtx.LocalDirectory, target.LocalDirectory)
+	originalLocation, err := recoveryLocation(target)
 	if err != nil {
 		return OperationResponse{}, &Error{Status: 409, Code: "subtitle_inventory_incomplete", Message: "subtitle inventory is incomplete", Cause: err}
 	}
@@ -285,6 +287,16 @@ func (s *Service) Restore(ctx context.Context, sourceOperationID string, request
 	}
 	unlock := s.lockItem(sourceRecord.ItemID)
 	defer unlock()
+	currentItem, err := s.loadRestoreItemSource(ctx, sourceRecord.ItemID, request.MediaSourceID)
+	if err != nil {
+		return OperationResponse{}, err
+	}
+	if media.IsSTRMPath(currentItem.Path) && len(currentItem.MediaSources) > 1 {
+		return OperationResponse{}, mapMediaError(media.ErrStrmMultiSourceWriteUnsupported)
+	}
+	if media.IsSTRMPath(currentItem.Path) && sourceRecord.OriginalLocation == string(media.WriteTargetLocationSource) {
+		return OperationResponse{}, &Error{Status: 409, Code: "strm_history_location_unsupported", Message: "the STRM recovery history cannot be safely restored", Cause: ErrHistory}
+	}
 	item, mediaCtx, target, _, err := s.loadWritableItem(ctx, sourceRecord.ItemID, request.MediaSourceID)
 	if err != nil {
 		return OperationResponse{}, err
@@ -362,6 +374,16 @@ func (s *Service) ListOperations(itemID string, limit int) ([]OperationSummary, 
 	if allowed, _ := s.gate.Allows(itemID); !allowed {
 		return nil, &Error{Status: 403, Code: "d3_item_not_allowed", Message: "item is not allowed for subtitle operations", Cause: ErrItemNotAllowed}
 	}
+	return s.listOperations(itemID, "", limit)
+}
+
+func (s *Service) listOperations(itemID, sourceID string, limit int) ([]OperationSummary, error) {
+	if limit == 0 {
+		limit = defaultHistoryLimit
+	}
+	if limit < 1 || limit > maxHistoryLimit {
+		return nil, invalidD3Request("invalid subtitle operation limit")
+	}
 	entries, err := os.ReadDir(s.settings.HistoryDir)
 	if err != nil {
 		return nil, &Error{Status: 503, Code: "d3_history_unavailable", Message: "subtitle operation history is unavailable", Cause: ErrHistory}
@@ -376,7 +398,7 @@ func (s *Service) ListOperations(itemID string, limit int) ([]OperationSummary, 
 			continue
 		}
 		var record recoveryRecord
-		if json.Unmarshal(data, &record) != nil || record.Version != 2 || record.ItemID != itemID || !validOperationRecord(record) {
+		if json.Unmarshal(data, &record) != nil || record.Version != 2 || record.ItemID != itemID || (sourceID != "" && record.MediaSourceID != sourceID) || !validOperationRecord(record) {
 			continue
 		}
 		result = append(result, record.summary())
@@ -386,6 +408,69 @@ func (s *Service) ListOperations(itemID string, limit int) ([]OperationSummary, 
 		result = result[:limit]
 	}
 	return result, nil
+}
+
+// ListOperationsForSource returns only the selected source's history and
+// annotates replace/delete records with the current, safe restore capability.
+// The capability is public metadata only; no path or recovery filename is
+// exposed. Restore decisions are still rechecked by Restore itself.
+func (s *Service) ListOperationsForSource(ctx context.Context, itemID, sourceID string, limit int) ([]OperationSummary, error) {
+	if s == nil || !s.Enabled() {
+		return nil, &Error{Status: 403, Code: "write_disabled", Message: "subtitle operations are disabled", Cause: ErrDisabled}
+	}
+	if !validID(itemID) || !validID(sourceID) {
+		return nil, invalidD3Request("invalid subtitle operation query")
+	}
+	if allowed, _ := s.gate.Allows(itemID); !allowed {
+		return nil, &Error{Status: 403, Code: "d3_item_not_allowed", Message: "item is not allowed for subtitle operations", Cause: ErrItemNotAllowed}
+	}
+	item, err := s.loadRestoreItemSource(ctx, itemID, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	operations, err := s.listOperations(itemID, sourceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]OperationSummary, 0, len(operations))
+	for _, operation := range operations {
+		if operation.MediaSourceID != sourceID {
+			continue
+		}
+		if operation.Type == OperationReplace || operation.Type == OperationDelete {
+			supported := true
+			reason := ""
+			if media.IsSTRMPath(item.Path) && len(item.MediaSources) > 1 {
+				supported = false
+				reason = "strm_multisource_write_unsupported"
+			} else if record, found := s.loadRecoveryRecord(operation.OperationID); !found {
+				supported = false
+				reason = "restore_unavailable"
+			} else if media.IsSTRMPath(item.Path) && record.OriginalLocation == string(media.WriteTargetLocationSource) {
+				supported = false
+				reason = "strm_history_location_unsupported"
+			} else if _, resolveErr := media.ResolveWriteTarget(item, sourceID, s.mapper, s.guard); resolveErr != nil {
+				supported = false
+				reason = writeCapabilityErrorCode(resolveErr)
+			}
+			operation.RestoreSupported = boolPointer(supported)
+			if !supported {
+				operation.RestoreErrorCode = reason
+			}
+		}
+		filtered = append(filtered, operation)
+	}
+	return filtered, nil
+}
+
+func writeCapabilityErrorCode(err error) string {
+	if errors.Is(err, media.ErrStrmMultiSourceWriteUnsupported) {
+		return "strm_multisource_write_unsupported"
+	}
+	if errors.Is(err, media.ErrMediaSourceNotFound) {
+		return "media_source_mismatch"
+	}
+	return "media_path_unsafe"
 }
 
 // rollbackOrOriginal retains every recovery copy and reports a stable error
@@ -485,6 +570,31 @@ func (s *Service) lockItem(itemID string) func() {
 		lock.Unlock()
 		<-s.global
 	}
+}
+
+// loadRestoreItemSource re-reads only the safe Item/source facts needed to
+// decide whether a persisted recovery location is still meaningful. It does
+// not resolve a local write target, so an old STRM source history can return
+// its stable incompatibility error even when Item.Path is unmapped, missing,
+// a directory, or a symlink. The full writable target is reloaded after this
+// preflight for every restore that remains eligible.
+func (s *Service) loadRestoreItemSource(parent context.Context, itemID, sourceID string) (domain.EmbyItem, error) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	itemCtx, cancel := context.WithTimeout(parent, getItemTimeout)
+	item, err := s.emby.GetItem(itemCtx, itemID)
+	cancel()
+	if err != nil {
+		return domain.EmbyItem{}, mapItemError(err)
+	}
+	if item.ID != itemID || (item.Type != "Movie" && item.Type != "Episode") {
+		return domain.EmbyItem{}, &Error{Status: 502, Code: "emby_invalid_response", Message: "Emby response was invalid", Cause: ErrInvalidRequest}
+	}
+	if _, err := media.SelectSource(item, sourceID); err != nil {
+		return domain.EmbyItem{}, mapMediaError(err)
+	}
+	return item, nil
 }
 
 func (s *Service) loadWritableItem(parent context.Context, itemID, sourceID string) (domain.EmbyItem, media.MediaContext, media.WriteTarget, uint64, error) {
@@ -756,31 +866,25 @@ func safeRecoveryName(value string) bool {
 	return safeFileName(value) && len([]byte(value)) <= maxFilenameBytes+48
 }
 
-// recoveryLocation classifies the already inventory-resolved sidecar using
-// only the two safe directory facts reconstructed for the current item/source.
-// The classification is persisted instead of a private filesystem path.
-func recoveryLocation(filename, itemDirectory, sourceDirectory string) (string, error) {
-	directory := filepath.Clean(filepath.Dir(filename))
-	if sameRecoveryDirectory(directory, itemDirectory) {
-		return "item", nil
+// recoveryLocation persists the explicit location class selected by the
+// write-target resolver. Directory equality is intentionally not used: for a
+// normal local media item the Item and source directories may be identical,
+// but the history must still record that the source path was the write anchor.
+func recoveryLocation(target media.WriteTarget) (string, error) {
+	switch target.Location {
+	case media.WriteTargetLocationItem, media.WriteTargetLocationSource:
+		return string(target.Location), nil
+	default:
+		return "", ErrHistory
 	}
-	if sameRecoveryDirectory(directory, sourceDirectory) {
-		return "source", nil
-	}
-	return "", ErrHistory
-}
-
-func sameRecoveryDirectory(left, right string) bool {
-	left = filepath.Clean(left)
-	right = filepath.Clean(right)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(left, right)
-	}
-	return left == right
 }
 
 func validSubtitleID(value string) bool {
 	return strings.HasPrefix(value, "sub_v1_") && len(value) <= 256 && value == strings.TrimSpace(value) && !strings.ContainsAny(value, `/\\`) && strings.IndexFunc(value, unicode.IsControl) < 0
+}
+
+func boolPointer(value bool) *bool {
+	return &value
 }
 
 func operationFingerprint(kind OperationType, itemID, sourceID, target, contentHash string) string {

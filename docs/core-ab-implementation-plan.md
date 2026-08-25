@@ -2,7 +2,8 @@
 
 - 状态　local implementation completed；真实 C92 综合验收待独立授权
 - 日期　2026-08-25
-- 基线　`main` 的 `b675758`（包含 SubBridge 改名收口）
+- 公共基线　`main` 的 `947d847bb8ee620fc0362081fdff981069472081`
+- Core A/B 计划起点　`b675758d6e876e1e79e5bfcb74d5d7bbb226f830`（包含 SubBridge 改名收口；不是当前 `main` 基线）
 - 目标　优先完成字幕管理核心能力；沿用当前 UI，只增加必要入口；Core A/B 全部完成后再统一审核和部署验收
 
 ## 1. 最终交付
@@ -58,13 +59,13 @@ Core B：
 - Add 请求中的 source 必须同时匹配 Artifact 绑定和最新 Item；Item/source 变化后旧 Artifact 不可写入。
 - source 的播放路径、URL、完整本地路径和原始 Provider ID不进入响应或日志。
 
-删除现有 D2/D3 对“多个 source 一律 409 unsupported”的正向限制，同时保留零 source、重复 ID、多个 default、source 结构无效和 source 变化的 fail-closed 行为。
+删除现有 D2/D3 对“多个 source 一律 409 unsupported”的正向限制，但保留 STRM 写入的独立边界：多源 STRM 的 Add、Replace、Delete、Restore 必须在 Artifact/媒体文件接触前返回 `409 strm_multisource_write_unsupported`。普通本地媒体的多源 Search→Fetch→Preview→Add 仍可按显式 source 正向验证。零 source、重复 ID、多个 default、source 结构无效和 source 变化继续 fail closed。
 
 ### 4.2 Add
 
 继续复用现有 Add 的 Item 锁、幂等 `operation_id`、同目录临时文件、非覆盖原子提交、Hash 回读、Emby Refresh/轮询、history 和 quarantine。
 
-多源 Add 的目标 basename 必须来自选中 source 的安全本地媒体路径。两个版本位于同目录时，文件名仍须由各自媒体 basename 区分；禁止使用标题、默认 source 或列表顺序生成目标名。
+单源 STRM Add 的目标来自 Item.Path 映射后的现存普通 `.strm`，写入目录和 basename 均跟随 `.strm`；普通本地媒体 Add 的目标 basename 必须来自选中 source 的安全本地媒体路径。两个普通本地版本位于同目录时，文件名仍须由各自媒体 basename 区分；禁止使用标题、默认 source 或列表顺序生成目标名。多源 STRM Add 不写入。
 
 ### 4.3 最小 UI
 
@@ -84,7 +85,9 @@ Core B：
 - 当前仍存在于 PathGuard 允许的媒体目录。
 - 没有重复、路径冲突或 Inventory 不完整警告。
 
-在 Inventory 或 D3 内增加服务端 resolver，把安全 ID解析为本次请求内使用的路径事实；resolver 结果不序列化到 HTTP、日志或 history 公共字段。
+多源 STRM 的 Item sidecar 只能只读展示并标记 `manageable=false`；不得因为当前 source 选择而生成可写的 source-specific sidecar 记录。
+
+在 Inventory 或 D3 内增加服务端 resolver，把安全 ID解析为本次请求内使用的路径事实；resolver 结果不序列化到 HTTP、日志或 history 公共字段。单源 STRM 的写入 resolver 解析 Item.Path，普通本地媒体解析选中 source path；旧 STRM history 若记录 `OriginalLocation=source`，Restore 必须安全拒绝。
 
 ### 5.2 Replace API
 
@@ -145,7 +148,7 @@ GET  /v1/subtitle-operations?item_id={item_id}
 POST /v1/subtitle-operations/{operation_id}/restore
 ```
 
-Restore 必须重新读取当前 Item/source、取得同一个 Item 锁、检查目标文件冲突、从 archive/trash 核对 Hash 后恢复、Refresh/轮询并写入新的 history。已有同名但不同内容的文件不得覆盖。
+Restore 必须重新读取当前 Item/source、取得同一个 Item 锁、检查目标文件冲突、从 archive/trash 核对 Hash 后恢复、Refresh/轮询并写入新的 history。已有同名但不同内容的文件不得覆盖；多源 STRM 以及当前 STRM 对应的旧 `source` 位置 history 在媒体写入前稳定拒绝。
 
 ### 5.6 最小 UI
 
@@ -201,10 +204,10 @@ d3:
 Core A：
 
 - 单源 Search 省略/显式 source 均通过；Upload 和所有写入缺失 source 均安全拒绝。
-- 多源显式选择每一个 source 均可 Search、Fetch、Preview、Add；省略、错误、重复和变化 source 安全拒绝。
+- 普通本地媒体的多源显式选择每一个 source 均可 Search、Fetch、Preview、Add；多源 STRM 仍可 Search、Fetch、Preview，但四类 D3 写操作稳定返回 `strm_multisource_write_unsupported`。省略、错误、重复和变化 source 安全拒绝。
 - Candidate/Artifact 不能跨 Item、source、认证上下文、gate generation 或服务实例使用。
 - 两种多版本组织方式都覆盖：一个 Item 多 source、多个独立 Item。
-- Add 对同目录不同媒体 basename 不串写，幂等和并发保持原行为。
+- 单源 STRM 使用 Item.Path basename；普通本地媒体使用 source basename；两者均不串写，幂等和并发保持原行为。
 
 Core B：
 
@@ -214,6 +217,7 @@ Core B：
 - Upload 的 SRT/ASS/SSA、UTF-8/UTF-16、BOM、空文件、HTML/JSON、二进制、超限和恶意文件名。
 - Delete 成功进入 trash；失败恢复；重复操作不产生第二份；内嵌或不可管理字幕拒绝。
 - Restore 成功、目标冲突、Hash 不符、Item/source 变化和重复恢复。
+- 多源 STRM 的 Add、Replace、Delete、Restore 在 Artifact/媒体写入前返回稳定 409；旧 STRM `OriginalLocation=source` history 的 Restore 返回稳定兼容性错误。
 - Item 锁覆盖 Add/Replace/Delete/Restore 交叉并发。
 - 所有路由的管理员会话、CSRF、Bearer scope、请求体、日志脱敏和错误码。
 - Fake Emby 核对 Refresh 次数、MediaStreams 变化、无 Remote Save 调用和无错误 source 写入。

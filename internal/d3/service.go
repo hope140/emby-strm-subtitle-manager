@@ -245,12 +245,12 @@ func (s *Service) Add(ctx context.Context, itemID string, request AddRequest) (A
 	if err != nil {
 		return AddResponse{}, mapMediaError(err)
 	}
-	if mediaCtx.MappingStatus != media.MappingStatusMapped || mediaCtx.LocalDirectory == "" || mediaCtx.LocalPath == "" {
-		return AddResponse{}, &Error{Status: 422, Code: "media_path_unsafe", Message: "media path is unavailable for D3 Add", Cause: ErrUnsafeMediaPath}
-	}
 	writeTarget, err := media.ResolveWriteTarget(item, request.MediaSourceID, s.mapper, s.guard)
 	if err != nil {
 		return AddResponse{}, mapMediaError(err)
+	}
+	if mediaCtx.MappingStatus != media.MappingStatusMapped || mediaCtx.LocalDirectory == "" || mediaCtx.LocalPath == "" {
+		return AddResponse{}, &Error{Status: 422, Code: "media_path_unsafe", Message: "media path is unavailable for D3 Add", Cause: ErrUnsafeMediaPath}
 	}
 	artifact, content, err := s.artifacts.GetContent(request.ArtifactToken, preview.Binding{ItemID: item.ID, SourceID: mediaCtx.MediaSourceID, AuthContext: s.authContext, AllowlistGeneration: generation})
 	if err != nil {
@@ -527,6 +527,8 @@ func mapItemError(err error) error {
 
 func mapMediaError(err error) error {
 	switch {
+	case errors.Is(err, media.ErrStrmMultiSourceWriteUnsupported):
+		return &Error{Status: 409, Code: "strm_multisource_write_unsupported", Message: "multi-source STRM writes are not supported", Cause: err}
 	case errors.Is(err, media.ErrMediaSourceSelectionRequired):
 		return &Error{Status: 409, Code: "media_source_selection_required", Message: "media source selection is required", Cause: err}
 	case errors.Is(err, media.ErrMediaSourceNotFound):

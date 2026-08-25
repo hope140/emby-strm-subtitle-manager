@@ -3,6 +3,7 @@ package media
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"unicode"
 
@@ -11,14 +12,15 @@ import (
 )
 
 var (
-	ErrInvalidItem                  = errors.New("invalid media item")
-	ErrMediaSourceUnavailable       = errors.New("media source is unavailable")
-	ErrMediaSourceNotFound          = errors.New("media source was not found")
-	ErrMediaSourceSelectionRequired = errors.New("media source selection is required")
-	ErrDuplicateMediaSourceID       = errors.New("media source identifiers are invalid")
-	ErrInvalidUpstreamResponse      = errors.New("Emby media source response is invalid")
-	ErrMediaStreamsUnavailable      = errors.New("media streams are unavailable")
-	ErrMappedPathUnavailable        = errors.New("mapped media path is unavailable")
+	ErrInvalidItem                     = errors.New("invalid media item")
+	ErrMediaSourceUnavailable          = errors.New("media source is unavailable")
+	ErrMediaSourceNotFound             = errors.New("media source was not found")
+	ErrMediaSourceSelectionRequired    = errors.New("media source selection is required")
+	ErrDuplicateMediaSourceID          = errors.New("media source identifiers are invalid")
+	ErrInvalidUpstreamResponse         = errors.New("Emby media source response is invalid")
+	ErrMediaStreamsUnavailable         = errors.New("media streams are unavailable")
+	ErrMappedPathUnavailable           = errors.New("mapped media path is unavailable")
+	ErrStrmMultiSourceWriteUnsupported = errors.New("STRM writes with multiple media sources are unsupported")
 )
 
 // MappingStatus describes the safe state of the local path mapping. A
@@ -41,12 +43,13 @@ const (
 
 	// Compatibility aliases retain descriptive names for internal callers;
 	// their serialized values remain the stable public contract above.
-	WarningSingleSourcePathFallback    = WarningSourcePathFallback
-	WarningSingleSourceStreamsFallback = WarningSourceStreamsFallback
-	WarningPathMappingUnmapped         = WarningPathMappingNotFound
-	WarningPathMappingUnsafe           = WarningMediaPathUnsafe
-	WarningPathMappingUnavailable      = WarningMediaDirectoryUnavailable
-	WarningPathGuardUnsafe             = WarningMediaPathUnsafe
+	WarningSingleSourcePathFallback        = WarningSourcePathFallback
+	WarningSingleSourceStreamsFallback     = WarningSourceStreamsFallback
+	WarningPathMappingUnmapped             = WarningPathMappingNotFound
+	WarningPathMappingUnsafe               = WarningMediaPathUnsafe
+	WarningPathMappingUnavailable          = WarningMediaDirectoryUnavailable
+	WarningPathGuardUnsafe                 = WarningMediaPathUnsafe
+	WarningStrmMultiSourceWriteUnsupported = "strm_multisource_write_unsupported"
 )
 
 // SourceSelector applies the explicit source-selection contract. It never
@@ -120,10 +123,11 @@ type MediaContext struct {
 	LocalPath         string
 	LocalDirectory    string
 	// SourceLocalPath and SourceLocalDirectory are private, selected-source
-	// facts. STRM inventory retains Item.Path above, while Core A/B can also
-	// recognize sidecars whose safe basename is derived from this source.
+	// facts for ordinary local media. Multi-source STRM inventory deliberately
+	// ignores them because its Item sidecars are physically shared.
 	SourceLocalPath      string
 	SourceLocalDirectory string
+	MediaSourceCount     int
 	IsStrm               bool
 	MediaStreams         *[]domain.MediaStream
 	MappingStatus        MappingStatus
@@ -140,40 +144,74 @@ type BuildOptions struct {
 	Guard         *pathmap.PathGuard
 }
 
-// WriteTarget is the private, source-specific local media fact used only to
-// derive a subtitle filename for a write. It is deliberately separate from
-// MediaContext: STRM inventory continues to use Item.Path, whereas a write to
-// a multi-version Item must never derive its basename from the Item title,
-// default source, or source ordering.
+type WriteTargetLocation string
+
+const (
+	WriteTargetLocationItem   WriteTargetLocation = "item"
+	WriteTargetLocationSource WriteTargetLocation = "source"
+)
+
+// WriteTarget is the private local media fact used only to derive a subtitle
+// filename for a write. It is deliberately separate from MediaContext:
+// single-source STRM writes use Item.Path, while ordinary local media writes
+// use the explicitly selected MediaSource.Path.
 type WriteTarget struct {
 	MediaSourceID  string
 	LocalPath      string
 	LocalDirectory string
+	Location       WriteTargetLocation
 }
 
-// ResolveWriteTarget maps the selected source's own local media path. A
-// missing, remote or unmappable source path is rejected instead of falling
-// back to Item.Path; that fail-closed rule prevents cross-version writes.
+// ResolveWriteTarget resolves the safe local anchor for a write. A single
+// STRM item is anchored at Item.Path because its MediaSource.Path is a remote
+// playback locator in the deployed model. Ordinary local media remains bound
+// to the selected source path, and never falls back to Item.Path when that
+// source is remote or unavailable.
 func ResolveWriteTarget(item domain.EmbyItem, sourceID string, mapper *pathmap.Mapper, guard *pathmap.PathGuard) (WriteTarget, error) {
+	if strings.TrimSpace(sourceID) == "" {
+		return WriteTarget{}, ErrMediaSourceSelectionRequired
+	}
 	selected, err := SelectSource(item, sourceID)
 	if err != nil {
 		return WriteTarget{}, err
 	}
-	if mapper == nil || selected.Path == "" || isRemoteSource(selected) || strings.IndexFunc(selected.Path, unicode.IsControl) >= 0 {
+	if isSTRM(item.Path) {
+		if len(item.MediaSources) != 1 {
+			return WriteTarget{}, ErrStrmMultiSourceWriteUnsupported
+		}
+		localPath, directory, err := resolveMappedRegularFile(item.Path, mapper, guard)
+		if err != nil || !isSTRM(localPath) {
+			return WriteTarget{}, ErrMappedPathUnavailable
+		}
+		return WriteTarget{MediaSourceID: selected.ID, LocalPath: localPath, LocalDirectory: directory, Location: WriteTargetLocationItem}, nil
+	}
+	if selected.Path == "" || isRemoteSource(selected) || strings.IndexFunc(selected.Path, unicode.IsControl) >= 0 {
 		return WriteTarget{}, ErrMappedPathUnavailable
 	}
-	localPath, err := mapper.Map(selected.Path)
-	if err != nil || localPath == "" {
+	localPath, directory, err := resolveMappedRegularFile(selected.Path, mapper, guard)
+	if err != nil {
 		return WriteTarget{}, ErrMappedPathUnavailable
+	}
+	return WriteTarget{MediaSourceID: selected.ID, LocalPath: localPath, LocalDirectory: directory, Location: WriteTargetLocationSource}, nil
+}
+
+func resolveMappedRegularFile(embyPath string, mapper *pathmap.Mapper, guard *pathmap.PathGuard) (string, string, error) {
+	if mapper == nil || embyPath == "" || strings.IndexFunc(embyPath, unicode.IsControl) >= 0 {
+		return "", "", ErrMappedPathUnavailable
+	}
+	localPath, err := mapper.Map(embyPath)
+	if err != nil || localPath == "" {
+		return "", "", ErrMappedPathUnavailable
 	}
 	directory, err := pathmap.Directory(localPath)
-	if err != nil || directory == "" {
-		return WriteTarget{}, ErrMappedPathUnavailable
+	if err != nil || directory == "" || guard == nil || guard.CheckDirectory(directory) != nil {
+		return "", "", ErrMappedPathUnavailable
 	}
-	if guard == nil || guard.CheckDirectory(directory) != nil {
-		return WriteTarget{}, ErrMappedPathUnavailable
+	info, err := os.Lstat(localPath)
+	if err != nil || info == nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return "", "", ErrMappedPathUnavailable
 	}
-	return WriteTarget{MediaSourceID: selected.ID, LocalPath: localPath, LocalDirectory: directory}, nil
+	return localPath, directory, nil
 }
 
 // Build creates a source-specific context. STRM items always use Item.Path
@@ -285,7 +323,7 @@ func Build(item domain.EmbyItem, options BuildOptions) (MediaContext, error) {
 		ParentID: item.ParentID, SeriesID: item.SeriesID, SeriesName: item.SeriesName,
 		ParentIndexNumber: item.ParentIndexNumber, IndexNumber: item.IndexNumber, ProductionYear: item.ProductionYear,
 		ProviderIDs: cloneStringMap(item.ProviderIDs), EmbyPath: embyPath, LocalPath: localPath,
-		LocalDirectory: localDirectory, SourceLocalPath: sourceLocalPath, SourceLocalDirectory: sourceLocalDirectory, IsStrm: isStrm, MediaStreams: streams,
+		LocalDirectory: localDirectory, SourceLocalPath: sourceLocalPath, SourceLocalDirectory: sourceLocalDirectory, MediaSourceCount: len(item.MediaSources), IsStrm: isStrm, MediaStreams: streams,
 		MappingStatus: mappingStatus, Warnings: warnings, InventoryComplete: complete,
 	}, nil
 }
@@ -300,6 +338,13 @@ func isSTRM(value string) bool {
 	base := value[lastSeparator+1:]
 	dot := strings.LastIndexByte(base, '.')
 	return dot > 0 && strings.EqualFold(base[dot+1:], "strm")
+}
+
+// IsSTRMPath exposes only the extension-based media classification needed by
+// safe public capability projections and restore preflight. It does not map,
+// stat, or otherwise trust the path as a filesystem location.
+func IsSTRMPath(value string) bool {
+	return isSTRM(value)
 }
 
 func isRemoteSource(source domain.MediaSource) bool {

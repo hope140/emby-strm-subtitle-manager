@@ -108,7 +108,7 @@ func newRecoveryTestService(t *testing.T, sourcePaths map[string]string, failAt 
 		t.Fatal(err)
 	}
 	if len(sourcePaths) == 0 {
-		sourcePaths = map[string]string{"source-1": "/srv/media/movie.mkv"}
+		sourcePaths = map[string]string{"source-1": "https://media.example/movie.mkv?opaque=private"}
 	}
 	mapper, err := pathmap.New([]pathmap.Mapping{{Emby: "/srv/media", Local: root}})
 	if err != nil {
@@ -203,8 +203,12 @@ func TestReplaceArchivesOldSubtitleAndRestoresIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if replaced.Type != OperationReplace || replaced.Status != "verified" || replaced.FileName == oldName {
+	if replaced.Type != OperationReplace || replaced.Status != "verified" || replaced.FileName != "movie.subbridge.zh-CN.srt" {
 		t.Fatalf("replace response = %#v", replaced)
+	}
+	replaceHistory, found := service.loadRecoveryRecord(replaced.OperationID)
+	if !found || replaceHistory.OriginalLocation != string(media.WriteTargetLocationItem) {
+		t.Fatalf("STRM replace history location = %#v found=%v", replaceHistory, found)
 	}
 	if _, err := os.Stat(filepath.Join(root, oldName)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("old subtitle remains after replace: %v", err)
@@ -252,6 +256,10 @@ func TestDeleteMovesToTrashAndRestoreRejectsOverwrite(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(service.settings.TrashDir); err != nil || len(entries) != 1 {
 		t.Fatalf("trash entries = %d err=%v", len(entries), err)
+	}
+	deleteHistory, found := service.loadRecoveryRecord(deleted.OperationID)
+	if !found || deleteHistory.OriginalLocation != string(media.WriteTargetLocationItem) {
+		t.Fatalf("STRM delete history location = %#v found=%v", deleteHistory, found)
 	}
 	if err := os.WriteFile(filepath.Join(root, oldName), []byte("1\n00:00:01,000 --> 00:00:02,000\n冲突\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -489,21 +497,156 @@ func sha256Operation(value string) [32]byte {
 	return sha256.Sum256([]byte(value))
 }
 
-func TestAddUsesSelectedSourcePathForMultiSourceItem(t *testing.T) {
+func TestMultiSourceSTRMWritesFailClosedBeforeMediaMutation(t *testing.T) {
 	service, _, _, root := newRecoveryTestService(t, map[string]string{
-		"source-a": "/srv/media/version-A.mkv",
-		"source-b": "/srv/media/version-B.mkv",
+		"source-a": "https://media.example/version-A.mkv?opaque=a",
+		"source-b": "https://media.example/version-B.mkv?opaque=b",
 	}, 0)
 	artifact := recoveryArtifact(t, service, "source-b", "多源目标")
-	result, err := service.Add(context.Background(), "movie-1", AddRequest{ArtifactToken: artifact.Token, MediaSourceID: "source-b", OperationID: "add-source-b"})
-	if err != nil {
+	if _, err := service.Add(context.Background(), "movie-1", AddRequest{ArtifactToken: artifact.Token, MediaSourceID: "source-b", OperationID: "add-source-b"}); !hasD3Code(err, "strm_multisource_write_unsupported") {
+		t.Fatalf("multi-source STRM Add error = %v", err)
+	}
+	subtitleID := "sub_v1_test-multisource"
+	if _, err := service.Replace(context.Background(), "movie-1", subtitleID, ReplaceRequest{ArtifactToken: artifact.Token, MediaSourceID: "source-b", OperationID: "replace-source-b"}); !hasD3Code(err, "strm_multisource_write_unsupported") {
+		t.Fatalf("multi-source STRM Replace error = %v", err)
+	}
+	if _, err := service.Delete(context.Background(), "movie-1", subtitleID, DeleteRequest{MediaSourceID: "source-b", OperationID: "delete-source-b"}); !hasD3Code(err, "strm_multisource_write_unsupported") {
+		t.Fatalf("multi-source STRM Delete error = %v", err)
+	}
+	operationID := "delete-source-old"
+	operationHash := sha256Operation(operationID)
+	oldHash := hashBytes([]byte("old subtitle"))
+	if err := service.writeRecoveryHistory(recoveryRecord{
+		Version: 2, OperationHash: hex.EncodeToString(operationHash[:]), OperationID: operationID, Type: OperationDelete,
+		Fingerprint: "legacy-multisource", ItemID: "movie-1", MediaSourceID: "source-b", SubtitleID: subtitleID,
+		FileName: "movie.zh-CN.srt", Format: "srt", Status: "verified", CreatedAt: time.Now().UTC(),
+		RecoveryKind: "trash", RecoveryFile: "old-trash.subbridge", OriginalFileName: "movie.zh-CN.srt",
+		OriginalLocation: "item", OriginalHash: oldHash, OriginalFormat: "srt",
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if result.FileName != "version-B.subbridge.zh-CN.srt" {
-		t.Fatalf("selected source filename = %q", result.FileName)
+	if _, err := service.Restore(context.Background(), operationID, RestoreRequest{MediaSourceID: "source-b", OperationID: "restore-source-b"}); !hasD3Code(err, "strm_multisource_write_unsupported") {
+		t.Fatalf("multi-source STRM Restore error = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, result.FileName)); err != nil {
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 1 || entries[0].Name() != "movie.strm" {
+		t.Fatalf("multi-source STRM media mutation = %#v err=%v", entries, err)
+	}
+}
+
+func TestRestoreRejectsLegacySourceLocationForCurrentSTRM(t *testing.T) {
+	service, _, _, _ := newRecoveryTestService(t, nil, 0)
+	operationID := "legacy-source-history"
+	operationHash := sha256Operation(operationID)
+	if err := service.writeRecoveryHistory(recoveryRecord{
+		Version: 2, OperationHash: hex.EncodeToString(operationHash[:]), OperationID: operationID, Type: OperationDelete,
+		Fingerprint: "legacy-source-location", ItemID: "movie-1", MediaSourceID: "source-1", SubtitleID: "sub_v1_legacy-source",
+		FileName: "movie.zh-CN.srt", Format: "srt", Status: "verified", CreatedAt: time.Now().UTC(),
+		RecoveryKind: "trash", RecoveryFile: "legacy-trash.subbridge", OriginalFileName: "movie.zh-CN.srt",
+		OriginalLocation: string(media.WriteTargetLocationSource), OriginalHash: hashBytes([]byte("legacy")), OriginalFormat: "srt",
+	}); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := service.Restore(context.Background(), operationID, RestoreRequest{MediaSourceID: "source-1", OperationID: "restore-legacy-source"}); !hasD3Code(err, "strm_history_location_unsupported") {
+		t.Fatalf("legacy STRM history error = %v", err)
+	}
+}
+
+func TestHistoryListMarksLegacySourceRestoreUnsupportedForCurrentSTRM(t *testing.T) {
+	service, _, _, _ := newRecoveryTestService(t, nil, 0)
+	operationID := "legacy-source-list"
+	writeLegacySourceHistory(t, service, operationID)
+	operations, err := service.ListOperationsForSource(context.Background(), "movie-1", "source-1", 0)
+	if err != nil || len(operations) != 1 {
+		t.Fatalf("source history = %#v err=%v", operations, err)
+	}
+	if operations[0].RestoreSupported == nil || *operations[0].RestoreSupported || operations[0].RestoreErrorCode != "strm_history_location_unsupported" {
+		t.Fatalf("legacy restore capability = %#v", operations[0])
+	}
+}
+
+func TestRestoreLegacySourceHistoryRejectsBadSTRMAnchorsBeforeWriteResolution(t *testing.T) {
+	cases := []struct {
+		name     string
+		itemPath string
+		prepare  func(t *testing.T, root string)
+	}{
+		{name: "unmapped", itemPath: "/outside/movie.strm"},
+		{name: "missing", itemPath: "/srv/media/missing.strm"},
+		{name: "directory", itemPath: "/srv/media/movie.strm", prepare: func(t *testing.T, root string) {
+			if err := os.Remove(filepath.Join(root, "movie.strm")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(filepath.Join(root, "movie.strm"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "symlink", itemPath: "/srv/media/movie.strm", prepare: func(t *testing.T, root string) {
+			if err := os.Remove(filepath.Join(root, "movie.strm")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "real.strm"), []byte("stub"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(root, "real.strm"), filepath.Join(root, "movie.strm")); err != nil {
+				t.Skipf("symlink creation unavailable: %v", err)
+			}
+		}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			service, reader, _, root := newRecoveryTestService(t, nil, 0)
+			if test.prepare != nil {
+				test.prepare(t, root)
+			}
+			reader.mu.Lock()
+			reader.itemPath = test.itemPath
+			reader.mu.Unlock()
+			operationID := "legacy-source-" + test.name
+			writeLegacySourceHistory(t, service, operationID)
+			if _, err := service.Restore(context.Background(), operationID, RestoreRequest{MediaSourceID: "source-1", OperationID: "restore-bad-" + test.name}); !hasD3Code(err, "strm_history_location_unsupported") {
+				t.Fatalf("bad STRM anchor error = %v", err)
+			}
+		})
+	}
+}
+
+func TestRecoveryHistoryUsesExplicitWriteTargetLocationForOrdinaryLocalMedia(t *testing.T) {
+	for _, operation := range []OperationType{OperationReplace, OperationDelete} {
+		t.Run(string(operation), func(t *testing.T) {
+			service, reader, _, root := newRecoveryTestService(t, nil, 0)
+			if err := os.WriteFile(filepath.Join(root, "movie.mkv"), []byte("fixture media"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			reader.mu.Lock()
+			reader.itemPath = "/srv/media/movie.mkv"
+			reader.sourcePaths = map[string]string{"source-1": "/srv/media/movie.mkv"}
+			reader.mu.Unlock()
+			oldName := "movie.zh-CN.srt"
+			oldContent := []byte("1\n00:00:01,000 --> 00:00:02,000\n普通本地媒体\n")
+			if err := os.WriteFile(filepath.Join(root, oldName), oldContent, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			subtitleID := managedSubtitleID(t, service, reader, "source-1", oldName)
+			var response OperationResponse
+			var err error
+			if operation == OperationReplace {
+				artifact := recoveryArtifact(t, service, "source-1", "普通本地替换")
+				response, err = service.Replace(context.Background(), "movie-1", subtitleID, ReplaceRequest{ArtifactToken: artifact.Token, MediaSourceID: "source-1", OperationID: "ordinary-replace-0001"})
+			} else {
+				response, err = service.Delete(context.Background(), "movie-1", subtitleID, DeleteRequest{MediaSourceID: "source-1", OperationID: "ordinary-delete-0001"})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			record, found := service.loadRecoveryRecord(response.OperationID)
+			if !found || record.OriginalLocation != string(media.WriteTargetLocationSource) {
+				t.Fatalf("ordinary local history location = %#v found=%v", record, found)
+			}
+			if _, err := service.Restore(context.Background(), response.OperationID, RestoreRequest{MediaSourceID: "source-1", OperationID: "ordinary-restore-0001"}); err != nil {
+				t.Fatalf("ordinary local restore = %v", err)
+			}
+		})
 	}
 }
 
@@ -541,17 +684,59 @@ func TestHistoryListUsesDefaultAndMaximumLimit(t *testing.T) {
 	}
 }
 
-func TestRecoveryLocationClassifiesSourceSpecificSTRMSidecarsWithoutPersistingPath(t *testing.T) {
-	itemDirectory := filepath.Join(t.TempDir(), "item")
-	sourceDirectory := filepath.Join(t.TempDir(), "source")
-	if got, err := recoveryLocation(filepath.Join(sourceDirectory, "version-B.zh-CN.srt"), itemDirectory, sourceDirectory); err != nil || got != "source" {
-		t.Fatalf("source recovery location = %q err=%v", got, err)
+func TestHistoryListForSourceFiltersBeforeLimit(t *testing.T) {
+	service, _, _, _ := newRecoveryTestService(t, map[string]string{
+		"source-a": "https://media.example/movie-a.mkv?opaque=a",
+	}, 0)
+	base := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+	write := func(operationID, sourceID string, createdAt time.Time) {
+		t.Helper()
+		opHash := sha256Operation(operationID)
+		if err := service.writeRecoveryHistory(recoveryRecord{
+			Version: 2, OperationHash: hex.EncodeToString(opHash[:]), OperationID: operationID, Type: OperationDelete,
+			Fingerprint: "history-source-filter", ItemID: "movie-1", MediaSourceID: sourceID, SubtitleID: "sub_v1_history-filter",
+			FileName: "movie.zh-CN.srt", Format: "srt", Status: "verified", CreatedAt: createdAt,
+			RecoveryKind: "trash", RecoveryFile: recoveryName("trash", opHash), OriginalFileName: "movie.zh-CN.srt",
+			OriginalLocation: string(media.WriteTargetLocationItem), OriginalHash: hashBytes([]byte(operationID)), OriginalFormat: "srt",
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if got, err := recoveryLocation(filepath.Join(itemDirectory, "movie.zh-CN.srt"), itemDirectory, sourceDirectory); err != nil || got != "item" {
+	write("history-source-a-old-0001", "source-a", base.Add(1*time.Minute))
+	write("history-source-a-new-0001", "source-a", base.Add(2*time.Minute))
+	write("history-source-b-new-0001", "source-b", base.Add(5*time.Minute))
+	write("history-source-b-mid-0001", "source-b", base.Add(4*time.Minute))
+
+	global, err := service.ListOperations("movie-1", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(global) != 2 || global[0].MediaSourceID != "source-b" || global[1].MediaSourceID != "source-b" {
+		t.Fatalf("global history limit = %#v", global)
+	}
+	operations, err := service.ListOperationsForSource(context.Background(), "movie-1", "source-a", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(operations) != 2 || operations[0].OperationID != "history-source-a-new-0001" || operations[1].OperationID != "history-source-a-old-0001" {
+		t.Fatalf("source-filtered history = %#v", operations)
+	}
+	for _, operation := range operations {
+		if operation.MediaSourceID != "source-a" || operation.RestoreSupported == nil || !*operation.RestoreSupported {
+			t.Fatalf("source-filtered restore capability = %#v", operation)
+		}
+	}
+}
+
+func TestRecoveryLocationUsesExplicitWriteTargetClass(t *testing.T) {
+	if got, err := recoveryLocation(media.WriteTarget{Location: media.WriteTargetLocationItem}); err != nil || got != "item" {
 		t.Fatalf("item recovery location = %q err=%v", got, err)
 	}
-	if _, err := recoveryLocation(filepath.Join(t.TempDir(), "outside.zh-CN.srt"), itemDirectory, sourceDirectory); !errors.Is(err, ErrHistory) {
-		t.Fatalf("outside recovery location error = %v", err)
+	if got, err := recoveryLocation(media.WriteTarget{Location: media.WriteTargetLocationSource}); err != nil || got != "source" {
+		t.Fatalf("source recovery location = %q err=%v", got, err)
+	}
+	if _, err := recoveryLocation(media.WriteTarget{}); !errors.Is(err, ErrHistory) {
+		t.Fatalf("unknown recovery location error = %v", err)
 	}
 }
 
@@ -561,6 +746,21 @@ func TestRecoveryNameDoesNotDependOnOriginalSidecarLength(t *testing.T) {
 	name := recoveryName("archive", operationHash)
 	if !safeRecoveryName(name) || len([]byte(name)) > maxFilenameBytes {
 		t.Fatalf("recovery name = %q", name)
+	}
+}
+
+func writeLegacySourceHistory(t *testing.T, service *Service, operationID string) {
+	t.Helper()
+	operationHash := sha256Operation(operationID)
+	oldHash := hashBytes([]byte("legacy"))
+	if err := service.writeRecoveryHistory(recoveryRecord{
+		Version: 2, OperationHash: hex.EncodeToString(operationHash[:]), OperationID: operationID, Type: OperationDelete,
+		Fingerprint: "legacy-source-location", ItemID: "movie-1", MediaSourceID: "source-1", SubtitleID: "sub_v1_legacy-source",
+		FileName: "movie.zh-CN.srt", Format: "srt", Status: "verified", CreatedAt: time.Now().UTC(),
+		RecoveryKind: "trash", RecoveryFile: "legacy-trash.subbridge", OriginalFileName: "movie.zh-CN.srt",
+		OriginalLocation: string(media.WriteTargetLocationSource), OriginalHash: oldHash, OriginalFormat: "srt",
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -2,6 +2,8 @@ package media
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -235,6 +237,117 @@ func TestBuildMultiSourcePathFailuresDegradeWithoutItemPathFallback(t *testing.T
 	}
 }
 
+func TestResolveWriteTargetSingleSTRMUsesItemPathWithRemoteSource(t *testing.T) {
+	root := t.TempDir()
+	strmPath := filepath.Join(root, "movie.strm")
+	if err := os.WriteFile(strmPath, []byte("https://media.example/movie"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mapper, err := pathmap.New([]pathmap.Mapping{{Emby: "/srv/media", Local: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard, err := pathmap.NewPathGuard([]string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := domain.EmbyItem{
+		ItemSummary: domain.ItemSummary{ID: "movie-1", Name: "Movie", Type: "Movie"},
+		Path:        "/srv/media/movie.strm",
+		MediaSources: []domain.MediaSource{{
+			ID: "source-1", Path: "https://media.example/movie.mkv?opaque=private", Protocol: "Http",
+		}},
+	}
+	target, err := ResolveWriteTarget(item, "source-1", mapper, guard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameLocalPath(target.LocalPath, strmPath) || !sameLocalPath(target.LocalDirectory, root) || target.Location != WriteTargetLocationItem {
+		t.Fatalf("STRM write target = %#v", target)
+	}
+}
+
+func TestResolveWriteTargetRequiresRegularMappedAnchor(t *testing.T) {
+	root := t.TempDir()
+	mapper, err := pathmap.New([]pathmap.Mapping{{Emby: "/srv/media", Local: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard, err := pathmap.NewPathGuard([]string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := domain.EmbyItem{
+		ItemSummary:  domain.ItemSummary{ID: "movie-1", Name: "Movie", Type: "Movie"},
+		Path:         "/srv/media/movie.strm",
+		MediaSources: []domain.MediaSource{{ID: "source-1", Path: "https://media.example/movie.mkv"}},
+	}
+	if _, err := ResolveWriteTarget(item, "source-1", mapper, guard); !errors.Is(err, ErrMappedPathUnavailable) {
+		t.Fatalf("missing STRM anchor error = %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "movie.strm"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveWriteTarget(item, "source-1", mapper, guard); !errors.Is(err, ErrMappedPathUnavailable) {
+		t.Fatalf("directory STRM anchor error = %v", err)
+	}
+	if err := os.Remove(filepath.Join(root, "movie.strm")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "movie.strm"), []byte("stub"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "linked.strm")
+	if err := os.Symlink(filepath.Join(root, "movie.strm"), link); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	item.Path = "/srv/media/linked.strm"
+	if _, err := ResolveWriteTarget(item, "source-1", mapper, guard); !errors.Is(err, ErrMappedPathUnavailable) {
+		t.Fatalf("symlink STRM anchor error = %v", err)
+	}
+}
+
+func TestResolveWriteTargetRegularLocalMediaUsesSelectedSourceAndRejectsRemoteFallback(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "item.mkv"), []byte("item"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "source.mkv"), []byte("source"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mapper, err := pathmap.New([]pathmap.Mapping{{Emby: "/srv/media", Local: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard, err := pathmap.NewPathGuard([]string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := domain.EmbyItem{ItemSummary: domain.ItemSummary{ID: "movie-1", Name: "Movie", Type: "Movie"}, Path: "/srv/media/item.mkv", MediaSources: []domain.MediaSource{{ID: "source-1", Path: "/srv/media/source.mkv"}}}
+	target, err := ResolveWriteTarget(item, "source-1", mapper, guard)
+	if err != nil || !sameLocalPath(target.LocalPath, filepath.Join(root, "source.mkv")) || target.Location != WriteTargetLocationSource {
+		t.Fatalf("local media target = %#v err=%v", target, err)
+	}
+	item.MediaSources[0].Path = "https://media.example/source.mkv"
+	if _, err := ResolveWriteTarget(item, "source-1", mapper, guard); !errors.Is(err, ErrMappedPathUnavailable) {
+		t.Fatalf("remote source fallback error = %v", err)
+	}
+}
+
+func TestResolveWriteTargetRejectsMultiSourceSTRMBeforePathResolution(t *testing.T) {
+	item := domain.EmbyItem{
+		ItemSummary: domain.ItemSummary{ID: "movie-1", Name: "Movie", Type: "Movie"},
+		Path:        "/missing/movie.strm",
+		MediaSources: []domain.MediaSource{
+			{ID: "source-a", Path: "https://media.example/a.mkv"},
+			{ID: "source-b", Path: "https://media.example/b.mkv"},
+		},
+	}
+	if _, err := ResolveWriteTarget(item, "source-b", nil, nil); !errors.Is(err, ErrStrmMultiSourceWriteUnsupported) {
+		t.Fatalf("multi-source STRM error = %v", err)
+	}
+}
+
 func hasWarnings(warnings []string, wanted ...string) bool {
 	seen := make(map[string]bool, len(warnings))
 	for _, warning := range warnings {
@@ -246,6 +359,10 @@ func hasWarnings(warnings []string, wanted ...string) bool {
 		}
 	}
 	return true
+}
+
+func sameLocalPath(left, right string) bool {
+	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
 }
 
 func boolPointer(value bool) *bool { return &value }

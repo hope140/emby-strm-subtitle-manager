@@ -26,6 +26,7 @@
   };
   const d3 = {
     writeEnabled: false,
+    writeCapabilities: { add: false, replace: false, delete: false, restore: false, reason_code: "" },
     csrfToken: "",
     addBusy: false,
     uploadBusy: false,
@@ -57,6 +58,7 @@
     d2UploadFile: document.getElementById("d2-upload-file"),
     d2Upload: document.getElementById("d2-upload"),
     d2UploadStatus: document.getElementById("d2-upload-status"),
+    d3WriteStatus: document.getElementById("d3-write-status"),
     d2Results: document.getElementById("d2-results"),
     d2ResultStatus: document.getElementById("d2-result-status"),
     d2Candidates: document.getElementById("d2-candidates"),
@@ -112,6 +114,8 @@
     emby_refresh_failed: "Emby 刷新失败，新文件已隔离。",
     emby_subtitle_not_visible: "Emby 未识别新字幕，新文件已隔离。",
     d3_history_unavailable: "操作记录暂时不可用，请稍后重试。",
+    strm_multisource_write_unsupported: "多源 STRM 只支持搜索、Fetch、预览和上传校验，添加、替换、删除与恢复暂不可用。",
+    strm_history_location_unsupported: "这条历史记录来自旧的 STRM source 目录语义，当前无法安全恢复。",
     subtitle_unmanageable: "该字幕不是可安全管理的外挂字幕。",
     subtitle_inventory_incomplete: "字幕清单不完整，已拒绝写入操作。",
     subtitle_not_found: "目标字幕已变化，请重新打开详情。",
@@ -148,6 +152,29 @@
 
   function setVisible(element, visible) {
     element.classList.toggle("hidden", !visible);
+  }
+
+  function emptyWriteCapabilities() {
+    return { add: false, replace: false, delete: false, restore: false, reason_code: "" };
+  }
+
+  function setWriteCapabilities(media) {
+    const capabilities = media && media.write_capabilities ? media.write_capabilities : null;
+    d3.writeCapabilities = capabilities ? {
+      add: capabilities.add === true,
+      replace: capabilities.replace === true,
+      delete: capabilities.delete === true,
+      restore: capabilities.restore === true,
+      reason_code: typeof capabilities.reason_code === "string" ? capabilities.reason_code : ""
+    } : emptyWriteCapabilities();
+    const reason = d3.writeCapabilities.reason_code;
+    if (d3.writeEnabled && reason && safeMessages[reason]) {
+      setVisible(elements.d3WriteStatus, true);
+      setText(elements.d3WriteStatus, safeMessages[reason]);
+    } else {
+      setVisible(elements.d3WriteStatus, false);
+      clearText(elements.d3WriteStatus);
+    }
   }
 
   function safeErrorMessage(code, status, retryAfter) {
@@ -425,7 +452,7 @@
         setText(facts, flags.join(" · "));
         card.appendChild(facts);
         if (subtitle.unmanageable_reason) addMessages(card, "状态说明", [subtitle.unmanageable_reason], "warning-list");
-        if (d3.writeEnabled && d2.media && d2.media.media_source_id && subtitle.manageable === true) {
+        if (d3.writeEnabled && d3.writeCapabilities.replace && d3.writeCapabilities.delete && d2.media && d2.media.media_source_id && subtitle.manageable === true) {
           const actions = document.createElement("div");
           actions.className = "subtitle-actions";
           const replace = document.createElement("button");
@@ -564,6 +591,7 @@
     d2.itemID = itemID;
     d2.media = null;
     d2.inventory = null;
+    d3.writeCapabilities = emptyWriteCapabilities();
     d2.multipleSources = multipleSources;
     d2.candidates = [];
     d2.searchRequestID += 1;
@@ -579,12 +607,15 @@
     clear(elements.d3HistoryList);
     clearText(elements.d3HistoryStatus);
     setVisible(elements.d3History, false);
+    setVisible(elements.d3WriteStatus, false);
+    clearText(elements.d3WriteStatus);
   }
 
   function renderD2Gate(media, itemID, multipleSources) {
     d2.itemID = itemID;
     d2.media = media;
     d2.multipleSources = multipleSources;
+    setWriteCapabilities(media);
     setVisible(elements.d2Panel, true);
     setVisible(elements.d2Actions, false);
     setVisible(elements.d2Results, false);
@@ -729,7 +760,7 @@
     setText(elements.d2ArtifactMeta, "Provider：" + (artifact.provider || "—") + " · 语言：" + (artifact.language || "—") + " · 格式：" + (artifact.format || "—") + " · 字节：" + Number(artifact.byte_length || 0) + " · Cue：" + Number(artifact.cue_count || 0) + " · 过期：" + formatDate(artifact.expires_at));
     clear(elements.d2Cues);
     setText(elements.d2PreviewStatus, "准备预览…");
-    setVisible(elements.d3Add, d3.writeEnabled && Boolean(d2.media && d2.media.media_source_id));
+    setVisible(elements.d3Add, d3.writeEnabled && d3.writeCapabilities.add && Boolean(d2.media && d2.media.media_source_id));
     clearText(elements.d3AddStatus);
     if (d2.inventory) renderSubtitles(elements.detail, d2.inventory);
   }
@@ -740,7 +771,7 @@
   }
 
   async function addD3() {
-    if (d3.addBusy || !d3.writeEnabled || !d2.artifact || !d2.itemID || !d2.media || !d2.media.media_source_id) return;
+    if (d3.addBusy || !d3.writeEnabled || !d3.writeCapabilities.add || !d2.artifact || !d2.itemID || !d2.media || !d2.media.media_source_id) return;
     d3.addBusy = true;
     elements.d3AddButton.disabled = true;
     clearError(elements.d3AddStatus);
@@ -762,7 +793,7 @@
   }
 
   async function replaceSubtitle(subtitle) {
-    if (d3.operationBusy || !d3.writeEnabled || !d2.artifact || !d2.itemID || !d2.media || !d2.media.media_source_id || !subtitle || !subtitle.id) return;
+    if (d3.operationBusy || !d3.writeEnabled || !d3.writeCapabilities.replace || !d2.artifact || !d2.itemID || !d2.media || !d2.media.media_source_id || !subtitle || !subtitle.id) return;
     const itemID = d2.itemID;
     const sourceID = d2.media.media_source_id;
     d3.operationBusy = true;
@@ -785,7 +816,7 @@
   }
 
   async function deleteSubtitle(subtitle) {
-    if (d3.operationBusy || !d3.writeEnabled || !d2.itemID || !d2.media || !d2.media.media_source_id || !subtitle || !subtitle.id) return;
+    if (d3.operationBusy || !d3.writeEnabled || !d3.writeCapabilities.delete || !d2.itemID || !d2.media || !d2.media.media_source_id || !subtitle || !subtitle.id) return;
     if (!window.confirm("此操作会将该字幕移入可恢复回收区，不会永久删除。继续吗？")) return;
     const itemID = d2.itemID;
     const sourceID = d2.media.media_source_id;
@@ -840,13 +871,17 @@
       setText(facts, values.join(" · ") || "安全操作摘要");
       card.appendChild(facts);
       if ((operation.type === "replace" || operation.type === "delete") && operation.status === "verified") {
-        const restore = document.createElement("button");
-        restore.type = "button";
-        restore.className = "secondary";
-        setText(restore, "恢复旧字幕");
-        restore.disabled = d3.operationBusy;
-        restore.addEventListener("click", () => restoreOperation(operation));
-        card.appendChild(restore);
+        if (operation.restore_supported === false) {
+          addMessages(card, "恢复状态", [safeMessages[operation.restore_error_code] || safeMessages.restore_unavailable], "warning-list");
+        } else {
+          const restore = document.createElement("button");
+          restore.type = "button";
+          restore.className = "secondary";
+          setText(restore, "恢复旧字幕");
+          restore.disabled = d3.operationBusy || !d3.writeCapabilities.restore;
+          restore.addEventListener("click", () => restoreOperation(operation));
+          card.appendChild(restore);
+        }
       }
       elements.d3HistoryList.appendChild(card);
     });
@@ -859,15 +894,20 @@
     }
     const requestID = ++d3.historyRequestID;
     setVisible(elements.d3History, true);
+    if (!d3.writeCapabilities.restore) {
+      d3.history = [];
+      clear(elements.d3HistoryList);
+      elements.d3HistoryReload.disabled = true;
+      setText(elements.d3HistoryStatus, safeMessages[d3.writeCapabilities.reason_code] || "当前媒体暂不支持安全恢复操作。");
+      return;
+    }
+    elements.d3HistoryReload.disabled = false;
     clearError(elements.d3HistoryStatus);
     setText(elements.d3HistoryStatus, "加载操作历史…");
     try {
-      const response = await apiGet("/v1/subtitle-operations?item_id=" + encodeURIComponent(d2.itemID));
+      const response = await apiGet("/v1/subtitle-operations?item_id=" + encodeURIComponent(d2.itemID) + "&media_source_id=" + encodeURIComponent(d2.media.media_source_id));
       if (requestID !== d3.historyRequestID) return;
       const operations = Array.isArray(response.operations) ? response.operations : [];
-      // The endpoint intentionally returns the current Item's safe history.
-      // Keep the active UI source-bound so a restore control is never offered
-      // for another version by accident.
       d3.history = operations.filter((operation) => operation && operation.media_source_id === d2.media.media_source_id);
       renderD3History();
     } catch (error) {
@@ -879,7 +919,7 @@
   }
 
   async function restoreOperation(operation) {
-    if (d3.operationBusy || !operation || !operation.operation_id || !d2.media || !d2.media.media_source_id) return;
+    if (d3.operationBusy || !d3.writeCapabilities.restore || !operation || operation.restore_supported === false || !operation.operation_id || !d2.media || !d2.media.media_source_id) return;
     if (!window.confirm("恢复不会覆盖同名现有字幕；发生冲突时会安全拒绝。继续吗？")) return;
     d3.operationBusy = true;
     setText(elements.appStatus, "正在恢复、刷新并核验字幕…");

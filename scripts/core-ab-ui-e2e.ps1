@@ -85,6 +85,7 @@ try {
     $url = Start-Fixture
     [void](Invoke-Playwright @('open', $url))
     Login-With-TestCredentials
+    Invoke-CoreABPhase 'core-ab-multisource-unsupported'
     Invoke-CoreABPhase 'core-ab-before-upload-1'
     Invoke-CoreABPhase 'core-ab-upload-1-delete'
     Invoke-CoreABPhase 'core-ab-after-delete-1'

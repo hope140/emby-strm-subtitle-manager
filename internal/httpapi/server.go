@@ -537,7 +537,7 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, http.StatusBadGateway, "emby_invalid_response", "Emby media response was invalid")
 		return
 	}
-	public := projectMedia(ctx)
+	public := projectMedia(item, ctx, s.mapper, s.guard)
 	if !req.subtitles {
 		writeJSON(w, http.StatusOK, public)
 		return
@@ -695,32 +695,38 @@ type restoreBody struct {
 	OperationID   string `json:"operation_id"`
 }
 
-func subtitleOperationQuery(query url.Values) (string, int, bool) {
+func subtitleOperationQuery(query url.Values) (string, string, int, bool) {
 	itemValues, ok := query["item_id"]
 	if !ok || len(itemValues) != 1 || !validID(itemValues[0]) {
-		return "", 0, false
+		return "", "", 0, false
 	}
+	sourceID := ""
 	limit := defaultHistoryLimit
 	for key, values := range query {
 		switch key {
 		case "item_id":
 			if len(values) != 1 {
-				return "", 0, false
+				return "", "", 0, false
 			}
+		case "media_source_id":
+			if len(values) != 1 || !validID(values[0]) {
+				return "", "", 0, false
+			}
+			sourceID = values[0]
 		case "limit":
 			if len(values) != 1 {
-				return "", 0, false
+				return "", "", 0, false
 			}
 			parsed, err := strconv.Atoi(values[0])
 			if err != nil || parsed < 1 || parsed > maxHistoryLimit {
-				return "", 0, false
+				return "", "", 0, false
 			}
 			limit = parsed
 		default:
-			return "", 0, false
+			return "", "", 0, false
 		}
 	}
-	return itemValues[0], limit, true
+	return itemValues[0], sourceID, limit, true
 }
 
 func (s *Server) handleSubtitleOperations(w http.ResponseWriter, r *http.Request, route, sourceOperationID string) {
@@ -735,12 +741,18 @@ func (s *Server) handleSubtitleOperations(w http.ResponseWriter, r *http.Request
 			s.writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
-		itemID, limit, valid := subtitleOperationQuery(r.URL.Query())
+		itemID, sourceID, limit, valid := subtitleOperationQuery(r.URL.Query())
 		if !valid {
 			s.writeError(w, r, http.StatusBadRequest, "invalid_query", "item_id is required")
 			return
 		}
-		response, err := s.d3.ListOperations(itemID, limit)
+		var response []d3.OperationSummary
+		var err error
+		if sourceID != "" {
+			response, err = s.d3.ListOperationsForSource(r.Context(), itemID, sourceID, limit)
+		} else {
+			response, err = s.d3.ListOperations(itemID, limit)
+		}
 		if err != nil {
 			s.writeD3Error(w, r, err)
 			return
@@ -935,25 +947,34 @@ func parseMediaRequest(r *http.Request) (mediaRequest, error) {
 // MediaDTO is the only public projection of MediaContext. It intentionally
 // contains neither the Emby-reported path nor stream paths.
 type MediaDTO struct {
-	ItemID            string              `json:"item_id"`
-	MediaSourceID     string              `json:"media_source_id"`
-	MediaSourceName   string              `json:"media_source_name,omitempty"`
-	Type              string              `json:"type"`
-	Title             string              `json:"title"`
-	SeriesID          string              `json:"series_id,omitempty"`
-	SeriesName        string              `json:"series_name,omitempty"`
-	Season            *int                `json:"season,omitempty"`
-	Episode           *int                `json:"episode,omitempty"`
-	Year              *int                `json:"year,omitempty"`
-	ProviderIDs       map[string]string   `json:"provider_ids,omitempty"`
-	Container         string              `json:"container,omitempty"`
-	IsSTRM            bool                `json:"is_strm"`
-	MappingStatus     media.MappingStatus `json:"mapping_status"`
-	Warnings          []string            `json:"warnings,omitempty"`
-	InventoryComplete bool                `json:"inventory_complete"`
+	ItemID            string               `json:"item_id"`
+	MediaSourceID     string               `json:"media_source_id"`
+	MediaSourceName   string               `json:"media_source_name,omitempty"`
+	Type              string               `json:"type"`
+	Title             string               `json:"title"`
+	SeriesID          string               `json:"series_id,omitempty"`
+	SeriesName        string               `json:"series_name,omitempty"`
+	Season            *int                 `json:"season,omitempty"`
+	Episode           *int                 `json:"episode,omitempty"`
+	Year              *int                 `json:"year,omitempty"`
+	ProviderIDs       map[string]string    `json:"provider_ids,omitempty"`
+	Container         string               `json:"container,omitempty"`
+	IsSTRM            bool                 `json:"is_strm"`
+	MappingStatus     media.MappingStatus  `json:"mapping_status"`
+	Warnings          []string             `json:"warnings,omitempty"`
+	InventoryComplete bool                 `json:"inventory_complete"`
+	WriteCapabilities writeCapabilitiesDTO `json:"write_capabilities"`
 }
 
-func projectMedia(ctx media.MediaContext) MediaDTO {
+type writeCapabilitiesDTO struct {
+	Add        bool   `json:"add"`
+	Replace    bool   `json:"replace"`
+	Delete     bool   `json:"delete"`
+	Restore    bool   `json:"restore"`
+	ReasonCode string `json:"reason_code,omitempty"`
+}
+
+func projectMedia(item domain.EmbyItem, ctx media.MediaContext, mapper *pathmap.Mapper, guard *pathmap.PathGuard) MediaDTO {
 	providers := make(map[string]string, 3)
 	for key, value := range ctx.ProviderIDs {
 		switch strings.ToLower(strings.ReplaceAll(key, "-", "")) {
@@ -971,7 +992,35 @@ func projectMedia(ctx media.MediaContext) MediaDTO {
 	return MediaDTO{ItemID: ctx.ItemID, MediaSourceID: ctx.MediaSourceID, MediaSourceName: ctx.MediaSourceName, Type: ctx.Type, Title: ctx.Title,
 		SeriesID: ctx.SeriesID, SeriesName: ctx.SeriesName, Season: ctx.ParentIndexNumber, Episode: ctx.IndexNumber,
 		Year: ctx.ProductionYear, ProviderIDs: providers, Container: ctx.Container, IsSTRM: ctx.IsStrm,
-		MappingStatus: ctx.MappingStatus, Warnings: append([]string(nil), ctx.Warnings...), InventoryComplete: ctx.InventoryComplete}
+		MappingStatus: ctx.MappingStatus, Warnings: append([]string(nil), ctx.Warnings...), InventoryComplete: ctx.InventoryComplete,
+		WriteCapabilities: projectWriteCapabilities(item, ctx.MediaSourceID, mapper, guard)}
+}
+
+func projectWriteCapabilities(item domain.EmbyItem, sourceID string, mapper *pathmap.Mapper, guard *pathmap.PathGuard) writeCapabilitiesDTO {
+	capabilities := writeCapabilitiesDTO{}
+	if media.IsSTRMPath(item.Path) && len(item.MediaSources) > 1 {
+		capabilities.ReasonCode = media.WarningStrmMultiSourceWriteUnsupported
+		return capabilities
+	}
+	if _, err := media.ResolveWriteTarget(item, sourceID, mapper, guard); err != nil {
+		capabilities.ReasonCode = writeCapabilityErrorCode(err)
+		return capabilities
+	}
+	capabilities.Add = true
+	capabilities.Replace = true
+	capabilities.Delete = true
+	capabilities.Restore = true
+	return capabilities
+}
+
+func writeCapabilityErrorCode(err error) string {
+	if errors.Is(err, media.ErrStrmMultiSourceWriteUnsupported) {
+		return media.WarningStrmMultiSourceWriteUnsupported
+	}
+	if errors.Is(err, media.ErrMediaSourceNotFound) {
+		return "media_source_mismatch"
+	}
+	return "media_path_unsafe"
 }
 
 type sourceOptionDTO struct {
