@@ -35,7 +35,7 @@ Web UI 使用用户名密码登录，服务端签发短期 HttpOnly 会话 Cooki
 
 ## 最终选择
 
-选择方案 C，作为 D2.5 排期项，目标是在 D3 写入能力和公开发布前完成。D2.5-A/B/C 已在本地实现并通过自动化验证；A/B/D 已基于公开 `b9916d1` 完成 C92 app-only 部署与认证验收，随后 a70bf89 完整 MediaSources 修正也完成了 app-only 重建与本机探针验收。C 的 scope 代码将在下一次 app-only 镜像发布时接入 C92；SH/FRP/OpenResty 未在本任务处理。CSRF 和 D3 写入仍未完成。当前 D2 的 Bearer 继续作为只读自动化兼容契约。
+选择方案 C，作为 D2.5 排期项，目标是在 D3 写入能力和公开发布前完成。D2.5-A/B/C 已在本地实现并通过自动化验证；A/B/D 已基于公开 `b9916d1` 完成 C92 app-only 部署与认证验收，随后 a70bf89 完整 MediaSources 修正完成了 app-only 重建，784ad32 scope 版本也完成了 app-only 发布与本机探针验收。SH/FRP/OpenResty 未在本任务处理。CSRF 和 D3 写入仍未完成。当前 D2 的 Bearer 继续作为只读自动化兼容契约。
 
 ### 管理员登录
 
@@ -76,7 +76,7 @@ Web UI 使用用户名密码登录，服务端签发短期 HttpOnly 会话 Cooki
 
 1. D2.5-A：固定管理员凭据 environment、轮换流程和配置错误码。（本地完成）
 2. D2.5-B：实现登录会话、Cookie 属性、TTL、重启失效和失败限速；保留 Bearer 自动化兼容。（本地完成）
-3. D2.5-C：为自动化 Token 增加最小权限模型，至少区分只读和未来写入范围。（当前源码完成，待下一次 C92 app-only 发布）
+3. D2.5-C：为自动化 Token 增加最小权限模型，至少区分只读和未来写入范围。（已完成并随 784ad32 发布到 C92）
 4. D2.5-D：Fake Emby、浏览器、CLI、Compose、日志脱敏和轮换/回滚验收。（已完成）
 5. D3 之前：管理员会话、CSRF 和写权限 scope 必须通过；未通过时继续保持 `write_enabled=false`。
 

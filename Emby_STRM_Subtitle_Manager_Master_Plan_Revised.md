@@ -486,7 +486,7 @@ Phase 3 完成后暂停。只有真实 Movie、Episode 和 STRM 验收都通过�
 - 自动化 Token 使用只读 scope 集合，当前按 `media:read`、`subtitle:search`、`subtitle:preview` 检查路由；D3 写入 scope 另设门禁，`subtitle:write` 在写能力关闭时直接拒绝
 - 补齐会话 TTL、重启失效、失败限速、CSRF、日志脱敏、environment 轮换、Compose 预检和浏览器/CLI 验收
 
-详细决策和排期见 [ADR-006](docs/adr/006-admin-session-and-automation-credentials.md)。D2.5-A/B/C 已完成源码和自动化验证，D2.5-D 已基于公开 `b9916d1` 完成 C92 app-only 部署验收；随后 a70bf89 的完整 MediaSources 修正也完成了 app-only 重建和本机探针验收。C 的 scope 代码将在下一次 app-only 镜像发布时接入 C92。SH/FRP/OpenResty 未在本任务处理。CSRF 和 D3 写入门禁仍未完成；`write_enabled=false` 继续保持默认关闭。
+详细决策和排期见 [ADR-006](docs/adr/006-admin-session-and-automation-credentials.md)。D2.5-A/B/C 已完成源码和自动化验证，D2.5-D 已基于公开 `b9916d1` 完成 C92 app-only 部署验收；随后 a70bf89 的完整 MediaSources 修正完成了 app-only 重建，784ad32 scope 版本也完成 C92 app-only 发布和本机探针验收。SH/FRP/OpenResty 未在本任务处理。CSRF 和 D3 写入门禁仍未完成；`write_enabled=false` 继续保持默认关闭。
 
 ### Phase 4　安全写入
 
