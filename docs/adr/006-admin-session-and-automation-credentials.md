@@ -35,7 +35,7 @@ Web UI 使用用户名密码登录，服务端签发短期 HttpOnly 会话 Cooki
 
 ## 最终选择
 
-选择方案 C，作为 D2.5 排期项，目标是在 D3 写入能力和公开发布前完成。D2.5-A/B/C 已在本地实现并通过自动化验证；A/B/D 已基于公开 `b9916d1` 完成 C92 app-only 部署与认证验收，随后 a70bf89 完整 MediaSources 修正完成了 app-only 重建，784ad32 scope 版本也完成了 app-only 发布与本机探针验收。SH/FRP/OpenResty 未在本任务处理。D3 Add 已补齐 CSRF、写 scope 和专用写入边界；当前 D2 的 Bearer 继续作为只读自动化兼容契约，D3 写 scope 仅在独立 Canary 配置中临时开放。
+选择方案 C，作为 D2.5 排期项，目标是在 D3 写入能力和公开发布前完成。D2.5-A/B/C 已在本地实现并通过自动化验证；A/B/D 已基于公开 `b9916d1` 完成 C92 app-only 部署与认证验收，随后 a70bf89 完整 MediaSources 修正完成了 app-only 重建，784ad32 scope 版本也完成了 app-only 发布与本机探针验收。SH/FRP/OpenResty 未在本任务处理。D3 Add 已补齐 CSRF、写 scope 和专用写入边界，并在 C92 独立 Canary 窗口完成真实闭环；当前 D2 的 Bearer 继续作为只读自动化兼容契约，D3 写 scope 只在独立 Canary 配置中临时开放。
 
 ### 管理员登录
 
@@ -43,7 +43,7 @@ Web UI 使用用户名密码登录，服务端签发短期 HttpOnly 会话 Cooki
 - 用户名和密码分别从 `APP_ADMIN_USERNAME`、`APP_ADMIN_PASSWORD` 读取；缺失、空值或非法值直接阻止启动。用户名为 1–64 字节，密码为 6–256 字节，均拒绝控制字符。密码不写入镜像、Git、日志、URL 或响应；启动后只保留随机盐 PBKDF2-HMAC-SHA256 派生校验材料。
 - 登录成功后使用短期会话 Cookie；Cookie 应为 `HttpOnly`，并按 HTTP/HTTPS 部署设置 `Secure` 和 `SameSite` 属性。
 - 不在面板实现账号注册、改密码、注销或多角色管理。密码轮换、强制失效和忘记密码恢复由部署者修改私有 Compose 的 environment 并重建容器完成。
-- D3 写入接口启用前必须通过 CSRF、会话过期、失败限速、来源校验、allowlist 和审计/history 边界；当前 Add 契约已补齐这些门禁，真实 C92 验收仍需独立记录。
+- D3 写入接口启用前必须通过 CSRF、会话过期、失败限速、来源校验、allowlist 和审计/history 边界；当前 Add 契约已补齐这些门禁，真实 C92 结果记录在 [D3 C92 Canary 验收](../d3-c92-canary-acceptance-20260825.md)。
 
 ### 自动化 API
 
@@ -67,7 +67,7 @@ Web UI 使用用户名密码登录，服务端签发短期 HttpOnly 会话 Cooki
 
 ## 已知代价
 
-- D3 本地已覆盖 CSRF、写权限 scope、allowlist、原子写入、Refresh/轮询、history/quarantine 和 Fake Emby 测试；D2.5-A/B/C 已覆盖会话、Cookie、密码校验、登录限速和只读 scope，D2.5-D 已覆盖本地及 C92 app-only 发布证据。真实 C92 Add 和客户端读取仍以独立验收报告为准。
+- D3 本地已覆盖 CSRF、写权限 scope、allowlist、原子写入、Refresh/轮询、history/quarantine 和 Fake Emby 测试；D2.5-A/B/C 已覆盖会话、Cookie、密码校验、登录限速和只读 scope，D2.5-D 已覆盖本地及 C92 app-only 发布证据。真实 C92 Add、字幕流和客户端读取已由 [D3 C92 Canary 验收](../d3-c92-canary-acceptance-20260825.md)确认。
 - 没有面板注销时，现有会话依赖 TTL、浏览器清理或容器重建失效；必须在文档中明确操作方式。
 - Compose environment 会出现在容器配置元数据中，不能把它当作加密密码保险箱；Docker 主机访问权限必须受控。
 - 管理员会话和自动化 Token 并存后，API 认证测试矩阵和日志脱敏范围会扩大。
@@ -82,7 +82,7 @@ Web UI 使用用户名密码登录，服务端签发短期 HttpOnly 会话 Cooki
 
 ## D3 状态更新
 
-D3 Add 已补齐管理员会话 CSRF、同源来源检查、`subtitle:write` scope、D3 Item allowlist、Artifact 绑定、原子非覆盖版本写入、Emby Refresh/轮询、history/quarantine 和幂等操作 ID。Bearer 写请求不使用浏览器 CSRF，但仍必须具备独立写 scope；基础配置和基础 Compose 仍拒绝或不提供写入。真实 C92 Add 和实际客户端读取尚待独立验收，Replace、Delete、Upload 与批量能力继续关闭。详见 [D3 专用样本 Add 契约](../d3-dedicated-add-contract.md)。
+D3 Add 已补齐管理员会话 CSRF、同源来源检查、`subtitle:write` scope、D3 Item allowlist、Artifact 绑定、原子非覆盖版本写入、Emby Refresh/轮询、history/quarantine 和幂等操作 ID。Bearer 写请求不使用浏览器 CSRF，但仍必须具备独立写 scope；基础配置和基础 Compose 仍拒绝或不提供写入。真实 C92 Add、字幕流和实际客户端读取已完成，Replace、Delete、Upload 与批量能力继续关闭。详见 [D3 专用样本 Add 契约](../d3-dedicated-add-contract.md) 和 [D3 C92 Canary 验收](../d3-c92-canary-acceptance-20260825.md)。
 
 ## 验证依据
 

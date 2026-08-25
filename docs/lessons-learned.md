@@ -91,3 +91,7 @@ Emby 的版本组在列表查询中可能表现为多个关联 Item，并且默�
 ## 18. D3 Add 的成功必须是一条完整证据链
 
 D3 首次写入不能把“文件存在”或“Refresh 返回 2xx”当作完成。服务端必须先用 Artifact 和 Item/source 重新绑定，再以临时文件、同目录非覆盖原子提交生成版本化 sidecar；随后 Refresh、轮询 MediaStreams、直接 Hash 读取和实际字幕流/客户端读取分别记录。Refresh、轮询或 history 失败时，新文件移动到媒体库外 quarantine，避免失败副本再次被 Emby 识别。操作 ID 需要同时保存在内存和 history，重放不能创建额外副本。
+
+## 19. D3 的可写 overlay 不等于媒体目录可写
+
+容器 `/media` 切换为 `RW=true` 后，宿主媒体目录仍可能是 `root:root 0755`，此时运行 UID `10001` 会在原子提交阶段得到 `permission denied`。真实 C92 Canary 只对 allowlist 指定的一个样本目录临时授予容器 UID 写权限，完成 Hash、Refresh、MediaStreams、字幕流和客户端核对后恢复原属主与 `0755`，再关闭 D3 overlay。后续部署必须把“精确目录权限预检”和“关闭后 `/media:ro`”作为独立证据，不能递归修改整个媒体库。

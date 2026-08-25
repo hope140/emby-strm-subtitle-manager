@@ -1,6 +1,6 @@
 # 当前架构
 
-本文只描述截至 2026 年 8 月 25 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已验收；D2 后端、内嵌 UI、本地 Fake Emby 浏览器自动化和 D2.5-A/B/C 管理员会话与只读 scope 已完成本地验证并在 C92 app-only 运行。D2.5 已基于公开 b9916d1 完成 C92 app-only 部署与认证验收，随后 a70bf89 完整 MediaSources 修正完成 C92 app-only 重建，784ad32 scope 版本也完成 app-only 发布和本机探针验收；SH/FRP/OpenResty 和公网 18080 未在本任务处理。C92 已找到真实版本组，并确认 Emby 4.9.x 详情请求必须包含 `AlternateMediaSources` 才能读取完整 source 列表；客户端字段修正、本地回归、两个真实 Item 的 source 对应核对以及真实 API/source 对应和 D2 `409 d2_multisource_unsupported` 安全拒绝 Canary 已完成，详见 [D2 多源真实 API Canary](d2-multisource-c92-canary-acceptance-20260825.md)。D3 代码现在提供受独立 allowlist、写 scope、CSRF、原子非覆盖写入、Refresh/轮询和 history/quarantine 约束的专用样本 Add，真实 C92 Add 与实际客户端读取仍需本轮验收。真实多源正向 Search、Fetch、Preview 和真实浏览器 UI source 点击流程仍未验收，真实多源搜索仍不得宣称支持。Installer、Replace、Delete、Upload 和批量写入仍属于后续阶段。
+本文只描述截至 2026 年 8 月 25 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已验收；D2 后端、内嵌 UI、本地 Fake Emby 浏览器自动化和 D2.5-A/B/C 管理员会话与只读 scope 已完成本地验证并在 C92 app-only 运行。D2.5 已基于公开 b9916d1 完成 C92 app-only 部署与认证验收，随后 a70bf89 完整 MediaSources 修正完成 C92 app-only 重建，784ad32 scope 版本也完成 app-only 发布和本机探针验收；SH/FRP/OpenResty 和公网 18080 未在本任务处理。C92 已找到真实版本组，并确认 Emby 4.9.x 详情请求必须包含 `AlternateMediaSources` 才能读取完整 source 列表；客户端字段修正、本地回归、两个真实 Item 的 source 对应核对以及真实 API/source 对应和 D2 `409 d2_multisource_unsupported` 安全拒绝 Canary 已完成，详见 [D2 多源真实 API Canary](d2-multisource-c92-canary-acceptance-20260825.md)。D3 专用样本 Add 已完成真实 C92 闭环，包含独立 allowlist、写 scope、CSRF、原子非覆盖写入、Refresh/轮询、history/quarantine、字幕流回读和 Emby Web 客户端读取；验收结束后恢复 closed 配置。真实多源正向 Search、Fetch、Preview 和真实浏览器 UI source 点击流程仍未验收，真实多源搜索仍不得宣称支持。Installer、Replace、Delete、Upload 和批量写入仍属于后续阶段，证据见 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)。
 
 ## D1 本地实现
 
@@ -30,7 +30,7 @@ D1.5 UI 默认只浏览既有媒体库、Movie/Episode 混合分页、媒体详�
 
 MediaContext 对单源自动选择，对多源要求显式 `media_source_id`，不会猜测列表第一项。STRM 的 Inventory 和 PathMapper 始终使用 Emby Item.Path；非 STRM 只有本地 MediaSource.Path 可用时才使用它，远程 source path 只作为内部播放定位事实，不参与本地映射、目录检查、响应或日志。STRM 的 IsStrm 判断只看 Item.Path。即使多源共用同一个 Item.Path 的 STRM sidecar 目录，字幕流仍按选中的 MediaSource 保持隔离。PathMapper 支持 POSIX、Windows drive 和 UNC 形式，采用规范化、最长前缀匹配及目录 containment 检查；路径不安全、未映射或目录不可用时返回降级状态和稳定 warning。Inventory 只枚举受控目录、读取文件元数据并合并 Emby MediaStreams，绝不读取 STRM 内容、媒体正文或字幕正文。
 
-本地 `scripts/verify.ps1` 和 Linux 全包测试均已通过且无 skip；C92 的 Docker Compose schema/build、启动安全边界、`/readyz`、Bearer 认证和版本标签，以及 FRP 公网 HTTPS、单代理加密和公网应用端口防火墙边界另有部署证据。C92 真实版本组样本已补齐，客户端已固定请求 `AlternateMediaSources` 并通过本地回归测试；真实 API/source 对应和 D2 多源安全拒绝 Canary 已完成，但浏览器 UI source 点击和多源正向支持仍未完成，因此不能支撑真实多源搜索的支持声明；该缺口不阻断单源 D2。
+本地 `scripts/verify.ps1` 和 Linux 全包测试均已通过且无 skip；C92 的 Docker Compose schema/build、启动安全边界、`/readyz`、Bearer 认证和版本标签，以及 FRP 公网 HTTPS、单代理加密和公网应用端口防火墙边界另有部署证据。C92 真实版本组样本已补齐，客户端已固定请求 `AlternateMediaSources` 并通过本地回归测试；真实 API/source 对应和 D2 多源安全拒绝 Canary 已完成，但浏览器 UI source 点击和多源正向支持仍未完成，因此不能支撑真实多源搜索的支持声明；该缺口不阻断单源 D2。D3 C92 专用样本 Add 的 Docker、宿主目录权限、Hash、Refresh、字幕流、客户端读取和 closed 回滚另见 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)。
 
 ## 当前系统边界
 
@@ -104,7 +104,7 @@ Gate 0 已经验证 Emby 能把成功 Fetch 的 Thunder 候选写入 STRM 同目
 
 ## D3 专用样本 Add
 
-D3 只注册 `POST /v1/media/{itemId}/subtitles/add`。请求必须同时通过管理员会话 CSRF/同源校验或 `subtitle:write` Bearer scope、D3 Item allowlist、单 source 选择、D2 Artifact 绑定和 PathGuard containment。服务端在同目录创建临时文件并以非覆盖原子提交生成版本化 sidecar，随后调用官方 `POST /Items/{Id}/Refresh`，轮询选中 source 的 MediaStreams，最后写入 history；失败文件进入独立 quarantine。D3 代码和 Fake Emby 测试已完成，真实 C92 Add、Refresh、字幕流和客户端读取必须由独立报告确认。Replace、Delete、Upload 和批量写入不属于本阶段。
+D3 只注册 `POST /v1/media/{itemId}/subtitles/add`。请求必须同时通过管理员会话 CSRF/同源校验或 `subtitle:write` Bearer scope、D3 Item allowlist、单 source 选择、D2 Artifact 绑定和 PathGuard containment。服务端在同目录创建临时文件并以非覆盖原子提交生成版本化 sidecar，随后调用官方 `POST /Items/{Id}/Refresh`，轮询选中 source 的 MediaStreams，最后写入 history；失败文件进入独立 quarantine。D3 overlay 仅临时提供 `/media:rw`，目标宿主目录仍须显式允许 UID `10001:10001` 写入，验收后恢复目录权限和 `/media:ro`。D3 真实 C92 Add、Refresh、字幕流和客户端读取已由 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)确认。Replace、Delete、Upload 和批量写入不属于本阶段。
 
 V1 通过 Emby Bridge 使用 Meiam Provider。Native Thunder 和 Native ASSRT 暂缓，详见 [ADR-001](adr/001-v1-uses-emby-remote-subtitle-bridge.md)。
 

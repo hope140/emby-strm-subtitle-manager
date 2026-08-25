@@ -1,6 +1,6 @@
 # D3 专用样本 Add 契约
 
-状态：实现完成，真实 C92 验收待本轮部署记录。D3 只开放“把已经通过 D2 Validator 的 Artifact 添加到一个服务端 allowlist 专用样本”。Replace、Delete、Upload、批量处理和普通全库写入仍不在本阶段。
+状态：专用样本 Add 的实现和 C92 真实验收已完成，验收记录见 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)。D3 只开放“把已经通过 D2 Validator 的 Artifact 添加到一个服务端 allowlist 专用样本”。Replace、Delete、Upload、批量处理和普通全库写入仍不在本阶段。
 
 ## 入口与门禁
 
@@ -31,6 +31,8 @@ features:
 
 开启写入必须同时满足 D2 搜索开关、D3 Canary allowlist、独立 `subtitle:write` Bearer scope、D3 history/quarantine 私有目录和 D3 Compose overlay。基础 Compose 不提供可写媒体挂载。
 
+D3 overlay 只负责把应用的 `/media` 挂载临时切换为可写；目标媒体目录本身还必须允许容器运行 UID `10001:10001` 创建 sidecar。这个权限只应在专用验收窗口对明确样本目录临时授予，不能用全库递归 `chown` 替代路径核验。窗口结束后恢复默认目录属主和 `/media:ro`。
+
 管理员浏览器会话必须带登录时签发的短期内存 CSRF Token，写请求使用 `X-CSRF-Token`。带 `subtitle:write` 的 Bearer 自动化请求不使用浏览器 CSRF，但仍受 Item allowlist、单 source、Artifact 绑定和路径门禁约束。跨站 Origin 和 `Sec-Fetch-Site: cross-site` 被拒绝。CSRF Token 不写入 URL、Cookie、浏览器存储、日志或 Git。
 
 ## 写入和恢复
@@ -56,10 +58,10 @@ docker compose \
   up -d --build app
 ```
 
-`compose.d3-canary.example.yaml` 仅将 `/media` 替换为可写 bind，并增加 history、quarantine 和 D3 allowlist；rootfs 仍然只读。验收结束后恢复 closed 配置和 `/media:ro` 基础边界。
+`compose.d3-canary.example.yaml` 仅将 `/media` 替换为可写 bind，并增加 history、quarantine 和 D3 allowlist；rootfs 仍然只读。验收结束后恢复 closed 配置和 `/media:ro` 基础边界，并恢复样本目录原有权限。
 
 ## 明确未承诺
 
 - 不提供 Replace、Delete、Upload、批量任务或用户级权限。
 - 不把文件存在、Refresh 返回 2xx 或应用 API 200 单独视为成功。
-- 未通过真实 Emby MediaStreams、字幕流接口和实际客户端读取前，不宣称 D3 已验收。
+- 本阶段的真实闭环已在 C92 完成：文件 Hash、Emby Refresh/MediaStreams、官方字幕流和 Emby Web 客户端读取均已记录；后续能力仍不得越过本契约边界。

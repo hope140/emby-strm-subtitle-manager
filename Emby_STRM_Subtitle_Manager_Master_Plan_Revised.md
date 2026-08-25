@@ -486,11 +486,11 @@ Phase 3 完成后暂停。只有真实 Movie、Episode 和 STRM 验收都通过�
 - 自动化 Token 使用只读 scope 集合，当前按 `media:read`、`subtitle:search`、`subtitle:preview` 检查路由；D3 写入 scope 另设门禁，`subtitle:write` 在写能力关闭时直接拒绝
 - 补齐会话 TTL、重启失效、失败限速、CSRF、日志脱敏、environment 轮换、Compose 预检和浏览器/CLI 验收
 
-详细决策和排期见 [ADR-006](docs/adr/006-admin-session-and-automation-credentials.md)。D2.5-A/B/C 已完成源码和自动化验证，D2.5-D 已基于公开 `b9916d1` 完成 C92 app-only 部署验收；随后 a70bf89 的完整 MediaSources 修正完成了 app-only 重建，784ad32 scope 版本也完成 C92 app-only 发布和本机探针验收。SH/FRP/OpenResty 未在本任务处理。CSRF 和 D3 写入门禁仍未完成；`write_enabled=false` 继续保持默认关闭。
+详细决策和排期见 [ADR-006](docs/adr/006-admin-session-and-automation-credentials.md)。D2.5-A/B/C 已完成源码和自动化验证，D2.5-D 已基于公开 `b9916d1` 完成 C92 app-only 部署验收；随后 a70bf89 的完整 MediaSources 修正完成了 app-only 重建，784ad32 scope 版本也完成 C92 app-only 发布和本机探针验收。D3 所需 CSRF 和写入 scope 门禁已完成，并在 C92 专用窗口通过真实 Add 与客户端读取验收；SH/FRP/OpenResty 未在本任务处理，`write_enabled=false` 继续保持默认关闭。
 
 ### Phase 4　安全写入
 
-D3 专用样本 Add 的代码与本地自动化现已完成，包含会话 CSRF、写 scope、独立 allowlist、Artifact 绑定、原子非覆盖版本文件、Emby Refresh/轮询和 history/quarantine。真实 C92 Add、MediaStreams、字幕流及客户端读取仍需本轮独立验收；Replace、Delete、Upload 和批量写入继续保持关闭。实现契约见 [D3 专用样本 Add 契约](docs/d3-dedicated-add-contract.md)。
+D3 专用样本 Add 的代码、本地自动化和 C92 真实闭环现已完成，包含会话 CSRF、写 scope、独立 allowlist、Artifact 绑定、原子非覆盖版本文件、Emby Refresh/轮询、history/quarantine、字幕流回读和 Emby Web 客户端读取。验收结束后已恢复 closed 配置、写入和远程搜索开关关闭；Replace、Delete、Upload 和批量写入继续保持关闭。实现契约和证据见 [D3 专用样本 Add 契约](docs/d3-dedicated-add-contract.md) 与 [D3 C92 Canary 验收](docs/d3-c92-canary-acceptance-20260825.md)。
 
 本阶段先以 ADR-003 的 D3 专用样本 Add 作为第一步，并要求 D2.5 管理员会话、CSRF 和写入 scope 门禁已经通过。Replace、Delete、Upload、批量处理和其他写操作必须在专用样本验收证据充分后另行开放。
 
