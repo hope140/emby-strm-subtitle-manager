@@ -35,6 +35,9 @@ func TestLoadFileAndReadAPIKey(t *testing.T) {
 	if cfg.Emby.TimeoutSeconds != 10 {
 		t.Fatalf("timeout = %d, want 10", cfg.Emby.TimeoutSeconds)
 	}
+	if got := strings.Join(cfg.Security.APIAuthScopes, ","); got != "media:read,subtitle:search,subtitle:preview" {
+		t.Fatalf("default API auth scopes = %q", got)
+	}
 	got, err := ReadAPIKey(keyFile)
 	if err != nil || got != secret {
 		t.Fatalf("ReadAPIKey() = %q, %v", got, err)
@@ -272,6 +275,33 @@ func TestValidateAdministratorSessionConfiguration(t *testing.T) {
 				t.Fatal("Validate accepted invalid administrator session configuration")
 			}
 		})
+	}
+}
+
+func TestValidateAPIAuthScopes(t *testing.T) {
+	base := Config{
+		Server:       ServerConfig{ListenAddress: "127.0.0.1:8080"},
+		Emby:         EmbyConfig{URL: "https://emby.example.test", APIKeyFile: "/run/secrets/emby", TimeoutSeconds: 10},
+		Security:     SecurityConfig{IdentityKeyFile: "/run/secrets/identity", APIAuthTokenFile: "/run/secrets/api-auth-token"},
+		PathMappings: []PathMapping{{Emby: "/srv/media", Local: "/media"}},
+	}
+	for name, scopes := range map[string][]string{
+		"duplicate": {APIAuthScopeMediaRead, APIAuthScopeMediaRead},
+		"unknown":   {APIAuthScopeMediaRead, "admin"},
+		"write":     {APIAuthScopeMediaRead, APIAuthScopeSubtitleWrite},
+		"empty":     {APIAuthScopeMediaRead, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := base
+			cfg.Security.APIAuthScopes = scopes
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("Validate accepted invalid API auth scopes")
+			}
+		})
+	}
+	base.Security.APIAuthScopes = []string{APIAuthScopeMediaRead, APIAuthScopeSubtitlePreview}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("Validate rejected a valid reduced read-only scope set: %v", err)
 	}
 }
 

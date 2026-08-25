@@ -35,7 +35,7 @@ Web UI 使用用户名密码登录，服务端签发短期 HttpOnly 会话 Cooki
 
 ## 最终选择
 
-选择方案 C，作为 D2.5 排期项，目标是在 D3 写入能力和公开发布前完成。D2.5-A/B 已在本地实现并通过自动化验证，并已基于公开 `b9916d1` 完成 C92 app-only 部署与认证验收；随后 a70bf89 完整 MediaSources 修正也已完成 app-only 重建与本机探针验收；SH/FRP/OpenResty 未在本任务处理。D2.5-C scope、CSRF 和 D3 写入仍未完成。当前 D2 的共享 Bearer Token 继续作为自动化兼容契约。
+选择方案 C，作为 D2.5 排期项，目标是在 D3 写入能力和公开发布前完成。D2.5-A/B/C 已在本地实现并通过自动化验证；A/B/D 已基于公开 `b9916d1` 完成 C92 app-only 部署与认证验收，随后 a70bf89 完整 MediaSources 修正也完成了 app-only 重建与本机探针验收。C 的 scope 代码将在下一次 app-only 镜像发布时接入 C92；SH/FRP/OpenResty 未在本任务处理。CSRF 和 D3 写入仍未完成。当前 D2 的 Bearer 继续作为只读自动化兼容契约。
 
 ### 管理员登录
 
@@ -49,8 +49,8 @@ Web UI 使用用户名密码登录，服务端签发短期 HttpOnly 会话 Cooki
 
 - 自动化 Token 与管理员密码、Emby API Key 完全分离，每个部署实例独立生成和轮换。
 - 继续使用 `Authorization: Bearer`，不接受 query 参数，不写入日志或响应。
-- D2.5 首先支持一个只读自动化 Token；后续按最小权限规划 `media:read`、`subtitle:search`、`subtitle:preview`，D3 写入权限另设独立 scope 和门禁。
-- 当前实现尚未细分 scope；在 D2.5 完成前，不能宣称已有细粒度权限隔离。
+- D2.5 支持一个只读自动化 Token，并按 `media:read`、`subtitle:search`、`subtitle:preview` 做路由检查；部署者可以在 `security.api_auth_scopes` 中删除只读 scope。
+- `subtitle:write` 仅作为预留名称，当前 `write_enabled=false` 时配置直接拒绝；D3 写入权限必须另设 scope、CSRF、审计和真实门禁。
 
 ### 发布和网络边界
 
@@ -67,7 +67,7 @@ Web UI 使用用户名密码登录，服务端签发短期 HttpOnly 会话 Cooki
 
 ## 已知代价
 
-- D2.5-C 和 D3 仍需要 CSRF、scope、审计和写权限测试；D2.5-A/B 已覆盖会话存储、Cookie、密码校验和登录限速。
+- D3 仍需要 CSRF、写权限 scope、审计和真实写入测试；D2.5-A/B/C 已覆盖会话、Cookie、密码校验、登录限速和只读 scope，D2.5-D 已覆盖本地及 C92 app-only 发布证据。
 - 没有面板注销时，现有会话依赖 TTL、浏览器清理或容器重建失效；必须在文档中明确操作方式。
 - Compose environment 会出现在容器配置元数据中，不能把它当作加密密码保险箱；Docker 主机访问权限必须受控。
 - 管理员会话和自动化 Token 并存后，API 认证测试矩阵和日志脱敏范围会扩大。
@@ -76,8 +76,8 @@ Web UI 使用用户名密码登录，服务端签发短期 HttpOnly 会话 Cooki
 
 1. D2.5-A：固定管理员凭据 environment、轮换流程和配置错误码。（本地完成）
 2. D2.5-B：实现登录会话、Cookie 属性、TTL、重启失效和失败限速；保留 Bearer 自动化兼容。（本地完成）
-3. D2.5-C：为自动化 Token 增加最小权限模型，至少区分只读和未来写入范围。
-4. D2.5-D：Fake Emby、浏览器、CLI、Compose、日志脱敏和轮换/回滚验收。
+3. D2.5-C：为自动化 Token 增加最小权限模型，至少区分只读和未来写入范围。（当前源码完成，待下一次 C92 app-only 发布）
+4. D2.5-D：Fake Emby、浏览器、CLI、Compose、日志脱敏和轮换/回滚验收。（已完成）
 5. D3 之前：管理员会话、CSRF 和写权限 scope 必须通过；未通过时继续保持 `write_enabled=false`。
 
 ## 验证依据

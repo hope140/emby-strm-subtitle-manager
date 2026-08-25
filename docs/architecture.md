@@ -1,6 +1,6 @@
 # 当前架构
 
-本文只描述截至 2026 年 8 月 25 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已验收；D2 后端、内嵌 UI、本地 Fake Emby 浏览器自动化和 D2.5-A/B 管理员会话已完成本地验证。D2.5 已基于公开 b9916d1 完成 C92 app-only 部署与认证验收，随后 a70bf89 完整 MediaSources 修正已完成 C92 app-only 重建和本机探针验收，SH/FRP/OpenResty 和公网 18080 未在本任务处理。C92 已找到真实版本组，并确认 Emby 4.9.x 详情请求必须包含 `AlternateMediaSources` 才能读取完整 source 列表；客户端字段修正和回归测试已在本地及 C92 镜像中完成，完整多源 API/UI/source Canary 仍待完成。真实多源搜索仍不得宣称支持。Installer 和写入能力仍属于后续阶段。
+本文只描述截至 2026 年 8 月 25 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已验收；D2 后端、内嵌 UI、本地 Fake Emby 浏览器自动化和 D2.5-A/B/C 管理员会话与只读 scope 已完成本地验证。D2.5 已基于公开 b9916d1 完成 C92 app-only 部署与认证验收，随后 a70bf89 完整 MediaSources 修正已完成 C92 app-only 重建和本机探针验收，scope 代码待下一次 app-only 发布接入 C92；SH/FRP/OpenResty 和公网 18080 未在本任务处理。C92 已找到真实版本组，并确认 Emby 4.9.x 详情请求必须包含 `AlternateMediaSources` 才能读取完整 source 列表；客户端字段修正、本地回归和两个真实 Item 的 source 对应核对已完成，多源请求由应用安全返回 409。真实多源 Search、Fetch、Preview 以及真实 UI 显式 source 选择仍未验收，真实多源搜索仍不得宣称支持。Installer 和写入能力仍属于后续阶段。
 
 ## D1 本地实现
 
@@ -26,7 +26,7 @@ D1.5 UI 只浏览既有媒体库、Movie/Episode 混合分页、媒体详情和�
 
 应用 API Key 与独立的 identity secret 分离。identity secret 由 Inventory 用于生成稳定、不可逆的本地字幕标识，不能替代或复用 Emby API Key，也不会进入响应和普通日志。
 
-管理 API 使用独立的 `security.api_auth_token_file` Bearer Token，发布版 UI 使用私有 Compose environment 中的 `APP_ADMIN_USERNAME`、`APP_ADMIN_PASSWORD`。两个变量缺失或非法时服务启动失败，不回退到 Bearer-only UI。`POST /v1/auth/login` 只接受无 query 的 JSON 用户名和密码，成功后签发 `HttpOnly`、`SameSite=Lax`、固定 TTL 的内存会话；会话服务重启即失效。`/livez` 与只返回极小状态的 `/readyz` 保持公开；除登录路由外的所有 `/v1/*` 路由均接受有效管理员会话或 `Authorization: Bearer <token>`。缺失或错误统一返回 401、`WWW-Authenticate: Bearer` 和脱敏错误 envelope。Bearer 不接受 query 参数，也不写入日志或响应，并且不能复用 Emby API Key、identity secret 或管理员密码。当前尚未实现 Bearer scope、CSRF 或 D3 写入权限。
+管理 API 使用独立的 `security.api_auth_token_file` Bearer Token，发布版 UI 使用私有 Compose environment 中的 `APP_ADMIN_USERNAME`、`APP_ADMIN_PASSWORD`。两个变量缺失或非法时服务启动失败，不回退到 Bearer-only UI。`POST /v1/auth/login` 只接受无 query 的 JSON 用户名和密码，成功后签发 `HttpOnly`、`SameSite=Lax`、固定 TTL 的内存会话；会话服务重启即失效。`/livez` 与只返回极小状态的 `/readyz` 保持公开；除登录路由外的所有 `/v1/*` 路由均接受有效管理员会话或 `Authorization: Bearer <token>`。缺失或错误统一返回 401、`WWW-Authenticate: Bearer` 和脱敏错误 envelope。Bearer 不接受 query 参数，也不写入日志或响应，并且不能复用 Emby API Key、identity secret 或管理员密码。Bearer 只读 scope 由 `security.api_auth_scopes` 控制，媒体路由需要 `media:read`，Search 需要 `subtitle:search`，Fetch/Preview 需要 `subtitle:preview`；缺少 scope 返回 403。`subtitle:write` 仅预留且在写能力关闭时拒绝，CSRF 和 D3 写入权限仍未实现。
 
 MediaContext 对单源自动选择，对多源要求显式 `media_source_id`，不会猜测列表第一项。STRM 的 Inventory 和 PathMapper 始终使用 Emby Item.Path；非 STRM 只有本地 MediaSource.Path 可用时才使用它，远程 source path 只作为内部播放定位事实，不参与本地映射、目录检查、响应或日志。STRM 的 IsStrm 判断只看 Item.Path。即使多源共用同一个 Item.Path 的 STRM sidecar 目录，字幕流仍按选中的 MediaSource 保持隔离。PathMapper 支持 POSIX、Windows drive 和 UNC 形式，采用规范化、最长前缀匹配及目录 containment 检查；路径不安全、未映射或目录不可用时返回降级状态和稳定 warning。Inventory 只枚举受控目录、读取文件元数据并合并 Emby MediaStreams，绝不读取 STRM 内容、媒体正文或字幕正文。
 

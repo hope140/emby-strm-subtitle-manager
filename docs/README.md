@@ -2,7 +2,7 @@
 
 这套文档把当前事实、长期决策、维护经验和本机信息分开保存。开发前按需要读取，任务结束后通过 Knowledge Review 决定是否更新。
 
-当前状态：Phase 1 已完成路线决策和文档收口，ADR-002 和 ADR-003 已接受并选择方案 B 及其 D1→D2→D3 里程碑。D1 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM 真实 Canary 已验收；D2 实现已形成不可变 commit，并完成一次 C92 单源真实 Search→Fetch→Preview Canary，随后已关闭 D2 开关。D2.5-A/B 已完成 Compose environment 管理员登录、短期 HttpOnly 会话、失败限速和 Bearer 自动化兼容；C92 已基于 b9916d1 完成 app-only 验收，随后 a70bf89 完整 MediaSources 修正已完成 app-only 重建和本机探针验收，过程见 [D2.5 目标环境迁移预检](d2.5-target-migration-preflight-20260825.md)。C92 已找到真实 Movie 版本组，并确认详情请求必须包含 `AlternateMediaSources` 才能得到完整 source 列表；客户端字段修正和本地回归测试已完成，真实 API/UI/source 对应 Canary 待完成。SH/FRP/OpenResty、公网 18080、D2.5-C scope、CSRF 和 D3 写入仍未在本任务处理或实现。多源搜索在完整门禁前保持安全拒绝且不得宣称支持。上游构建基线的失败和未验证项仍以 [Phase 1 基线报告](../BASELINE.md) 为准；它们不等同于新 Go 服务的验证结果。
+当前状态：Phase 1 已完成路线决策和文档收口，ADR-002 和 ADR-003 已接受并选择方案 B 及其 D1→D2→D3 里程碑。D1 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM 真实 Canary 已验收；D2 实现已形成不可变 commit，并完成一次 C92 单源真实 Search→Fetch→Preview Canary，随后已关闭 D2 开关。D2.5-A/B/C 已完成源码和自动化验证，D2.5-D 已基于 b9916d1 完成 C92 app-only 验收，a70bf89 完整 MediaSources 修正也已完成 app-only 重建和本机探针验收，过程见 [D2.5 目标环境迁移预检](d2.5-target-migration-preflight-20260825.md)。C92 已找到真实 Movie 版本组；两个真实 Item 的完整 source 集合已与应用响应完成只读对应核对，应用对多源请求安全返回 409。scope 代码待下一次 app-only 镜像发布进入 C92；SH/FRP/OpenResty、公网 18080、CSRF 和 D3 写入仍未处理。多源搜索在完整门禁前保持安全拒绝且不得宣称支持。上游构建基线的失败和未验证项仍以 [Phase 1 基线报告](../BASELINE.md) 为准；它们不等同于新 Go 服务的验证结果。
 
 ## 正式文档
 
@@ -22,7 +22,7 @@
 | [D2-C C92 单源真实 Canary 验收](d2-c92-canary-acceptance.md) | C92 可回滚 D2 部署、真实 Search/Fetch/Preview、候选失败隔离和关闭后的状态 | 多源支持、真实客户端、公网 UI 和 D3 写入 |
 | [D2 多版本 MediaSources 实测记录](d2-multisource-c92-sample.md) | C92 真实版本组、`AlternateMediaSources` 字段证据和客户端修正入口 | 多源 Search/Fetch/Preview 完整 Canary、写入能力 |
 | [ADR-006 管理员会话与自动化凭据](adr/006-admin-session-and-automation-credentials.md) | 发布镜像的管理员登录、Compose environment 配置、自动化 Token 分离和 D2.5 排期 | D3 写入和多用户系统 |
-| [D2.5 管理员认证](d2.5-admin-auth.md) | D2.5-A/B 当前实现、会话契约、Compose environment、测试证据和剩余门禁 | C92/SH 部署、scope、CSRF 和 D3 写入 |
+| [D2.5 管理员认证](d2.5-admin-auth.md) | D2.5-A/B/C 当前实现、会话与只读 scope 契约、Compose environment、测试证据和剩余门禁 | scope 的 C92 下一次发布、CSRF 和 D3 写入 |
 | [D2.5 目标环境迁移预检](d2.5-target-migration-preflight-20260825.md) | 本轮本地发布核对、C92 只读状态、暂停原因和恢复顺序 | Secret 内容、部署操作和 D3 写入 |
 | [D1 部署验收报告](d1-deployment-acceptance.md) | 已验证的部署、真实 STRM Canary 和剩余门禁 | 私有部署细节、凭据和一次性操作记录 |
 | [D1.5 最小只读 Web UI](d1.5-readonly-ui.md) | 内嵌 UI、Token 内存边界和三种访问方式 | 真实部署验收和私有环境细节 |

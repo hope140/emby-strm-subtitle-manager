@@ -11,7 +11,7 @@ ADR 用于记录跨模块、长期有效且代码本身无法完整解释的选�
 | [ADR-003](003-phase2-milestones-and-deployment.md) | accepted | D1 只读 Canary → D2 搜索预览 → D3 专用样本 Add；固定安全部署默认值 |
 | [ADR-004](004-item-and-source-path-separation.md) | accepted | STRM/Inventory 使用 Item.Path；MediaSource.Path 仅作为受控播放定位事实 |
 | [ADR-005](005-conditional-d2-entry-without-live-multisource.md) | accepted | 缺少真实多源样本时有条件进入单源 D2；多源搜索保持独立门禁和安全拒绝 |
-| [ADR-006](006-admin-session-and-automation-credentials.md) | accepted | 发布版管理员会话与自动化 API 凭据分离；D2.5-A/B 已本地实现，scope/CSRF/D3 仍为后续门禁 |
+| [ADR-006](006-admin-session-and-automation-credentials.md) | accepted | 发布版管理员会话与自动化 API 凭据分离；D2.5-A/B/C 已本地实现，CSRF/D3 仍为后续门禁 |
 
 ## 创建条件
 

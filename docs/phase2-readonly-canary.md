@@ -1,6 +1,6 @@
 # Phase 2-D1 只读 Canary 验收定义
 
-状态：D1 代码切片、Linux 自动化门禁、C92 Docker Compose 部署、公网 HTTPS 及 Movie/Episode STRM Canary 已验收；真实版本组样本已找到，但完整多源 API/UI/source 门禁尚未验收。按 ADR-005，D1 已满足有条件进入 D2 的门禁，但真实多源搜索支持仍未收口。
+状态：D1 代码切片、Linux 自动化门禁、C92 Docker Compose 部署、公网 HTTPS 及 Movie/Episode STRM Canary 已验收；真实版本组样本已找到，a70bf89 的完整 MediaSources 读取和两个真实 Item 的应用/API source 对应核对已通过，但真实 UI 显式 source 选择及多源 Search/Fetch/Preview 尚未验收。按 ADR-005，D1 已满足有条件进入 D2 的门禁，但真实多源搜索支持仍未收口。
 
 本文件定义 ADR-003 的 D1 范围，并按 [ADR-005](adr/005-conditional-d2-entry-without-live-multisource.md) 区分进入单源 D2 的门禁和真实多源搜索支持门禁。C92 已找到真实版本组；详情读取必须在 `Fields` 中包含 `AlternateMediaSources`，相关证据见 [D2 多版本 MediaSources 实测记录](d2-multisource-c92-sample.md)。D2 的接口、安全预算和测试矩阵，以及 D2-B1 当前后端状态见 [D2 搜索预览契约](d2-search-preview-contract.md)。它不授权真实 Canary、部署或重启。
 
@@ -77,7 +77,7 @@ Compose 部署必须满足：
 - 公网反代使用仓库提供的安全日志基线，只记录粗粒度路由和状态，不记录完整请求行、query、Authorization、Referer、原始 Item ID 或候选 ID；模板见 [OpenResty 公网入口基线](../deploy/openresty/README.md)。
 - Docker 默认只运行 D1 只读能力：`write_enabled=false`、`remote_search_enabled=false`，媒体挂载为只读，配置/Secret 与媒体目录分离，不默认公开管理端口。
 - 若后续获得 D2 单独授权，Compose 必须把宿主机专用的 `/replace/with/dedicated/d2-preview-cache` 仅绑定到容器 `/var/lib/emby-strm-subtitle-manager/d2-preview-cache`，该宿主目录实际 owner 为 `10001:10001`、mode 为 `0700`，且位于媒体映射之外；rootfs 仍保持只读、`/media` 仍保持只读。Canary allowlist 使用新增 `d2_canary_items` file-source Secret，只读注入到 `/run/secrets/d2_canary_items`，宿主文件实际按 `10001:10001`、`0400` 准备，不能只依赖 Compose uid/gid/mode 字段。
-- `/livez` 与只返回极小状态的 `/readyz` 是公开探针；`POST /v1/auth/login` 接受 Compose environment 中的管理员凭据，其余 `/v1/*` 必须携带有效管理员会话或 `Authorization: Bearer <token>`。管理员 environment 缺失或非法时服务启动失败，不回退 Bearer-only UI；缺失、错误或通过 query 传入 Token 均返回统一 401，不回显凭据。当前 Bearer 尚未细分 scope。
+- `/livez` 与只返回极小状态的 `/readyz` 是公开探针；`POST /v1/auth/login` 接受 Compose environment 中的管理员凭据，其余 `/v1/*` 必须携带有效管理员会话或 `Authorization: Bearer <token>`。管理员 environment 缺失或非法时服务启动失败，不回退 Bearer-only UI；缺失、错误或通过 query 传入 Token 均返回统一 401，不回显凭据。Bearer 只读 scope 由 `security.api_auth_scopes` 控制，缺少所需 scope 返回 403；写 scope 在 `write_enabled=false` 时拒绝。
 
 文件型服务端凭据的 `uid`、`gid`、`mode` 选项在不同 Docker 实现中不能作为授权依据。宿主机应先实际核对 `emby_api_key`、`app_identity_key`、`app_api_auth_token` 的权限，再用应用用户做容器内可读性预检，例如 `docker compose run --rm --no-deps --entrypoint sh app -c 'test -r /run/secrets/app_api_auth_token && test -r /run/secrets/emby_api_key && test -r /run/secrets/app_identity_key && test -r /etc/emby-strm-subtitle-manager/config.yaml'`。管理员 environment 由启动校验覆盖，预检只返回成功/失败，不输出凭据内容。
 
@@ -110,7 +110,7 @@ Compose 部署必须满足：
 
 ## 6. 真实 Canary 验收门禁
 
-在私网或 SSH 隧道环境部署单容器后，使用专用测试账号和已确认的只读配置完成以下门禁。Movie 与 Episode STRM 已完成；2026-08-24 两轮有界真实 Emby 扫描覆盖 11 个媒体库、1,026 个最新样本和 938 个分层样本未命中多媒体源；2026-08-25 环境负责人提供的已知 Movie 版本组通过 `AlternateMediaSources` 详情读取补齐了真实样本，但 API/UI/source 对应门禁仍待完成。下列 Movie/Episode 项已经完成，多源对应项保留为独立待验门禁：
+在私网或 SSH 隧道环境部署单容器后，使用专用测试账号和已确认的只读配置完成以下门禁。Movie 与 Episode STRM 已完成；2026-08-24 两轮有界真实 Emby 扫描覆盖 11 个媒体库、1,026 个最新样本和 938 个分层样本未命中多媒体源；2026-08-25 环境负责人提供的已知 Movie 版本组通过 `AlternateMediaSources` 详情读取补齐了真实样本，a70bf89 部署后两个真实 Item 的 source 集合与应用响应也已完成只读对应核对。真实 UI 显式 source 选择及多源 Search/Fetch/Preview 保留为独立待验门禁：
 
 - 一个真实 Movie 和一个真实 Episode 均可浏览；找到多媒体源 Item 后补验同一流程。
 - `ItemID`、`MediaSourceID`、媒体类型、STRM 标记和字幕状态与 Emby 页面/API 一致。
@@ -120,7 +120,7 @@ Compose 部署必须满足：
 - 浏览器开发者工具、应用日志和容器环境导出中均不存在 API Key 或认证参数 URL。
 - 将 `write_enabled=false` 作为配置和运行时状态分别核对，不能只查看配置文件。
 
-按 ADR-005，自动化门禁、Movie/Episode STRM Canary、部署和安全边界通过后，可以有条件进入 D2 的契约、实现和单源 Canary。当前多源自动化的 409 与显式 source 选择测试已通过，真实版本组也已找到，客户端 `AlternateMediaSources` 详情字段修正和回归测试已完成，但真实 API/UI/source 对应验收仍待完成；因此 D2 首轮仍只支持单源 Movie/Episode，多源搜索必须安全拒绝，稳定响应契约由 [D2 搜索预览契约](d2-search-preview-contract.md) 和测试固定。`remote_search_enabled=false` 继续作为默认值，实际启用仍需 D2 专项授权和验收。D3 和所有写入门禁不变。任何已要求门禁失败都保留证据并回到对应边界修复。
+按 ADR-005，自动化门禁、Movie/Episode STRM Canary、部署和安全边界通过后，可以有条件进入 D2 的契约、实现和单源 Canary。当前多源自动化的 409 与显式 source 选择测试已通过，真实版本组、客户端 `AlternateMediaSources` 修正和两个真实 Item 的 API/source 对应核对也已完成；真实 UI 显式 source 选择及多源 Search/Fetch/Preview 仍待完成。因此 D2 首轮仍只支持单源 Movie/Episode，多源搜索必须安全拒绝，稳定响应契约由 [D2 搜索预览契约](d2-search-preview-contract.md) 和测试固定。`remote_search_enabled=false` 继续作为默认值，实际启用仍需 D2 专项授权和验收。D3 和所有写入门禁不变。任何已要求门禁失败都保留证据并回到对应边界修复。
 
 ## 7. 非目标
 

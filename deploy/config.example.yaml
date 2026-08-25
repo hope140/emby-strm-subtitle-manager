@@ -11,6 +11,13 @@ emby:
 security:
   identity_key_file: /run/secrets/app_identity_key
   api_auth_token_file: /run/secrets/app_api_auth_token
+  # The application Bearer token is read-only. Remove a read scope to limit
+  # automation further; write scopes are reserved and rejected while writes
+  # are disabled.
+  api_auth_scopes:
+    - media:read
+    - subtitle:search
+    - subtitle:preview
   # Compose must provide APP_ADMIN_USERNAME and APP_ADMIN_PASSWORD directly.
   # These credentials are intentionally not stored in YAML.
   # Set true when the browser always reaches the service through HTTPS.

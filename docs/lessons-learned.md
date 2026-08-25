@@ -83,3 +83,7 @@ Docker Compose 对 file-source Secret/config 的 `uid`、`gid`、`mode` 字段�
 ## 16. Emby 4.9.x 版本组详情必须请求 AlternateMediaSources
 
 Emby 的版本组在列表查询中可能表现为多个关联 Item，并且默认只带一个 `MediaSource`。对选中的 Item 做详情读取时，`Fields` 必须显式包含 `AlternateMediaSources`，服务端才会返回完整的版本 source 列表。2026-08-25 在 C92 的已知 Movie 版本组上复核：省略该字段时每个结果只有一个 source；加入该字段后每个详情 Item 返回两个 source。D2 客户端不能把列表结果或默认 source 当成完整事实，必须固定请求字段并在服务端按完整 source 列表执行多源 fail-closed 检查。
+
+## 17. 自动化 Bearer 的只读 scope 应在路由边界执行
+
+只有在配置层写一个“只读 Token”还不够，HTTP 层必须按路由检查 `media:read`、`subtitle:search` 和 `subtitle:preview`，缺少权限稳定返回 403；未来 `subtitle:write` 在写能力关闭时直接拒绝。这样可以保持单 Token 和简单 Compose 配置，同时避免未来新增写路由时意外继承当前的全路由 Bearer 放行。管理员 HttpOnly 会话与自动化 Bearer 是两种不同认证主体，写入能力仍需单独的 CSRF、scope 和真实验收门禁。

@@ -18,13 +18,23 @@ import (
 )
 
 const (
-	defaultTimeoutSeconds = 30
-	maxTimeoutSeconds     = 300
-	maxAllowlistBytes     = 1 << 20
-	maxAllowlistEntries   = 1000
-	AdminUsernameEnv      = "APP_ADMIN_USERNAME"
-	AdminPasswordEnv      = "APP_ADMIN_PASSWORD"
+	defaultTimeoutSeconds       = 30
+	maxTimeoutSeconds           = 300
+	maxAllowlistBytes           = 1 << 20
+	maxAllowlistEntries         = 1000
+	AdminUsernameEnv            = "APP_ADMIN_USERNAME"
+	AdminPasswordEnv            = "APP_ADMIN_PASSWORD"
+	APIAuthScopeMediaRead       = "media:read"
+	APIAuthScopeSubtitleSearch  = "subtitle:search"
+	APIAuthScopeSubtitlePreview = "subtitle:preview"
+	APIAuthScopeSubtitleWrite   = "subtitle:write"
 )
+
+var defaultAPIAuthScopes = []string{
+	APIAuthScopeMediaRead,
+	APIAuthScopeSubtitleSearch,
+	APIAuthScopeSubtitlePreview,
+}
 
 // Config is the complete non-secret runtime configuration.
 type Config struct {
@@ -47,10 +57,11 @@ type EmbyConfig struct {
 }
 
 type SecurityConfig struct {
-	IdentityKeyFile     string `yaml:"identity_key_file"`
-	APIAuthTokenFile    string `yaml:"api_auth_token_file"`
-	SessionCookieSecure bool   `yaml:"session_cookie_secure"`
-	SessionTTLSeconds   int    `yaml:"session_ttl_seconds"`
+	IdentityKeyFile     string   `yaml:"identity_key_file"`
+	APIAuthTokenFile    string   `yaml:"api_auth_token_file"`
+	APIAuthScopes       []string `yaml:"api_auth_scopes"`
+	SessionCookieSecure bool     `yaml:"session_cookie_secure"`
+	SessionTTLSeconds   int      `yaml:"session_ttl_seconds"`
 }
 
 type FeatureConfig struct {
@@ -144,6 +155,7 @@ func LoadFile(filename string) (Config, error) {
 		cfg.Emby.TimeoutSeconds = defaultTimeoutSeconds
 	}
 	cfg.D2 = cfg.D2.WithDefaults()
+	cfg.Security.APIAuthScopes = cfg.Security.EffectiveAPIAuthScopes()
 	if err := cfg.Validate(); err != nil {
 		return cfg, err
 	}
@@ -176,6 +188,24 @@ func (c Config) Validate() error {
 	}
 	if !isAbsolutePath(c.Security.APIAuthTokenFile) {
 		return errors.New("security.api_auth_token_file must be an absolute path")
+	}
+	seenScopes := make(map[string]struct{})
+	for _, scope := range c.Security.EffectiveAPIAuthScopes() {
+		if scope == "" {
+			return errors.New("security.api_auth_scopes cannot contain an empty scope")
+		}
+		if _, exists := seenScopes[scope]; exists {
+			return fmt.Errorf("security.api_auth_scopes contains duplicate scope %q", scope)
+		}
+		seenScopes[scope] = struct{}{}
+		switch scope {
+		case APIAuthScopeMediaRead, APIAuthScopeSubtitleSearch, APIAuthScopeSubtitlePreview:
+			// These are the only scopes available while the service is read-only.
+		case APIAuthScopeSubtitleWrite:
+			return errors.New("security.api_auth_scopes cannot include subtitle:write while write_enabled is false")
+		default:
+			return fmt.Errorf("security.api_auth_scopes contains unsupported scope %q", scope)
+		}
 	}
 	if c.Security.SessionTTLSeconds == 0 {
 		c.Security.SessionTTLSeconds = 8 * 60 * 60
@@ -267,6 +297,22 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+// DefaultAPIAuthScopes returns the read-only scopes assigned to the single
+// application Bearer token when a deployment omits an explicit list.
+func DefaultAPIAuthScopes() []string {
+	return append([]string(nil), defaultAPIAuthScopes...)
+}
+
+// EffectiveAPIAuthScopes returns a defensive copy of the configured scopes or
+// the safe read-only default. Write scopes are reserved for a later release
+// and are rejected by Validate while write_enabled is disabled.
+func (c SecurityConfig) EffectiveAPIAuthScopes() []string {
+	if len(c.APIAuthScopes) == 0 {
+		return DefaultAPIAuthScopes()
+	}
+	return append([]string(nil), c.APIAuthScopes...)
 }
 
 func validD2Language(value string) bool {

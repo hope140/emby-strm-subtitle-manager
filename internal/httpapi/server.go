@@ -55,29 +55,31 @@ type EmbyReader interface {
 // fields are interfaces/pointers so HTTP tests can inject a fake Emby client
 // without creating a filesystem or exposing server paths.
 type Services struct {
-	Emby      EmbyReader
-	D2        *d2.Service
-	Mapper    *pathmap.Mapper
-	Guard     *pathmap.PathGuard
-	Inventory *inventory.Service
-	AuthToken string
-	AdminAuth *auth.Authenticator
-	UI        http.Handler
+	Emby            EmbyReader
+	D2              *d2.Service
+	Mapper          *pathmap.Mapper
+	Guard           *pathmap.PathGuard
+	Inventory       *inventory.Service
+	AuthToken       string
+	AuthTokenScopes []string
+	AdminAuth       *auth.Authenticator
+	UI              http.Handler
 }
 
 type Server struct {
-	cfg       config.Config
-	ver       version.Info
-	logger    *slog.Logger
-	emby      EmbyReader
-	d2        *d2.Service
-	readiness *readinessProbe
-	mapper    *pathmap.Mapper
-	guard     *pathmap.PathGuard
-	inventory *inventory.Service
-	authToken []byte
-	adminAuth *auth.Authenticator
-	ui        http.Handler
+	cfg             config.Config
+	ver             version.Info
+	logger          *slog.Logger
+	emby            EmbyReader
+	d2              *d2.Service
+	readiness       *readinessProbe
+	mapper          *pathmap.Mapper
+	guard           *pathmap.PathGuard
+	inventory       *inventory.Service
+	authToken       []byte
+	authTokenScopes map[string]struct{}
+	adminAuth       *auth.Authenticator
+	ui              http.Handler
 }
 
 // NewServer creates a D1 HTTP server. The optional client keeps the small
@@ -99,11 +101,20 @@ func NewServerWithServices(cfg config.Config, ver version.Info, logger *slog.Log
 	if logger == nil {
 		logger = slog.Default()
 	}
+	scopes := services.AuthTokenScopes
+	if len(scopes) == 0 {
+		scopes = config.DefaultAPIAuthScopes()
+	}
+	authTokenScopes := make(map[string]struct{}, len(scopes))
+	for _, scope := range scopes {
+		authTokenScopes[scope] = struct{}{}
+	}
 	return &Server{
 		cfg: cfg, ver: ver, logger: logger, emby: services.Emby,
 		d2:        services.D2,
 		readiness: &readinessProbe{client: services.Emby}, mapper: services.Mapper,
-		guard: services.Guard, inventory: services.Inventory, authToken: []byte(services.AuthToken), adminAuth: services.AdminAuth, ui: services.UI,
+		guard: services.Guard, inventory: services.Inventory, authToken: []byte(services.AuthToken),
+		authTokenScopes: authTokenScopes, adminAuth: services.AdminAuth, ui: services.UI,
 	}
 }
 
@@ -120,9 +131,17 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleLogin(w, r)
 		return
 	}
-	if requiresAuthentication(r.URL.Path) && !s.authorized(r) {
-		s.writeUnauthorized(w, r)
-		return
+	if requiresAuthentication(r.URL.Path) {
+		switch s.authorization(r) {
+		case authorizationGranted:
+			// Continue to the read-only route.
+		case authorizationInsufficientScope:
+			s.writeInsufficientScope(w, r, requiredAuthScope(r))
+			return
+		default:
+			s.writeUnauthorized(w, r)
+			return
+		}
 	}
 	if d2Operation(r.URL.Path) != "" {
 		if r.Method != http.MethodPost {
@@ -203,24 +222,61 @@ func requiresAuthentication(path string) bool {
 	return path == "/v1" || strings.HasPrefix(path, "/v1/")
 }
 
-func (s *Server) authorized(r *http.Request) bool {
+type authorizationResult uint8
+
+const (
+	authorizationDenied authorizationResult = iota
+	authorizationGranted
+	authorizationInsufficientScope
+)
+
+func (s *Server) authorization(r *http.Request) authorizationResult {
 	if s == nil {
-		return false
+		return authorizationDenied
 	}
 	if _, exists := r.URL.Query()["token"]; exists {
-		return false
+		return authorizationDenied
 	}
+	insufficientScope := false
 	if len(s.authToken) > 0 {
 		parts := strings.Fields(r.Header.Get("Authorization"))
 		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") && subtle.ConstantTimeCompare([]byte(parts[1]), s.authToken) == 1 {
-			return true
+			scope := requiredAuthScope(r)
+			if scope != "" {
+				if _, granted := s.authTokenScopes[scope]; !granted {
+					insufficientScope = true
+				} else {
+					return authorizationGranted
+				}
+			} else {
+				return authorizationGranted
+			}
 		}
 	}
 	if s.adminAuth != nil {
 		cookie, err := r.Cookie(adminSessionCookie)
-		return err == nil && s.adminAuth.ValidSession(cookie.Value)
+		if err == nil && s.adminAuth.ValidSession(cookie.Value) {
+			return authorizationGranted
+		}
 	}
-	return false
+	if insufficientScope {
+		return authorizationInsufficientScope
+	}
+	return authorizationDenied
+}
+
+func requiredAuthScope(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	switch d2Operation(r.URL.Path) {
+	case "search":
+		return config.APIAuthScopeSubtitleSearch
+	case "fetch", "preview":
+		return config.APIAuthScopeSubtitlePreview
+	default:
+		return config.APIAuthScopeMediaRead
+	}
 }
 
 type loginBody struct {
@@ -289,6 +345,14 @@ func remoteClientKey(r *http.Request) string {
 func (s *Server) writeUnauthorized(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("WWW-Authenticate", "Bearer")
 	s.writeError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+}
+
+func (s *Server) writeInsufficientScope(w http.ResponseWriter, r *http.Request, scope string) {
+	if scope == "" {
+		scope = config.APIAuthScopeMediaRead
+	}
+	w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="`+scope+`"`)
+	s.writeError(w, r, http.StatusForbidden, "insufficient_scope", "the bearer token lacks the required permission")
 }
 
 func (s *Server) handleLibraries(w http.ResponseWriter, r *http.Request) {

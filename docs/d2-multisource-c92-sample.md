@@ -31,7 +31,17 @@
 
 这说明 Emby 4.9.x 的版本组在列表查询中可能显示为多个关联 Item；详情请求必须显式带上 `AlternateMediaSources`，否则响应看起来只有默认版本。Emby 官方命名规则要求同一电影的多版本放在同一电影目录，并使用“目录名 - 版本后缀”的命名方式；Emby 4.9.x 的版本源查询还需要在 `Fields` 中加入 `AlternateMediaSources`。[Movie Naming](https://emby.media/support/articles/Movie-Naming.html)、[Emby 4.9.x AlternateMediaSources 说明](https://emby.media/community/topic/148258-getshowsbyidepisodes-returns-incomplete-mediasources-for-non-admin-users-since-49x/)
 
-## 3. 对 D2 的影响
+## 3. a70bf89 应用对应性核对
+
+在 a70bf89 镜像完成 C92 app-only 重建后，对同一组两个真实 Movie Item 做了第二轮有界只读核对：
+
+- 应用 API 的两个详情请求均识别为 `source_count=2`，未选择默认 source；未带 `media_source_id` 时均返回 `409 media_source_required`。
+- 直接 Emby 详情请求固定使用 `Path,ProviderIds,MediaStreams,MediaSources,AlternateMediaSources`。应用响应中的 source ID 集合与 Emby 完整 source ID 集合逐项相等，脱敏探针结果为 `checked=2 corresponding_source_sets=2`。
+- 只调用了应用只读媒体详情和 Emby `GET /Items`；没有调用 Search、Fetch、Preview、Save、Refresh 或任何媒体写接口。
+
+这证明 a70bf89 的 `AlternateMediaSources` 修正已经进入实际 C92 应用，并且真实多源 Item 会被服务端安全拒绝而不是猜测第一 source；它不等于多源 Search、Fetch、Preview 已经开放或通过真实 Canary。
+
+## 4. 对 D2 的影响
 
 1. `internal/embyclient.Client.GetItem` 的详情请求已固定包含 `AlternateMediaSources`。
 2. DTO 边界已保留完整 `MediaSources`；如果某个 Emby 版本把备用源单独返回为 `AlternateMediaSources`，客户端会合并，并只抑制两个字段之间重复的非空 source ID；同一字段内部的重复仍保留给源校验拒绝。
@@ -41,7 +51,7 @@
 
 ## Knowledge Review
 
-任务或阶段：C92 真实多版本 MediaSources 样本核对与 D2 客户端字段修正入口
+任务或阶段：C92 真实多版本 MediaSources 样本、a70bf89 应用对应性核对与 D2 客户端字段修正入口
 
 验证范围：C92 Emby 只读 `GET /Items` 两种 `Fields` 组合、当前 `internal/embyclient` 详情请求、D2 多源契约、Emby 官方 Movie Naming 和 4.9.x `AlternateMediaSources` 说明。
 
@@ -56,7 +66,7 @@ Knowledge Findings
 
 - 代码：`internal/embyclient.Client.GetItem` 已固定请求 `Path,ProviderIds,MediaStreams,MediaSources,AlternateMediaSources`；`itemDTO` 支持备用 source 合并。
 - 测试：客户端查询字段、双 source DTO、跨字段重复抑制和同字段重复保留测试已补齐；`internal/httpapi` 集成请求断言同步更新，完整 Go 测试、vet、构建和仓库验证已通过。
-- 实际运行：C92 Emby 两种只读 `GET /Items` 查询；结果见第 2 节。
+- 实际运行：C92 Emby 两种只读 `GET /Items` 查询，以及 a70bf89 应用详情/409/source-set 对应探针；结果见第 2、3 节。
 
 去重检查
 
@@ -72,6 +82,6 @@ Knowledge Findings
 
 未验证范围与残余风险
 
-- 客户端字段请求和 DTO 修正已合并到公开 `main` 的 `a70bf89`，并以 `d2.5-a70bf89` 镜像完成 C92 app-only 重建和本机探针验收；尚未进行真实 Search、Fetch、Preview 多源 Canary。
-- 尚未在 D2 真实 Canary 中执行 Search、Fetch、Preview，也未验证 UI 的显式 source 选择。
+- 客户端字段请求和 DTO 修正已合并到公开 `main` 的 `a70bf89`，并以 `d2.5-a70bf89` 镜像完成 C92 app-only 重建；两个真实 Item 的 source 集合对应核对已通过，尚未进行真实 Search、Fetch、Preview 多源 Canary。
+- 尚未在 D2 真实 Canary 中执行 Search、Fetch、Preview，也未验证 UI 的显式 source 选择；本轮只验证了 UI 公共登录表单存在。
 - 版本组的两个详情 Item 都能返回两个 source，但应用需要按绑定的 Item/source 做一致性检查，不能只依赖列表结果。

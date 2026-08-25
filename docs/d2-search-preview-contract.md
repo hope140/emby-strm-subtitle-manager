@@ -1,6 +1,6 @@
 # D2 搜索预览契约与安全设计
 
-- 状态　D2 后端、内嵌只读 UI 与 D2.5-A/B 管理员会话已在本地实现；C92 已找到真实版本组并完成只读 source 字段核对，完整多源 Canary 待客户端修正和独立授权
+- 状态　D2 后端、内嵌只读 UI 与 D2.5-A/B/C 管理员会话和只读 scope 已在本地实现；C92 已找到真实版本组并完成完整 source 字段及应用/API 对应核对，真实 UI 显式 source 选择和完整多源 Canary 仍待独立授权
 - 日期　2026-08-24
 - 适用范围　ADR-003 的 D2、ADR-005 规定的单源条件入口
 - 当前实现　后端、安全门禁、内嵌 UI、Compose environment 管理员登录和 Fake Emby 测试已实现；真实 Provider Canary、部署和重启不在本轮范围
@@ -86,7 +86,7 @@ GET /Providers/Subtitles/Subtitles/{ServerOnlySubtitleId}
 
 ### 4.1 通用约定
 
-- 路由继续位于 `/v1/*`。`POST /v1/auth/login` 使用部署者配置的管理员用户名和密码签发短期 HttpOnly 会话；其他 D2 路由接受有效管理员会话或现有独立 Bearer 自动化 Token。即使请求同时带有有效会话，`token` query 参数也会被拒绝；Bearer 当前仍是单一只读凭据，尚未细分 scope。
+- 路由继续位于 `/v1/*`。`POST /v1/auth/login` 使用部署者配置的管理员用户名和密码签发短期 HttpOnly 会话；其他 D2 路由接受有效管理员会话或现有独立 Bearer 自动化 Token。即使请求同时带有有效会话，`token` query 参数也会被拒绝；Bearer 使用 `security.api_auth_scopes` 的只读 scope 集合，Search 需要 `subtitle:search`，Fetch/Preview 需要 `subtitle:preview`，缺少 scope 返回 403；写 scope 当前被配置校验拒绝。
 - 请求和响应使用 UTF-8 JSON。每个 D2 JSON 请求体上限为 8 KiB，未知字段应拒绝，避免客户端误以为 Provider 或搜索词已被上游接受。
 - 失败响应沿用当前 envelope：
 

@@ -451,7 +451,7 @@ Gate 0 通过后才能决定是否沿用 Emby Bridge。若 Fetch 不稳定或 Pr
 
 本阶段按 [ADR-003](docs/adr/003-phase2-milestones-and-deployment.md) 作为 D1 只读 Canary 执行，并由 [ADR-005](docs/adr/005-conditional-d2-entry-without-live-multisource.md) 规定缺少真实多源样本时的 D2 条件入口。默认使用 Linux Docker Compose 单应用容器、媒体只读挂载和 `write_enabled=false`，通过私网或 SSH 隧道做实际验收。具体 API、安全边界和门禁见 [D1 验收定义](docs/phase2-readonly-canary.md)。
 
-当前进度：D1 的 Go 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 以及 Movie、Episode STRM 真实 Canary 已完成并记录在 [D1 部署验收报告](docs/d1-deployment-acceptance.md)。Docker Compose schema/build、host-network、UID 10001、只读 root、只读媒体、三份 Secret 权限、`/readyz`、Bearer 认证、版本溯源标签、FRP 单代理加密和公网应用端口防火墙边界均已通过。C92 已找到真实 Movie 版本组；详情读取只有在 `Fields` 包含 `AlternateMediaSources` 时才能得到完整两个 `MediaSources`，客户端字段修正和回归测试已完成，真实多源 API/UI/source 对应验收仍待完成。按 ADR-005，可以继续 D2 契约、实现和单源 Canary；多源 Search、Fetch、Preview 在完整门禁通过前必须安全拒绝且不得宣称支持。`write_enabled=false` 和 `remote_search_enabled=false` 继续保持默认关闭，D3 及所有写入门禁不变。
+当前进度：D1 的 Go 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 以及 Movie、Episode STRM 真实 Canary 已完成并记录在 [D1 部署验收报告](docs/d1-deployment-acceptance.md)。Docker Compose schema/build、host-network、UID 10001、只读 root、只读媒体、三份 Secret 权限、`/readyz`、Bearer 认证、版本溯源标签、FRP 单代理加密和公网应用端口防火墙边界均已通过。C92 已找到真实 Movie 版本组；详情读取只有在 `Fields` 包含 `AlternateMediaSources` 时才能得到完整两个 `MediaSources`，客户端字段修正、本地回归和两个真实 Item 的 source 对应核对已完成，多源请求由应用安全返回 409。按 ADR-005，可以继续 D2 契约、实现和单源 Canary；多源 Search、Fetch、Preview 以及真实 UI 显式 source 选择在完整门禁通过前必须安全拒绝且不得宣称支持。`write_enabled=false` 和 `remote_search_enabled=false` 继续保持默认关闭，D3 及所有写入门禁不变。
 
 - 实现 MediaContext 和 PathMapper
 - 从 Emby 浏览电影与剧集
@@ -459,7 +459,7 @@ Gate 0 通过后才能决定是否沿用 Emby Bridge。若 Fetch 不稳定或 Pr
 - 显示 Embedded、External、Manageable 状态
 - 正确识别 STRM
 
-Movie/Episode 的 D1 真实验收必须覆盖；多 MediaSource 自动化也必须覆盖。真实多源样本已找到，但在详情字段修正、API/UI/source 对应验收前，必须标记为“真实样本已找到、完整多源门禁待补”，不能写成真实多源完整通过。按 ADR-005，这一门禁阻断多源搜索支持声明和启用，但不阻断单源 D2 的实现与 Canary。
+Movie/Episode 的 D1 真实验收必须覆盖；多 MediaSource 自动化也必须覆盖。真实多源样本已找到，a70bf89 的详情字段修正和应用/API source 对应核对已通过，但真实 UI 显式 source 选择以及多源 Search、Fetch、Preview 仍待补齐，必须标记为“真实样本与 API 对应已通过、完整多源门禁待补”，不能写成真实多源完整通过。按 ADR-005，这一门禁阻断多源搜索支持声明和启用，但不阻断单源 D2 的实现与 Canary。
 
 ### Phase 3　远程搜索与预览
 
@@ -483,10 +483,10 @@ Phase 3 完成后暂停。只有真实 Movie、Episode 和 STRM 验收都通过�
 - 管理员凭据通过私有 Docker Compose 文件的 `environment` 直接注入，固定使用 `APP_ADMIN_USERNAME`、`APP_ADMIN_PASSWORD`，不提供通用默认密码
 - 登录成功后使用短期 HttpOnly 会话 Cookie；面板不提供改密码、注销或账号管理，轮换通过修改私有 Compose 的 environment 并重建容器完成
 - CLI、定时任务和 CI 使用独立 Bearer Token，不能复用管理员密码或 Emby API Key
-- 自动化 Token 先支持只读范围，后续将 `media:read`、`subtitle:search`、`subtitle:preview` 与 D3 写入 scope 分开
+- 自动化 Token 使用只读 scope 集合，当前按 `media:read`、`subtitle:search`、`subtitle:preview` 检查路由；D3 写入 scope 另设门禁，`subtitle:write` 在写能力关闭时直接拒绝
 - 补齐会话 TTL、重启失效、失败限速、CSRF、日志脱敏、environment 轮换、Compose 预检和浏览器/CLI 验收
 
-详细决策和排期见 [ADR-006](docs/adr/006-admin-session-and-automation-credentials.md)。D2.5-A/B 已完成管理员 environment 登录、短期 HttpOnly 会话、失败限速和 Bearer 自动化兼容，并已基于公开 `b9916d1` 完成 C92 app-only 部署验收；随后 a70bf89 的完整 MediaSources 修正也已完成 app-only 重建和本机探针验收。SH/FRP/OpenResty 未在本任务处理。D2.5-C 的细粒度 scope、CSRF 和 D3 写入门禁仍未完成。不得把当前共享 Bearer Token 宣称为细粒度权限系统；`write_enabled=false` 继续保持默认关闭。
+详细决策和排期见 [ADR-006](docs/adr/006-admin-session-and-automation-credentials.md)。D2.5-A/B/C 已完成源码和自动化验证，D2.5-D 已基于公开 `b9916d1` 完成 C92 app-only 部署验收；随后 a70bf89 的完整 MediaSources 修正也完成了 app-only 重建和本机探针验收。C 的 scope 代码将在下一次 app-only 镜像发布时接入 C92。SH/FRP/OpenResty 未在本任务处理。CSRF 和 D3 写入门禁仍未完成；`write_enabled=false` 继续保持默认关闭。
 
 ### Phase 4　安全写入
 

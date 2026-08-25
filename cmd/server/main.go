@@ -118,7 +118,8 @@ func main() {
 	server := &http.Server{
 		Addr: cfg.Server.ListenAddress,
 		Handler: httpapi.NewServerWithServices(cfg, version.Current(), logger, httpapi.Services{
-			Emby: client, D2: d2Service, Mapper: mapper, Guard: guard, Inventory: inventoryService, AuthToken: authToken, AdminAuth: adminAuth, UI: httpui.NewHandler(),
+			Emby: client, D2: d2Service, Mapper: mapper, Guard: guard, Inventory: inventoryService,
+			AuthToken: authToken, AuthTokenScopes: cfg.Security.EffectiveAPIAuthScopes(), AdminAuth: adminAuth, UI: httpui.NewHandler(),
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,

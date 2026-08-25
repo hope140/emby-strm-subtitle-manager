@@ -315,6 +315,27 @@ func TestBearerAuthenticationProtectsV1WithoutQueryFallback(t *testing.T) {
 	}
 }
 
+func TestBearerScopesSeparateMediaReadFromSubtitleOperations(t *testing.T) {
+	handler := NewServerWithServices(config.Config{}, version.Info{Version: "test"}, slog.Default(), Services{
+		Emby: &fakeEmby{}, AuthToken: testAuthToken, AuthTokenScopes: []string{config.APIAuthScopeMediaRead},
+	}).Handler()
+	if rec := serveWithAuthorization(handler, http.MethodGet, "/v1/health", "Bearer "+testAuthToken); rec.Code != http.StatusOK {
+		t.Fatalf("media read status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, path := range []string{"/v1/media/movie-1/subtitles/search", "/v1/media/movie-1/subtitles/fetch", "/v1/media/movie-1/subtitles/preview"} {
+		t.Run(path, func(t *testing.T) {
+			rec := serveWithAuthorization(handler, http.MethodPost, path, "Bearer "+testAuthToken)
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+			}
+			assertErrorEnvelope(t, rec, "insufficient_scope")
+			if !strings.Contains(rec.Header().Get("WWW-Authenticate"), "insufficient_scope") {
+				t.Fatalf("WWW-Authenticate = %q", rec.Header().Get("WWW-Authenticate"))
+			}
+		})
+	}
+}
+
 func TestAdminPasswordLoginIssuesHttpOnlySessionAndKeepsBearerAutomation(t *testing.T) {
 	admin, err := auth.New("operator", "correct horse battery staple", auth.Options{SessionTTL: time.Hour})
 	if err != nil {
