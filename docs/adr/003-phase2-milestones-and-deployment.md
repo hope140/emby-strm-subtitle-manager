@@ -4,6 +4,10 @@
 - 日期　2026-08-24
 - 相关组件　Phase 2 只读模型、Emby Client、PathMapper、字幕清单、部署配置
 
+## 后续事实更新（2026-08-25）
+
+Core A/B 已在本地源码完成日常 gate、显式多 source、Upload、Replace、可恢复 Delete 和 Restore，自动化证据见 [Core A/B 实现评审](../core-ab-implementation-review.md)。这一后续实现由 [ADR-008](008-core-ab-daily-source-bound-recovery.md) 记录；它不改变本 ADR 的默认 closed/只读部署边界，也不构成 C92 部署、重启或真实客户端综合验收。
+
 ## 背景
 
 ADR-002 已确定采用新建轻量 Go 后端的方案 B。进入应用实现前，需要把“能部署进行实际测试”的路径拆成可回退、可验收的里程碑，并固定首轮部署的安全默认值。

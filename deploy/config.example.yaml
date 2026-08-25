@@ -11,9 +11,8 @@ emby:
 security:
   identity_key_file: /run/secrets/app_identity_key
   api_auth_token_file: /run/secrets/app_api_auth_token
-  # The application Bearer token is read-only. Remove a read scope to limit
-  # automation further; write scopes are reserved and rejected while writes
-  # are disabled.
+  # The application Bearer token is read-only by default. Add subtitle:write
+  # only in an explicitly authorized write configuration.
   api_auth_scopes:
     - media:read
     - subtitle:search
@@ -39,11 +38,14 @@ d2:
     item_allowlist_file: /run/secrets/d2_canary_items
 
 d3:
-  # D3 is disabled by default. For the separately authorized dedicated-sample
-  # Add window, use the D3 Compose overlay and set write_enabled=true,
-  # remote_search_enabled=true, and both private directories below.
+  # D3 is disabled by default. For an explicitly authorized daily write
+  # window, use the write overlay and set write_enabled=true,
+  # remote_search_enabled=true, subtitle:write and all four private
+  # directories below. Canary remains an optional narrower admission mode.
   history_dir: /var/lib/subbridge/d3-history
   quarantine_dir: /var/lib/subbridge/d3-quarantine
+  archive_dir: /var/lib/subbridge/d3-archive
+  trash_dir: /var/lib/subbridge/d3-trash
   refresh_timeout_seconds: 10
   canary:
     enabled: false

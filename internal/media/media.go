@@ -105,6 +105,7 @@ func SelectSource(item domain.EmbyItem, sourceID string) (domain.MediaSource, er
 type MediaContext struct {
 	ItemID            string
 	MediaSourceID     string
+	MediaSourceName   string
 	Container         string
 	Type              string
 	Title             string
@@ -118,11 +119,16 @@ type MediaContext struct {
 	EmbyPath          string
 	LocalPath         string
 	LocalDirectory    string
-	IsStrm            bool
-	MediaStreams      *[]domain.MediaStream
-	MappingStatus     MappingStatus
-	Warnings          []string
-	InventoryComplete bool
+	// SourceLocalPath and SourceLocalDirectory are private, selected-source
+	// facts. STRM inventory retains Item.Path above, while Core A/B can also
+	// recognize sidecars whose safe basename is derived from this source.
+	SourceLocalPath      string
+	SourceLocalDirectory string
+	IsStrm               bool
+	MediaStreams         *[]domain.MediaStream
+	MappingStatus        MappingStatus
+	Warnings             []string
+	InventoryComplete    bool
 }
 
 // BuildOptions controls mapping and runtime containment checks. A nil mapper
@@ -132,6 +138,42 @@ type BuildOptions struct {
 	MediaSourceID string
 	Mapper        *pathmap.Mapper
 	Guard         *pathmap.PathGuard
+}
+
+// WriteTarget is the private, source-specific local media fact used only to
+// derive a subtitle filename for a write. It is deliberately separate from
+// MediaContext: STRM inventory continues to use Item.Path, whereas a write to
+// a multi-version Item must never derive its basename from the Item title,
+// default source, or source ordering.
+type WriteTarget struct {
+	MediaSourceID  string
+	LocalPath      string
+	LocalDirectory string
+}
+
+// ResolveWriteTarget maps the selected source's own local media path. A
+// missing, remote or unmappable source path is rejected instead of falling
+// back to Item.Path; that fail-closed rule prevents cross-version writes.
+func ResolveWriteTarget(item domain.EmbyItem, sourceID string, mapper *pathmap.Mapper, guard *pathmap.PathGuard) (WriteTarget, error) {
+	selected, err := SelectSource(item, sourceID)
+	if err != nil {
+		return WriteTarget{}, err
+	}
+	if mapper == nil || selected.Path == "" || isRemoteSource(selected) || strings.IndexFunc(selected.Path, unicode.IsControl) >= 0 {
+		return WriteTarget{}, ErrMappedPathUnavailable
+	}
+	localPath, err := mapper.Map(selected.Path)
+	if err != nil || localPath == "" {
+		return WriteTarget{}, ErrMappedPathUnavailable
+	}
+	directory, err := pathmap.Directory(localPath)
+	if err != nil || directory == "" {
+		return WriteTarget{}, ErrMappedPathUnavailable
+	}
+	if guard == nil || guard.CheckDirectory(directory) != nil {
+		return WriteTarget{}, ErrMappedPathUnavailable
+	}
+	return WriteTarget{MediaSourceID: selected.ID, LocalPath: localPath, LocalDirectory: directory}, nil
 }
 
 // Build creates a source-specific context. STRM items always use Item.Path
@@ -180,6 +222,21 @@ func Build(item domain.EmbyItem, options BuildOptions) (MediaContext, error) {
 		mappingStatus = MappingStatusUnsafe
 		canMap = false
 	}
+
+	// A selected source can legitimately use a different basename from a STRM
+	// Item.Path. Keep its mapped facts private and optional: regular browsing
+	// must not fail merely because an upstream playback source is remote or
+	// unmappable, whereas write flows will reject that source explicitly.
+	var sourceLocalPath, sourceLocalDirectory string
+	if options.Mapper != nil && selected.Path != "" && !isRemoteSource(selected) && strings.IndexFunc(selected.Path, unicode.IsControl) < 0 {
+		if mapped, mapErr := options.Mapper.Map(selected.Path); mapErr == nil && mapped != "" {
+			if directory, directoryErr := pathmap.Directory(mapped); directoryErr == nil && directory != "" {
+				if options.Guard == nil || options.Guard.CheckDirectory(directory) == nil {
+					sourceLocalPath, sourceLocalDirectory = mapped, directory
+				}
+			}
+		}
+	}
 	if canMap && options.Mapper != nil {
 		localPath, err = options.Mapper.Map(embyPath)
 		if err != nil {
@@ -224,11 +281,11 @@ func Build(item domain.EmbyItem, options BuildOptions) (MediaContext, error) {
 	}
 	complete := mappingStatus == MappingStatusMapped && streamsComplete
 	return MediaContext{
-		ItemID: item.ID, MediaSourceID: selected.ID, Container: selected.Container, Type: item.Type, Title: item.Name,
+		ItemID: item.ID, MediaSourceID: selected.ID, MediaSourceName: selected.Name, Container: selected.Container, Type: item.Type, Title: item.Name,
 		ParentID: item.ParentID, SeriesID: item.SeriesID, SeriesName: item.SeriesName,
 		ParentIndexNumber: item.ParentIndexNumber, IndexNumber: item.IndexNumber, ProductionYear: item.ProductionYear,
 		ProviderIDs: cloneStringMap(item.ProviderIDs), EmbyPath: embyPath, LocalPath: localPath,
-		LocalDirectory: localDirectory, IsStrm: isStrm, MediaStreams: streams,
+		LocalDirectory: localDirectory, SourceLocalPath: sourceLocalPath, SourceLocalDirectory: sourceLocalDirectory, IsStrm: isStrm, MediaStreams: streams,
 		MappingStatus: mappingStatus, Warnings: warnings, InventoryComplete: complete,
 	}, nil
 }

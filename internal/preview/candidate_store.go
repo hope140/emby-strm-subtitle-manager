@@ -144,6 +144,32 @@ func (s *CandidateStore) Resolve(token string, binding Binding) (Candidate, erro
 	return cloneCandidate(*entry), nil
 }
 
+// ResolveForItem returns an internal candidate binding after validating the
+// item, authentication context and admission-policy generation. It purposely
+// does not treat an empty SourceID as a wildcard in Resolve: callers must use
+// this narrow method only to discover the already-bound source, re-read the
+// Item, and then validate that exact source before taking any action.
+func (s *CandidateStore) ResolveForItem(token string, binding Binding) (Candidate, error) {
+	if s == nil || token == "" {
+		return Candidate{}, ErrCandidateInvalid
+	}
+	digest := sha256.Sum256([]byte(token))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.entries[digest]
+	if !ok {
+		return Candidate{}, ErrCandidateInvalid
+	}
+	if !s.now().Before(entry.ExpiresAt) {
+		delete(s.entries, digest)
+		return Candidate{}, ErrCandidateExpired
+	}
+	if !sameItemBinding(entry.Binding, binding) {
+		return Candidate{}, ErrCandidateInvalid
+	}
+	return cloneCandidate(*entry), nil
+}
+
 func (s *CandidateStore) RecordFailure(token, code string, attempts int) {
 	if s == nil || token == "" {
 		return
@@ -199,6 +225,10 @@ func (s *CandidateStore) removeExpiredLocked(now time.Time) {
 
 func sameBinding(a, b Binding) bool {
 	return a.ItemID == b.ItemID && a.SourceID == b.SourceID && (b.Language == "" || a.Language == b.Language) && a.AuthContext == b.AuthContext && a.AllowlistGeneration == b.AllowlistGeneration
+}
+
+func sameItemBinding(a, b Binding) bool {
+	return a.ItemID == b.ItemID && a.AuthContext == b.AuthContext && a.AllowlistGeneration == b.AllowlistGeneration
 }
 
 func cloneCandidate(value Candidate) Candidate {

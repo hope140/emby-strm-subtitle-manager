@@ -12,7 +12,7 @@
     <div class="brand">
       <img class="brand-mark" src="/assets/subbridge.svg" alt="">
       <div>
-      <p class="eyebrow">D1.5 · D3 CONTROLLED ADD</p>
+      <p class="eyebrow">CORE A/B · CONTROLLED SUBTITLE OPERATIONS</p>
       <h1>SubBridge <span class="brand-short">SB · 字幕桥</span></h1>
       </div>
     </div>
@@ -67,7 +67,7 @@
             <div class="section-heading">
               <div>
                 <h3 id="d2-heading">D2 搜索预览</h3>
-                <p class="muted">只对当前选定的单源 Movie / Episode 请求中文候选。</p>
+                <p class="muted">只对当前明确选定的 Movie / Episode 媒体源请求和预览中文字幕。</p>
               </div>
             </div>
             <p id="d2-status" class="d2-status" role="status"></p>
@@ -77,6 +77,11 @@
                 仅强制字幕
               </label>
               <button id="d2-search" type="button">搜索</button>
+              <label class="upload-label" for="d2-upload-file">本地字幕
+                <input id="d2-upload-file" type="file" accept=".srt,.ass,.ssa,text/plain" aria-label="选择本地字幕文件">
+              </label>
+              <button id="d2-upload" type="button">上传并预览</button>
+              <span id="d2-upload-status" class="muted" role="status"></span>
             </div>
             <div id="d2-results" class="d2-results hidden">
               <div class="section-heading compact-heading">
@@ -105,10 +110,21 @@
               </div>
               <div id="d2-cues" class="cue-list"></div>
               <div id="d3-add" class="d2-actions hidden">
-                <span class="muted">已通过校验的字幕只会写入当前专用样本，并触发一次 Emby 刷新。</span>
+                <span class="muted">已通过校验的字幕只会写入当前明确选定的媒体源，并触发一次 Emby 刷新。</span>
                 <button id="d3-add-button" type="button">添加到当前媒体</button>
                 <span id="d3-add-status" class="muted" role="status"></span>
               </div>
+            </section>
+            <section id="d3-history" class="d3-history hidden" aria-labelledby="d3-history-heading">
+              <div class="section-heading compact-heading">
+                <div>
+                  <h4 id="d3-history-heading">操作历史</h4>
+                  <p class="muted">仅展示当前媒体的安全操作摘要；删除和替换可在不覆盖现有文件的前提下恢复。</p>
+                </div>
+                <button id="d3-history-reload" class="secondary" type="button">刷新</button>
+              </div>
+              <p id="d3-history-status" class="muted" role="status"></p>
+              <div id="d3-history-list" class="history-list"></div>
             </section>
           </section>
         </section>

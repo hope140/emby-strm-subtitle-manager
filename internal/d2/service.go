@@ -18,6 +18,7 @@ import (
 	"github.com/hope140/subbridge/internal/config"
 	"github.com/hope140/subbridge/internal/domain"
 	"github.com/hope140/subbridge/internal/embyclient"
+	"github.com/hope140/subbridge/internal/media"
 	"github.com/hope140/subbridge/internal/preview"
 	"github.com/hope140/subbridge/internal/subtitle"
 	"github.com/hope140/subbridge/internal/subtitleprovider"
@@ -32,28 +33,31 @@ type ItemReader interface {
 type Options struct {
 	Config              config.D2Config
 	RemoteSearchEnabled bool
-	CanaryEnabled       bool
-	Allowlist           *preview.Allowlist
-	Emby                ItemReader
-	Provider            subtitleprovider.Provider
-	CandidateStore      *preview.CandidateStore
-	ArtifactStore       *preview.ArtifactStore
-	AuthContext         string
-	Now                 func() time.Time
+	// Gate is the common server-side Item admission policy used by both
+	// day-to-day mode and a bounded Canary. Allowlist and CanaryEnabled remain
+	// for source-compatible callers while they migrate to Gate.
+	Gate           preview.ItemGate
+	CanaryEnabled  bool
+	Allowlist      *preview.Allowlist
+	Emby           ItemReader
+	Provider       subtitleprovider.Provider
+	CandidateStore *preview.CandidateStore
+	ArtifactStore  *preview.ArtifactStore
+	AuthContext    string
+	Now            func() time.Time
 }
 
 type Service struct {
-	settings      config.D2Config
-	enabled       bool
-	canaryEnabled bool
-	allowlist     *preview.Allowlist
-	emby          ItemReader
-	provider      subtitleprovider.Provider
-	candidates    *preview.CandidateStore
-	artifacts     *preview.ArtifactStore
-	authContext   string
-	now           func() time.Time
-	limiter       *operationLimiter
+	settings    config.D2Config
+	enabled     bool
+	gate        preview.ItemGate
+	emby        ItemReader
+	provider    subtitleprovider.Provider
+	candidates  *preview.CandidateStore
+	artifacts   *preview.ArtifactStore
+	authContext string
+	now         func() time.Time
+	limiter     *operationLimiter
 }
 
 // AuthContextFromToken creates an opaque process binding without retaining or
@@ -101,6 +105,7 @@ type FetchRequest struct {
 
 type FetchResponse struct {
 	ArtifactToken string    `json:"artifact_token"`
+	OperationID   string    `json:"operation_id,omitempty"`
 	Provider      string    `json:"provider"`
 	Language      string    `json:"language"`
 	Format        string    `json:"format"`
@@ -129,17 +134,35 @@ type PreviewResponse struct {
 	Cues        []subtitle.Cue `json:"cues"`
 }
 
+// UploadRequest contains only the already-read multipart body. File names and
+// MIME types are intentionally not accepted by this service boundary.
+type UploadRequest struct {
+	MediaSourceID string
+	Language      string
+	Content       []byte
+}
+
 func New(options Options) (*Service, error) {
 	settings := options.Config.WithDefaults()
 	if options.Now == nil {
 		options.Now = time.Now
 	}
+	gate := options.Gate
+	// Preserve the old Options contract for callers that have not opted in to
+	// an explicit Gate: an allowlist alone must not turn on D2 when Canary is
+	// disabled. Day-to-day mode is represented by a non-nil Gate.
+	if gate == nil && options.CanaryEnabled && options.Allowlist != nil && options.Allowlist.Len() > 0 {
+		gate = options.Allowlist
+	}
 	service := &Service{
-		settings: settings, enabled: options.RemoteSearchEnabled, canaryEnabled: options.CanaryEnabled,
-		allowlist: options.Allowlist, emby: options.Emby, provider: options.Provider,
+		settings: settings, enabled: options.RemoteSearchEnabled, gate: gate,
+		emby: options.Emby, provider: options.Provider,
 		authContext: options.AuthContext, now: options.Now,
 	}
-	if !service.enabled || !service.canaryEnabled || service.allowlist == nil || service.allowlist.Len() == 0 {
+	if !service.enabled {
+		return service, nil
+	}
+	if service.gate == nil {
 		return service, nil
 	}
 	if service.authContext == "" {
@@ -173,7 +196,7 @@ func New(options Options) (*Service, error) {
 }
 
 func (s *Service) Enabled() bool {
-	return s != nil && s.enabled && s.canaryEnabled && s.allowlist != nil && s.allowlist.Len() > 0
+	return s != nil && s.enabled && s.gate != nil
 }
 
 func (s *Service) Search(ctx context.Context, itemID string, request SearchRequest) (SearchResponse, error) {
@@ -197,7 +220,7 @@ func (s *Service) Search(ctx context.Context, itemID string, request SearchReque
 		return SearchResponse{}, rateLimitError()
 	}
 	defer release()
-	item, source, generation, err := s.loadSingleSource(ctx, itemID, request.MediaSourceID)
+	item, source, generation, err := s.loadSource(ctx, itemID, request.MediaSourceID)
 	if err != nil {
 		return SearchResponse{}, err
 	}
@@ -255,12 +278,20 @@ func (s *Service) Fetch(ctx context.Context, itemID string, request FetchRequest
 	defer release()
 	ctx, cancel := withBudget(ctx, time.Duration(s.settings.FetchTimeoutSeconds)*time.Second)
 	defer cancel()
-	item, source, generation, err := s.loadSingleSource(ctx, itemID, "")
+	generation, err := s.gateGeneration(itemID)
+	if err != nil {
+		return FetchResponse{}, err
+	}
+	candidate, err := s.candidates.ResolveForItem(request.CandidateToken, preview.Binding{ItemID: itemID, AuthContext: s.authContext, AllowlistGeneration: generation})
+	if err != nil {
+		return FetchResponse{}, mapCandidateError(err)
+	}
+	item, source, generation, err := s.loadSource(ctx, itemID, candidate.Binding.SourceID)
 	if err != nil {
 		return FetchResponse{}, err
 	}
 	binding := preview.Binding{ItemID: item.ID, SourceID: source.ID, AuthContext: s.authContext, AllowlistGeneration: generation}
-	candidate, err := s.candidates.Resolve(request.CandidateToken, bindingWithoutLanguage(binding))
+	candidate, err = s.candidates.Resolve(request.CandidateToken, bindingWithoutLanguage(binding))
 	if err != nil {
 		return FetchResponse{}, mapCandidateError(err)
 	}
@@ -326,15 +357,59 @@ func (s *Service) Preview(ctx context.Context, itemID string, request PreviewReq
 	defer release()
 	ctx, cancel := withBudget(ctx, time.Duration(s.settings.PreviewTimeoutSeconds)*time.Second)
 	defer cancel()
-	item, source, generation, err := s.loadSingleSource(ctx, itemID, "")
+	generation, err := s.gateGeneration(itemID)
 	if err != nil {
 		return PreviewResponse{}, err
 	}
-	artifact, err := s.artifacts.Get(request.ArtifactToken, preview.Binding{ItemID: item.ID, SourceID: source.ID, Language: "", AuthContext: s.authContext, AllowlistGeneration: generation})
+	artifact, err := s.artifacts.GetForItem(request.ArtifactToken, preview.Binding{ItemID: itemID, AuthContext: s.authContext, AllowlistGeneration: generation})
+	if err != nil {
+		return PreviewResponse{}, mapArtifactError(err)
+	}
+	item, source, generation, err := s.loadSource(ctx, itemID, artifact.Binding.SourceID)
+	if err != nil {
+		return PreviewResponse{}, err
+	}
+	artifact, err = s.artifacts.Get(request.ArtifactToken, preview.Binding{ItemID: item.ID, SourceID: source.ID, Language: "", AuthContext: s.authContext, AllowlistGeneration: generation})
 	if err != nil {
 		return PreviewResponse{}, mapArtifactError(err)
 	}
 	return projectPreview(artifact, request.Offset, request.Limit), nil
+}
+
+// Upload validates a local subtitle and makes it available through the same
+// short-lived PreviewArtifact contract as Fetch. It never writes into a media
+// directory and intentionally ignores the browser-provided file name.
+func (s *Service) Upload(ctx context.Context, itemID string, request UploadRequest) (FetchResponse, error) {
+	if err := s.checkEnabled(); err != nil {
+		return FetchResponse{}, err
+	}
+	if !validItemID(itemID) || !validItemID(request.MediaSourceID) || len(request.Content) == 0 {
+		return FetchResponse{}, failure(400, "invalid_request", "invalid subtitle upload request")
+	}
+	language, err := normalizeLanguage(request.Language, s.settings.DefaultLanguage)
+	if err != nil {
+		return FetchResponse{}, err
+	}
+	release, ok := s.limiter.acquire("upload", itemID, s.authContext)
+	if !ok {
+		return FetchResponse{}, rateLimitError()
+	}
+	defer release()
+	ctx, cancel := withBudget(ctx, time.Duration(s.settings.PreviewTimeoutSeconds)*time.Second)
+	defer cancel()
+	item, source, generation, err := s.loadSource(ctx, itemID, request.MediaSourceID)
+	if err != nil {
+		return FetchResponse{}, err
+	}
+	document, err := subtitle.ValidateAndParse(request.Content, "", s.settings.MaxSubtitleBytes)
+	if err != nil {
+		return FetchResponse{}, mapSubtitleError(err)
+	}
+	artifact, err := s.artifacts.Create(preview.Binding{ItemID: item.ID, SourceID: source.ID, Language: language, AuthContext: s.authContext, AllowlistGeneration: generation}, document.Format, language, document.Canonical, document.Cues)
+	if err != nil {
+		return FetchResponse{}, mapArtifactError(err)
+	}
+	return FetchResponse{ArtifactToken: artifact.Token, Provider: "upload", Language: artifact.Binding.Language, Format: artifact.Format, ByteLength: artifact.ByteLength, CueCount: artifact.CueCount, ContentHash: artifact.ContentHash, PreviewReady: true, ExpiresAt: artifact.ExpiresAt}, nil
 }
 
 // RunCleanup removes expired in-memory mappings and private artifact files at
@@ -367,7 +442,7 @@ func (s *Service) checkEnabled() error {
 	return nil
 }
 
-func (s *Service) loadSingleSource(ctx context.Context, itemID, requestedSource string) (domain.EmbyItem, domain.MediaSource, uint64, error) {
+func (s *Service) loadSource(ctx context.Context, itemID, requestedSource string) (domain.EmbyItem, domain.MediaSource, uint64, error) {
 	if s.emby == nil {
 		return domain.EmbyItem{}, domain.MediaSource{}, 0, failure(502, "emby_unavailable", "Emby is unavailable")
 	}
@@ -386,31 +461,40 @@ func (s *Service) loadSingleSource(ctx context.Context, itemID, requestedSource 
 	if item.Type != "Movie" && item.Type != "Episode" {
 		return domain.EmbyItem{}, domain.MediaSource{}, 0, failure(422, "unsupported_media_type", "only Movie and Episode items are supported")
 	}
-	if len(item.MediaSources) == 0 {
-		return domain.EmbyItem{}, domain.MediaSource{}, 0, failure(502, "media_source_unavailable", "Emby did not return a media source")
-	}
-	seen := make(map[string]struct{}, len(item.MediaSources))
 	for _, source := range item.MediaSources {
 		if !validItemID(source.ID) || source.ID == "." || source.ID == ".." {
 			return domain.EmbyItem{}, domain.MediaSource{}, 0, failure(502, "emby_invalid_response", "Emby response was invalid")
 		}
-		if _, exists := seen[source.ID]; exists {
+	}
+	source, selectErr := media.SelectSource(item, requestedSource)
+	if selectErr != nil {
+		switch {
+		case errors.Is(selectErr, media.ErrMediaSourceSelectionRequired):
+			return domain.EmbyItem{}, domain.MediaSource{}, 0, failure(409, "media_source_selection_required", "a media source must be selected")
+		case errors.Is(selectErr, media.ErrMediaSourceNotFound):
+			return domain.EmbyItem{}, domain.MediaSource{}, 0, failure(409, "media_source_mismatch", "media source does not match the current item")
+		case errors.Is(selectErr, media.ErrMediaSourceUnavailable):
+			return domain.EmbyItem{}, domain.MediaSource{}, 0, failure(502, "media_source_unavailable", "Emby did not return a media source")
+		default:
 			return domain.EmbyItem{}, domain.MediaSource{}, 0, failure(502, "emby_invalid_response", "Emby response was invalid")
 		}
-		seen[source.ID] = struct{}{}
 	}
-	if len(item.MediaSources) > 1 {
-		return domain.EmbyItem{}, domain.MediaSource{}, 0, failure(409, "d2_multisource_unsupported", "multiple media sources are not supported by D2")
-	}
-	source := item.MediaSources[0]
-	if requestedSource != "" && requestedSource != source.ID {
-		return domain.EmbyItem{}, domain.MediaSource{}, 0, failure(409, "media_source_mismatch", "media source does not match the current item")
-	}
-	allowed, generation := s.allowlist.Allows(item.ID)
+	allowed, generation := s.gate.Allows(item.ID)
 	if !allowed {
-		return domain.EmbyItem{}, domain.MediaSource{}, 0, failure(403, "canary_item_not_allowed", "item is not allowed for the D2 Canary")
+		return domain.EmbyItem{}, domain.MediaSource{}, 0, failure(403, "canary_item_not_allowed", "item is not allowed for subtitle operations")
 	}
 	return item, source, generation, nil
+}
+
+func (s *Service) gateGeneration(itemID string) (uint64, error) {
+	if s == nil || s.gate == nil || !validItemID(itemID) {
+		return 0, failure(400, "invalid_request", "invalid item id")
+	}
+	allowed, generation := s.gate.Allows(itemID)
+	if !allowed {
+		return 0, failure(403, "canary_item_not_allowed", "item is not allowed for subtitle operations")
+	}
+	return generation, nil
 }
 
 func bindingWithoutLanguage(binding preview.Binding) preview.Binding {

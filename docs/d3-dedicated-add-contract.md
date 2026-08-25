@@ -1,6 +1,10 @@
 # D3 专用样本 Add 契约
 
-状态：专用样本 Add 的实现和 C92 真实验收已完成，Emby Web 与手机端实际客户端读取均已确认；验收记录见 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)。D3 只开放“把已经通过 D2 Validator 的 Artifact 添加到一个服务端 allowlist 专用样本”。Replace、Delete、Upload、批量处理和普通全库写入仍不在本阶段。
+状态：本文件保留 D3.1 专用样本 Add 的实现与 C92 真实验收记录，Emby Web 与手机端实际客户端读取均已确认；验收记录见 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)。Core A/B 已在本地实现日常 gate、正向多 source、Replace、Upload、可恢复 Delete 和 Restore；当前实现契约见 [ADR-008](adr/008-core-ab-daily-source-bound-recovery.md) 与 [Core A/B 实现评审](core-ab-implementation-review.md)，不代表已部署或完成新的真实 C92 综合验收。
+
+## 历史 D3.1 Canary 边界
+
+以下章节记录 D3.1 当时的专用 allowlist、单 source Add 和 C92 证据。Core A/B 继续复用其中的认证、Artifact、Item 锁、原子写入、Refresh、Hash、history 和 quarantine，但不再以“多 source 一律 409”或“只提供 Add”为当前源码行为。默认 `write_enabled=false`、最小可写 overlay、目录权限预检和部署授权仍保持有效。
 
 ## 入口与门禁
 

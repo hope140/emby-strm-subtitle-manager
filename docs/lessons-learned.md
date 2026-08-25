@@ -95,3 +95,9 @@ D3 首次写入不能把“文件存在”或“Refresh 返回 2xx”当作完�
 ## 19. D3 的可写 overlay 不等于媒体目录可写
 
 容器 `/media` 切换为 `RW=true` 后，宿主媒体目录仍可能是 `root:root 0755`，此时运行 UID `10001` 会在原子提交阶段得到 `permission denied`。真实 C92 Canary 只对 allowlist 指定的一个样本目录临时授予容器 UID 写权限，完成 Hash、Refresh、MediaStreams、字幕流和客户端核对后恢复原属主与 `0755`，再关闭 D3 overlay。后续部署必须把“精确目录权限预检”和“关闭后 `/media:ro`”作为独立证据，不能递归修改整个媒体库。
+
+## 20. 可恢复多 source 操作必须保存目录类别，不能保存或猜测路径
+
+STRM 的 Item.Path 和选中 MediaSource.Path 可以拥有不同的 basename 或目录。Inventory 因此只能在两个受 PathGuard 约束的范围内扫描；若同一个 sidecar basename 出现在不同安全位置，必须标记冲突并拒绝修改。
+
+Replace/Delete 的 history 若只在 Restore 时使用当前 source 的写入目录，会把原先位于 Item 目录的 sidecar 恢复到错误位置。Core A/B 的恢复记录只保存 `item` 或 `source` 目录类别，不保存媒体路径；Restore 重新读取当前 Item/source、核对 Hash 和无覆盖目标后才恢复。该规则由 `internal/inventory`、`internal/d3` 的回归测试和本地 Fake Emby 流程覆盖，真实多 source 客户端验收仍需单独完成。

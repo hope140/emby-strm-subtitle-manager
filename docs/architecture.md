@@ -1,12 +1,12 @@
 # SubBridge 当前架构
 
-本文只描述截至 2026 年 8 月 25 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容；完成度和后续优先级统一见 [当前状态与后续路线图](current-status-and-roadmap.md)。D1 的只读切片与 C92 部署、D2 单源后端真实 API Canary、D2.5 管理员认证和 D3.1 专用单源 Add 已通过相应验收。D3.1 已覆盖原子写入、Refresh/轮询、history/quarantine、字幕流、Emby Web 和手机端实际客户端读取，验收后恢复 closed 配置。多源读取与安全拒绝已经完成，但多源正向 Search、Fetch、Preview、Add 尚未实现；日常 Add、Replace、Delete、Upload、通用 Installer 和批量写入也仍属于后续阶段。
+本文只描述截至 2026 年 8 月 25 日已经由当前源码、自动化检查或真实运行确认的内容；完成度和后续优先级统一见 [当前状态与后续路线图](current-status-and-roadmap.md)。D1 的只读切片与 C92 部署、D2 单源后端真实 API Canary、D2.5 管理员认证和 D3.1 专用单源 Add 已通过相应验收。Core A/B 已在本地完成日常 gate、正向多 source Search→Fetch→Preview→Add、Upload、Replace、可恢复 Delete、History 与 Restore，并通过单元、Fake Emby 与最小浏览器 E2E；未部署或执行真实 C92 综合验收，默认 closed/只读运行边界不变。
 
 当前品牌、GitHub 仓库、Go module、构建二进制和新安装 Compose 示例统一使用 `SubBridge`/`subbridge`。已经验收的 C92 Compose project、镜像、容器、目录和 FRP proxy 保留旧技术标识，直到后续获得有功能收益的部署授权；历史报告不追溯改写当时的资源名称。
 
 ## D1 本地实现
 
-当前代码由 `cmd/server` 和以下内部模块组成：`config`（非密配置、服务端文件凭据与管理员 environment 校验）、`domain`（Emby 领域 DTO）、`embyclient`（D1/D2 只读调用与 D3 有界 Refresh）、`media`（MediaContext 与 MediaSource 选择）、`pathmap`（跨平台路径映射和目录安全边界）、`inventory`（字幕清单）、`d3`（专用样本 Add 的原子写入和恢复边界）、`httpui`（内嵌管理页面）以及 `httpapi`（认证、只读和 D3 写入路由）。
+当前代码由 `cmd/server` 和以下内部模块组成：`config`（非密配置、服务端文件凭据与管理员 environment 校验）、`domain`（Emby 领域 DTO）、`embyclient`（D1/D2 只读调用与 D3 有界 Refresh）、`media`（MediaContext 与 MediaSource 选择）、`pathmap`（跨平台路径映射和目录安全边界）、`inventory`（字幕清单与私有 resolver）、`preview`（Candidate/Artifact 与统一 Item gate）、`d3`（Add、Replace、Delete、Restore 的原子写入与恢复事务）、`httpui`（内嵌管理页面）以及 `httpapi`（认证、读写和历史路由）。
 
 服务还提供同源的内嵌 D1.5 只读 UI，并公开 7 个 GET API 路由，3 个运维路由和 4 个业务路由：
 
@@ -24,13 +24,13 @@ UI：  GET /
 
 `/livez` 只表示进程存活；`/readyz` 会对 Emby 发起受超时和缓存控制的真实只读探测；`/v1/health` 返回版本、功能开关和当前 Emby readiness 状态。业务路由始终由服务端使用 ItemID 重新查询 Emby。响应只投影展示字段，不暴露 Emby 绝对路径、字幕正文、认证参数或 STRM 内部地址。
 
-D1.5 UI 默认只浏览既有媒体库、Movie/Episode 混合分页、媒体详情和字幕清单；仅在 D3 Canary 明确开启、当前 Item 通过专用 allowlist 且 Artifact 已绑定时显示 Add 控件。发布版 UI 使用管理员用户名和密码登录，服务端签发短期 HttpOnly 会话 Cookie；密码和 CSRF Token 不进入 JavaScript 持久化存储，刷新后 UI 回到登录界面。CLI、定时任务和 CI 使用独立 Bearer Token。UI、静态资源和 API 必须保持同源。访问方式和公网 HTTP/HTTPS 边界见 [D1.5 最小只读 Web UI](d1.5-readonly-ui.md)，认证细节见 [D2.5 管理员认证](d2.5-admin-auth.md)。
+内嵌 UI 保留既有媒体库、Movie/Episode 混合分页、媒体详情和字幕清单布局。Core A/B 仅补选中 source 状态、Search/Fetch/Preview/Add、Upload、Replace、Delete、History 与 Restore 入口；不会重构媒体库层级、设置页、日志页或整体视觉。发布版 UI 使用管理员用户名和密码登录，服务端签发短期 HttpOnly 会话 Cookie；密码和 CSRF Token 不进入 JavaScript 持久化存储，刷新后 UI 回到登录界面。CLI、定时任务和 CI 使用独立 Bearer Token。UI、静态资源和 API 必须保持同源。访问方式和公网 HTTP/HTTPS 边界见 [D1.5 最小只读 Web UI](d1.5-readonly-ui.md)，认证细节见 [D2.5 管理员认证](d2.5-admin-auth.md)。
 
 应用 API Key 与独立的 identity secret 分离。identity secret 由 Inventory 用于生成稳定、不可逆的本地字幕标识，不能替代或复用 Emby API Key，也不会进入响应和普通日志。
 
-管理 API 使用独立的 `security.api_auth_token_file` Bearer Token，发布版 UI 使用私有 Compose environment 中的 `APP_ADMIN_USERNAME`、`APP_ADMIN_PASSWORD`。两个变量缺失或非法时服务启动失败，不回退到 Bearer-only UI。`POST /v1/auth/login` 只接受无 query 的 JSON 用户名和密码，成功后签发 `HttpOnly`、`SameSite=Lax`、固定 TTL 的内存会话和仅留在页面内存的 CSRF Token；会话服务重启即失效。`/livez` 与只返回极小状态的 `/readyz` 保持公开；除登录路由外的所有 `/v1/*` 路由均接受有效管理员会话或 `Authorization: Bearer <token>`。缺失或错误统一返回 401、`WWW-Authenticate: Bearer` 和脱敏错误 envelope。Bearer 不接受 query 参数，也不写入日志或响应，并且不能复用 Emby API Key、identity secret 或管理员密码。Bearer scope 由 `security.api_auth_scopes` 控制，媒体路由需要 `media:read`，Search 需要 `subtitle:search`，Fetch/Preview 需要 `subtitle:preview`，D3 Add 需要独立的 `subtitle:write`；缺少 scope 返回 403。D3 写入只有在 `write_enabled=true`、D2 开关、D3 allowlist、专用目录和可写 Compose overlay 同时满足时才注册，浏览器请求还必须通过 CSRF/同源校验。
+管理 API 使用独立的 `security.api_auth_token_file` Bearer Token，发布版 UI 使用私有 Compose environment 中的 `APP_ADMIN_USERNAME`、`APP_ADMIN_PASSWORD`。两个变量缺失或非法时服务启动失败，不回退到 Bearer-only UI。`POST /v1/auth/login` 只接受无 query 的 JSON 用户名和密码，成功后签发 `HttpOnly`、`SameSite=Lax`、固定 TTL 的内存会话和仅留在页面内存的 CSRF Token；会话服务重启即失效。`/livez` 与只返回极小状态的 `/readyz` 保持公开；除登录路由外的所有 `/v1/*` 路由均接受有效管理员会话或 `Authorization: Bearer <token>`。缺失或错误统一返回 401、`WWW-Authenticate: Bearer` 和脱敏错误 envelope。Bearer 不接受 query 参数，也不写入日志或响应，并且不能复用 Emby API Key、identity secret 或管理员密码。Bearer scope 由 `security.api_auth_scopes` 控制，媒体路由需要 `media:read`，Search 需要 `subtitle:search`，Fetch/Preview/Upload 需要 `subtitle:preview`，Add/Replace/Delete/History/Restore 需要独立的 `subtitle:write`；缺少 scope 返回 403。写入只有在 `write_enabled=true`、远程搜索开关、统一 Item gate、私有目录和可写 Compose overlay 同时满足时才注册；管理员浏览器的 Upload 以及所有 D3 写入请求还必须通过 CSRF/同源校验。
 
-MediaContext 对单源自动选择，对多源要求显式 `media_source_id`，不会猜测列表第一项。STRM 的 Inventory 和 PathMapper 始终使用 Emby Item.Path；非 STRM 只有本地 MediaSource.Path 可用时才使用它，远程 source path 只作为内部播放定位事实，不参与本地映射、目录检查、响应或日志。STRM 的 IsStrm 判断只看 Item.Path。即使多源共用同一个 Item.Path 的 STRM sidecar 目录，字幕流仍按选中的 MediaSource 保持隔离。PathMapper 支持 POSIX、Windows drive 和 UNC 形式，采用规范化、最长前缀匹配及目录 containment 检查；路径不安全、未映射或目录不可用时返回降级状态和稳定 warning。Inventory 只枚举受控目录、读取文件元数据并合并 Emby MediaStreams，绝不读取 STRM 内容、媒体正文或字幕正文。
+MediaContext 对单源自动选择，对多源要求显式 `media_source_id`，不会猜测列表第一项。STRM 的 Inventory 和 PathMapper 始终使用 Emby Item.Path；非 STRM 只有本地 MediaSource.Path 可用时才使用它，远程 source path 只作为内部播放定位事实，不参与本地映射、目录检查、响应或日志。Core A/B 同时保留当前 source 的安全映射路径：Inventory 只在 Item.Path 与所选 source 两个受控范围内扫描 sidecar，并在同 basename 指向多个位置时拒绝修改。STRM 的 IsStrm 判断只看 Item.Path。PathMapper 支持 POSIX、Windows drive 和 UNC 形式，采用规范化、最长前缀匹配及目录 containment 检查；路径不安全、未映射或目录不可用时返回降级状态和稳定 warning。Inventory 只读取文件元数据；D3 resolver 在锁内有界读取并校验目标字幕，绝不读取 STRM 内容或媒体正文。
 
 本地 `scripts/verify.ps1` 和 Linux 全包测试均已通过且无 skip；C92 的 Docker Compose schema/build、启动安全边界、`/readyz`、Bearer 认证和版本标签，以及 FRP 公网 HTTPS、单代理加密和公网应用端口防火墙边界另有部署证据。C92 真实版本组样本已补齐，客户端已固定请求 `AlternateMediaSources` 并通过本地回归测试；真实 API/source 对应和 D2 多源安全拒绝 Canary 已完成，但浏览器 UI source 点击和多源正向支持仍未完成，因此不能支撑真实多源搜索的支持声明；该缺口不阻断单源 D2。D3 C92 专用样本 Add 的 Docker、宿主目录权限、Hash、Refresh、字幕流、客户端读取和 closed 回滚另见 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)。
 
@@ -104,25 +104,29 @@ Gate 0 已经验证 Emby 能把成功 Fetch 的 Thunder 候选写入 STRM 同目
 
 ## V1 选择与代码路线
 
-## D3 专用样本 Add
+## Core A/B 字幕操作
 
-D3 只注册 `POST /v1/media/{itemId}/subtitles/add`。请求必须同时通过管理员会话 CSRF/同源校验或 `subtitle:write` Bearer scope、D3 Item allowlist、单 source 选择、D2 Artifact 绑定和 PathGuard containment。服务端在同目录创建临时文件并以非覆盖原子提交生成版本化 sidecar，随后调用官方 `POST /Items/{Id}/Refresh`，轮询选中 source 的 MediaStreams，最后写入 history；失败文件进入独立 quarantine。D3 overlay 仅临时提供 `/media:rw`，目标宿主目录仍须显式允许 UID `10001:10001` 写入，验收后恢复目录权限和 `/media:ro`。D3 真实 C92 Add、Refresh、字幕流、Emby Web 和手机端实际客户端读取已由 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)确认。Replace、Delete、Upload 和批量写入不属于本阶段。
+Core A/B 的当前实现由 [ADR-008](adr/008-core-ab-daily-source-bound-recovery.md) 固定。D2 Search、Fetch、Preview、Upload 与 D3 Add、Replace、Delete、History、Restore 共同使用显式 Item/source 绑定、统一 Item gate、管理员认证、scope/CSRF、Artifact、PathMapper/PathGuard 和 Item 锁。多 source 的所有操作重新读取当前 Item 并选择精确 source；单 source 可以省略 source。D3 只从 Inventory resolver 接收当前可管理字幕的 opaque ID，先验证 Hash 与文件状态，再进行非覆盖原子提交、Refresh/轮询、history 和 quarantine。
+
+Replace 仅在新版本可见后才归档旧版本，后续失败时恢复旧版本并隔离新版本。Delete 仅转移到媒体外 trash；Restore 在当前 Item/source 下重新解析目录、复核 archive/trash Hash、拒绝同名覆盖后恢复。Upload 只生成 PreviewArtifact，不直接落盘。私有 history 不保存媒体路径或上传原文件名；恢复位置以受限目录类别表示。默认 `remote_search_enabled=false`、`write_enabled=false` 仍保持关闭，日常模式与 Canary 都需要独立写入 overlay 和目录权限预检。
+
+该实现通过本地单元、Fake Emby 和浏览器 E2E 验证，尚未替代真实 C92 的多 source、文件系统权限、MediaStreams、字幕流和客户端综合验收。
 
 V1 通过 Emby Bridge 使用 Meiam Provider。Native Thunder 和 Native ASSRT 暂缓，详见 [ADR-001](adr/001-v1-uses-emby-remote-subtitle-bridge.md)。
 
-## D2-B1 后端实现
+## D2-B1 后端实现（历史单源 Canary 基线）
 
-D2-B1 在独立 `d2` Service 中实现 Search、Fetch、Preview 的后端闭环，并由 `config`、`embyclient`、`subtitleprovider`、`subtitle`、`preview` 和 `httpapi` 提供边界能力。默认开关关闭；启用时必须同时满足 Canary 和服务端 Item allowlist。每次操作重新读取包含 `AlternateMediaSources` 的 Item 详情，先合并并仅抑制主、备用字段之间重复的非空 source ID，同一字段内部的重复交给 source 校验，再执行单源 Movie/Episode 前置检查；多源统一 fail closed。
+D2-B1 在独立 `d2` Service 中实现 Search、Fetch、Preview 的后端闭环，并由 `config`、`embyclient`、`subtitleprovider`、`subtitle`、`preview` 和 `httpapi` 提供边界能力。本段记录原始单源 Canary 的证据；Core A/B 已以 [ADR-008](adr/008-core-ab-daily-source-bound-recovery.md) 取代“多源统一 fail closed”的运行时限制，但保留 source 结构无效、缺失、错误、重复和变化的安全拒绝。
 
 Remote Subtitle Bridge 只通过服务端 API Key 调用固定的两个 GET 接口。候选原始 ID 不进入 HTTP 响应、日志或 Artifact；Fetch 先做有界字幕校验和 canonical UTF-8 解析，再写入显式配置的专用稳定短期缓存。启用 D2 时 cache_dir 缺失、为根目录、与媒体映射双向 overlap 或通过 symlink/reparse point 到达其他位置都会 fail closed；启动同一缓存目录会回收旧 Artifact。Candidate/Artifact 绑定认证上下文、Item、source、语言和 allowlist generation，过期状态遵循一次 410、清理后 404 的无 tombstone 语义；成功 Fetch 重放复用 Artifact，Preview 只额外重读一次 Item，不重新 Fetch Provider。
 
-D2 HTTP API 接受有效管理员会话或现有 Bearer 自动化凭据，JSON 请求体上限为 8 KiB，并提供固定错误码、并发/频率限流和脱敏请求日志。D2 服务本身不注册 Save；Emby Refresh 和媒体写入只存在于独立、默认关闭的 D3 Add 服务。内嵌 UI 只在 health 明确报告开关启用、且当前选择单源 Movie/Episode 时展示候选、Fetch 与纯文本预览；D3 另外要求 allowlist 和已绑定 Artifact 才显示 Add。管理员密码和 Bearer 不进入 JavaScript 存储，Candidate Token、Artifact Token 和 CSRF Token 仅留在页面内存，页面刷新即回到登录界面。D2-B1 后端证据见 [D2-B1 后端实现评审](d2-b1-backend-implementation-review.md)，本地浏览器证据见 [D2-B2 UI 评审](d2-b2-readonly-ui-review.md)，D2.5 认证证据见 [D2.5 管理员认证](d2.5-admin-auth.md)。真实 C92 单源 Provider API Canary 已通过；仍缺 C92 管理 UI 的真实 Search→Fetch→Preview 点击验收和多源正向能力。
+D2 HTTP API 接受有效管理员会话或现有 Bearer 自动化凭据，JSON 请求体上限为 8 KiB，并提供固定错误码、并发/频率限流和脱敏请求日志。D2 不注册 Emby Remote Subtitle Save；Emby Refresh 和媒体写入只存在于独立、默认关闭的 D3 服务。内嵌 UI 只在 health 明确报告开关启用时显示当前已选 source 的候选、Fetch、预览与最小写入入口。管理员密码和 Bearer 不进入 JavaScript 存储，Candidate Token、Artifact Token 和 CSRF Token 仅留在页面内存，页面刷新即回到登录界面。D2-B1 后端证据见 [D2-B1 后端实现评审](d2-b1-backend-implementation-review.md)，本地浏览器证据见 [D2-B2 UI 评审](d2-b2-readonly-ui-review.md)，Core A/B 新证据见 [Core A/B 实现评审](core-ab-implementation-review.md)。真实 C92 单源 Provider API Canary 已通过；当前仍缺真实管理 UI、多 source 正向、文件写入和客户端综合验收。
 
 项目路线决策已经完成；上游完整构建基线仍有环境阻断和未验证项，但因为项目不采用 CSF 整仓运行时，这些缺口不再阻塞方案 B。ADR-002 已接受，选择新建轻量 Go 后端，选择性复用 ASS/SRT Parser 核心、语言与命名处理经验、相关测试思路、Emby HTTP 调用经验和少量无状态前端组件。
 
-ChineseSubFinder 的旧扫描器、Cloud/SubtitleBest 下载链、Provider Hub、Cron/PreJob、旧任务队列、按视频物理路径保存和视频 Hash 逻辑不进入新运行时。当前只实现了 Installer 的专用单源 Add 切片；日常 Add、Replace、Delete、Upload 和批量写入仍属于后续阶段。D2 UI 只覆盖搜索、Fetch 与预览，D3 UI 仅覆盖专用样本 Add。
+ChineseSubFinder 的旧扫描器、Cloud/SubtitleBest 下载链、Provider Hub、Cron/PreJob、旧任务队列、按视频物理路径保存和视频 Hash 逻辑不进入新运行时。Core A/B 已完成最小日常 Add、Replace、Delete、Upload、History/Restore UI；批量写入、自动下载和永久删除仍属于后续阶段。
 
-Phase 2 的交付顺序和默认部署边界已记录在 [ADR-003](adr/003-phase2-milestones-and-deployment.md)：D1 只读 Canary、D2 单源搜索预览和 D3 专用单源 Add 均已完成对应真实验收。[ADR-005](adr/005-conditional-d2-entry-without-live-multisource.md) 将多源正向支持保留为独立门禁；在该能力完成前，多源搜索继续安全拒绝，功能开关默认关闭。详细完成度和后续里程碑见 [当前状态与后续路线图](current-status-and-roadmap.md)。
+Phase 2 的历史交付顺序和默认部署边界已记录在 [ADR-003](adr/003-phase2-milestones-and-deployment.md)：D1 只读 Canary、D2 单源搜索预览和 D3 专用单源 Add 均已完成对应真实验收。Core A/B 的本地多 source 和可恢复写入实现由 [ADR-008](adr/008-core-ab-daily-source-bound-recovery.md) 补充；真实正向支持的独立部署/验收门禁仍未解除，功能开关默认关闭。详细完成度和后续里程碑见 [当前状态与后续路线图](current-status-and-roadmap.md)。
 
 ## 证据
 
@@ -130,6 +134,8 @@ Phase 2 的交付顺序和默认部署边界已记录在 [ADR-003](adr/003-phase
 - [总体规划](../SubBridge_Master_Plan_Revised.md)
 - [ADR-002：项目代码路线](adr/002-project-codebase-route.md)
 - [ADR-005：缺少真实多源样本时有条件进入 D2](adr/005-conditional-d2-entry-without-live-multisource.md)
+- [ADR-008：Core A/B 日常模式、显式 source 绑定与可恢复字幕操作](adr/008-core-ab-daily-source-bound-recovery.md)
+- [Core A/B 实现评审](core-ab-implementation-review.md)
 - [D2-B1 后端实现评审](d2-b1-backend-implementation-review.md)
 - [Phase 1 基线报告](../BASELINE.md)
 - [ChineseSubFinder 复用矩阵](../CSF_REUSE_MATRIX.md)

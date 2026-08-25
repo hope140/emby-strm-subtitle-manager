@@ -21,12 +21,17 @@
     previewCues: [],
     previewHasNext: false,
     previewOffsets: [0],
-    previewLimit: 200
+    previewLimit: 200,
+    inventory: null
   };
   const d3 = {
     writeEnabled: false,
     csrfToken: "",
-    addBusy: false
+    addBusy: false,
+    uploadBusy: false,
+    operationBusy: false,
+    historyRequestID: 0,
+    history: []
   };
 
   const elements = {
@@ -49,6 +54,9 @@
     d2Actions: document.getElementById("d2-actions"),
     d2Forced: document.getElementById("d2-forced"),
     d2Search: document.getElementById("d2-search"),
+    d2UploadFile: document.getElementById("d2-upload-file"),
+    d2Upload: document.getElementById("d2-upload"),
+    d2UploadStatus: document.getElementById("d2-upload-status"),
     d2Results: document.getElementById("d2-results"),
     d2ResultStatus: document.getElementById("d2-result-status"),
     d2Candidates: document.getElementById("d2-candidates"),
@@ -62,7 +70,11 @@
     d2Cues: document.getElementById("d2-cues"),
     d3Add: document.getElementById("d3-add"),
     d3AddButton: document.getElementById("d3-add-button"),
-    d3AddStatus: document.getElementById("d3-add-status")
+    d3AddStatus: document.getElementById("d3-add-status"),
+    d3History: document.getElementById("d3-history"),
+    d3HistoryReload: document.getElementById("d3-history-reload"),
+    d3HistoryStatus: document.getElementById("d3-history-status"),
+    d3HistoryList: document.getElementById("d3-history-list")
   };
 
   const safeMessages = {
@@ -71,14 +83,14 @@
     login_rate_limited: "登录尝试过于频繁，请稍后重试。",
     admin_login_unavailable: "管理员登录尚未配置，请检查 APP_ADMIN_USERNAME 和 APP_ADMIN_PASSWORD。",
     session_unavailable: "管理员会话暂时不可用，请稍后重试。",
-    remote_search_disabled: "远程搜索未启用，请联系管理员确认 D2 Canary 状态。",
-    canary_item_not_allowed: "当前媒体未获准进行 D2 预览，请选择已授权的单源 Movie 或 Episode。",
+    remote_search_disabled: "远程搜索未启用，请联系管理员确认功能开关。",
+    canary_item_not_allowed: "当前媒体未获准进行字幕操作，请选择已授权媒体。",
     media_not_found: "媒体不存在或已不可用。",
     candidate_invalid: "候选已失效，请重新搜索。",
     artifact_invalid: "预览已失效，请重新获取候选。",
     candidate_expired: "候选已过期，请重新搜索。",
     artifact_expired: "预览已过期，请重新获取候选。",
-    d2_multisource_unsupported: "当前媒体包含多个媒体源，D2 只支持单源 Movie 或 Episode。",
+    media_source_selection_required: "当前媒体有多个版本，请先明确选择一个媒体源。",
     media_source_mismatch: "媒体源已变化，请重新选择媒体详情。",
     subtitle_too_large: "字幕内容超过预览大小限制，请选择其他候选。",
     subtitle_invalid: "字幕内容无法安全解析，请选择其他候选。",
@@ -96,10 +108,22 @@
     write_disabled: "写入功能未启用，请联系管理员确认 D3 专用样本状态。",
     csrf_required: "当前会话的安全校验已失效，请重新登录。",
     csrf_origin_invalid: "请求来源未通过安全校验。",
-    d3_item_not_allowed: "当前媒体不是 D3 专用样本。",
+    d3_item_not_allowed: "当前媒体未获准进行字幕写入操作。",
     emby_refresh_failed: "Emby 刷新失败，新文件已隔离。",
     emby_subtitle_not_visible: "Emby 未识别新字幕，新文件已隔离。",
-    d3_history_unavailable: "写入记录失败，新文件已隔离。"
+    d3_history_unavailable: "操作记录暂时不可用，请稍后重试。",
+    subtitle_unmanageable: "该字幕不是可安全管理的外挂字幕。",
+    subtitle_inventory_incomplete: "字幕清单不完整，已拒绝写入操作。",
+    subtitle_not_found: "目标字幕已变化，请重新打开详情。",
+    operation_conflict: "此操作已被用于不同请求，请重新操作。",
+    operation_not_found: "未找到可恢复的操作记录。",
+    restore_unavailable: "该操作当前不能恢复。",
+    restore_target_conflict: "恢复目标已有同名字幕，未覆盖现有文件。",
+    restore_hash_mismatch: "恢复副本校验失败，未执行恢复。",
+    subtitle_archive_failed: "旧字幕归档失败，未完成替换。",
+    subtitle_trash_failed: "字幕移入回收区失败，未删除原文件。",
+    restore_failed: "字幕恢复失败，原文件未被覆盖。",
+    write_verification_failed: "字幕写入后校验失败，文件已隔离。"
   };
 
   function setText(element, value) {
@@ -171,6 +195,8 @@
     d3.writeEnabled = false;
     d3.csrfToken = "";
     d3.addBusy = false;
+    d3.uploadBusy = false;
+    d3.operationBusy = false;
     fillLibraries([]);
     resetPage();
     resetD2ForItem("", false);
@@ -218,6 +244,25 @@
       headers,
       credentials: "same-origin",
       body: JSON.stringify(body),
+      cache: "no-store"
+    });
+    const payload = await parseResponse(response);
+    if (!response.ok) {
+      if (response.status === 401) expireSession();
+      const errorBody = payload && payload.error ? payload.error : {};
+      throw makeError(errorBody.code, response.status, parseRetryAfter(response));
+    }
+    return payload;
+  }
+
+  async function apiMultipart(resource, formData) {
+    const headers = {};
+    if (d3.csrfToken) headers["X-CSRF-Token"] = d3.csrfToken;
+    const response = await fetch(resource, {
+      method: "POST",
+      headers,
+      credentials: "same-origin",
+      body: formData,
       cache: "no-store"
     });
     const payload = await parseResponse(response);
@@ -346,6 +391,8 @@
   }
 
   function renderSubtitles(detail, inventory) {
+    const previous = detail.querySelector(".subtitles");
+    if (previous) previous.remove();
     const section = document.createElement("section");
     section.className = "subtitles";
     const heading = document.createElement("h3");
@@ -378,6 +425,24 @@
         setText(facts, flags.join(" · "));
         card.appendChild(facts);
         if (subtitle.unmanageable_reason) addMessages(card, "状态说明", [subtitle.unmanageable_reason], "warning-list");
+        if (d3.writeEnabled && d2.media && d2.media.media_source_id && subtitle.manageable === true) {
+          const actions = document.createElement("div");
+          actions.className = "subtitle-actions";
+          const replace = document.createElement("button");
+          replace.type = "button";
+          setText(replace, d2.artifact ? "用当前预览替换" : "先获取字幕预览");
+          replace.disabled = !d2.artifact || d3.operationBusy;
+          replace.addEventListener("click", () => replaceSubtitle(subtitle));
+          actions.appendChild(replace);
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.className = "secondary";
+          setText(remove, "移入回收区");
+          remove.disabled = d3.operationBusy;
+          remove.addEventListener("click", () => deleteSubtitle(subtitle));
+          actions.appendChild(remove);
+          card.appendChild(actions);
+        }
         section.appendChild(card);
       });
     }
@@ -489,6 +554,8 @@
     setVisible(elements.d3Add, false);
     clearText(elements.d3AddStatus);
     elements.d3AddButton.disabled = false;
+    clearText(elements.d2UploadStatus);
+    elements.d2Upload.disabled = false;
     elements.d2PreviewPrevious.disabled = true;
     elements.d2PreviewNext.disabled = true;
   }
@@ -496,6 +563,7 @@
   function resetD2ForItem(itemID, multipleSources) {
     d2.itemID = itemID;
     d2.media = null;
+    d2.inventory = null;
     d2.multipleSources = multipleSources;
     d2.candidates = [];
     d2.searchRequestID += 1;
@@ -506,6 +574,11 @@
     setVisible(elements.d2Panel, false);
     clearError(elements.d2Status);
     setVisible(elements.d2Actions, false);
+    d3.historyRequestID += 1;
+    d3.history = [];
+    clear(elements.d3HistoryList);
+    clearText(elements.d3HistoryStatus);
+    setVisible(elements.d3History, false);
   }
 
   function renderD2Gate(media, itemID, multipleSources) {
@@ -526,15 +599,11 @@
       setText(elements.d2Status, "远程搜索未启用，搜索、Fetch 和预览控件暂不可用。");
       return;
     }
-    if (multipleSources) {
-      setText(elements.d2Status, safeMessages.d2_multisource_unsupported);
-      return;
-    }
     if (!media || (media.type !== "Movie" && media.type !== "Episode") || !media.media_source_id) {
-      setText(elements.d2Status, "请选择一个有效的单源 Movie 或 Episode 详情。");
+      setText(elements.d2Status, multipleSources ? safeMessages.media_source_selection_required : "请选择一个有效的 Movie 或 Episode 详情。");
       return;
     }
-    setText(elements.d2Status, "已选定单源媒体，可以搜索 zh-CN 候选。");
+    setText(elements.d2Status, "当前媒体源：" + (media.media_source_name || "已选择") + "。可以搜索 zh-CN 候选。");
     setVisible(elements.d2Actions, true);
   }
 
@@ -546,7 +615,7 @@
   }
 
   async function searchD2() {
-    if (!d2.remoteSearchEnabled || !d2.media || d2.multipleSources || !d2.itemID) return;
+    if (!d2.remoteSearchEnabled || !d2.media || !d2.media.media_source_id || !d2.itemID) return;
     const requestID = d2.searchRequestID + 1;
     d2.searchRequestID = requestID;
     elements.d2Search.disabled = true;
@@ -557,6 +626,7 @@
     clearText(elements.d2ResultStatus);
     setVisible(elements.d2Results, true);
     clearPreview();
+    if (d2.inventory) renderSubtitles(elements.detail, d2.inventory);
     try {
       const response = await apiPost("/v1/media/" + encodeURIComponent(d2.itemID) + "/subtitles/search", {
         media_source_id: d2.media.media_source_id,
@@ -586,6 +656,39 @@
       setVisible(elements.d2Results, false);
     } finally {
       if (requestID === d2.searchRequestID) elements.d2Search.disabled = false;
+    }
+  }
+
+  async function uploadD2() {
+    if (d3.uploadBusy || !d2.remoteSearchEnabled || !d2.itemID || !d2.media || !d2.media.media_source_id) return;
+    const file = elements.d2UploadFile.files && elements.d2UploadFile.files[0];
+    if (!file) {
+      setText(elements.d2UploadStatus, "请选择一个 .srt、.ass 或 .ssa 字幕文件。");
+      return;
+    }
+    clearPreview();
+    d3.uploadBusy = true;
+    elements.d2Upload.disabled = true;
+    clearError(elements.d2UploadStatus);
+    setText(elements.d2UploadStatus, "正在校验本地字幕…");
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      body.append("media_source_id", d2.media.media_source_id);
+      body.append("language", "zh-CN");
+      const response = await apiMultipart("/v1/media/" + encodeURIComponent(d2.itemID) + "/subtitles/upload", body);
+      d2.artifact = response;
+      renderArtifact(response);
+      setText(elements.d2UploadStatus, "本地字幕已校验，正在加载纯文本预览。");
+      await loadPreview(0, false);
+      if (d3.writeEnabled) loadD3History();
+    } catch (error) {
+      markRemoteSearchDisabled(error);
+      setError(elements.d2UploadStatus, error);
+    } finally {
+      d3.uploadBusy = false;
+      elements.d2Upload.disabled = false;
+      elements.d2UploadFile.value = "";
     }
   }
 
@@ -628,6 +731,7 @@
     setText(elements.d2PreviewStatus, "准备预览…");
     setVisible(elements.d3Add, d3.writeEnabled && Boolean(d2.media && d2.media.media_source_id));
     clearText(elements.d3AddStatus);
+    if (d2.inventory) renderSubtitles(elements.detail, d2.inventory);
   }
 
   function newOperationID() {
@@ -647,13 +751,157 @@
         media_source_id: d2.media.media_source_id,
         operation_id: newOperationID()
       });
-      setText(elements.d3AddStatus, "已添加，Emby 已刷新并确认字幕可见。请重新打开详情查看清单。 ");
+      setText(elements.appStatus, "字幕已添加，Emby 已刷新并确认可见。");
+      await reloadCurrentDetail();
     } catch (error) {
       setError(elements.d3AddStatus, error);
     } finally {
       d3.addBusy = false;
       elements.d3AddButton.disabled = false;
     }
+  }
+
+  async function replaceSubtitle(subtitle) {
+    if (d3.operationBusy || !d3.writeEnabled || !d2.artifact || !d2.itemID || !d2.media || !d2.media.media_source_id || !subtitle || !subtitle.id) return;
+    const itemID = d2.itemID;
+    const sourceID = d2.media.media_source_id;
+    d3.operationBusy = true;
+    setText(elements.appStatus, "正在替换、刷新并核验字幕…");
+    if (d2.inventory) renderSubtitles(elements.detail, d2.inventory);
+    try {
+      await apiPost("/v1/media/" + encodeURIComponent(itemID) + "/subtitles/" + encodeURIComponent(subtitle.id) + "/replace", {
+        artifact_token: d2.artifact.artifact_token,
+        media_source_id: sourceID,
+        operation_id: newOperationID()
+      });
+      setText(elements.appStatus, "字幕已替换，旧版本已归档，可在操作历史中恢复。");
+      await reloadCurrentDetail();
+    } catch (error) {
+      setError(elements.appStatus, error);
+    } finally {
+      d3.operationBusy = false;
+      if (d2.inventory) renderSubtitles(elements.detail, d2.inventory);
+    }
+  }
+
+  async function deleteSubtitle(subtitle) {
+    if (d3.operationBusy || !d3.writeEnabled || !d2.itemID || !d2.media || !d2.media.media_source_id || !subtitle || !subtitle.id) return;
+    if (!window.confirm("此操作会将该字幕移入可恢复回收区，不会永久删除。继续吗？")) return;
+    const itemID = d2.itemID;
+    const sourceID = d2.media.media_source_id;
+    d3.operationBusy = true;
+    setText(elements.appStatus, "正在移入回收区、刷新并核验…");
+    if (d2.inventory) renderSubtitles(elements.detail, d2.inventory);
+    try {
+      await apiPost("/v1/media/" + encodeURIComponent(itemID) + "/subtitles/" + encodeURIComponent(subtitle.id) + "/delete", {
+        media_source_id: sourceID,
+        operation_id: newOperationID()
+      });
+      setText(elements.appStatus, "字幕已移入回收区，可在操作历史中恢复。");
+      await reloadCurrentDetail();
+    } catch (error) {
+      setError(elements.appStatus, error);
+    } finally {
+      d3.operationBusy = false;
+      if (d2.inventory) renderSubtitles(elements.detail, d2.inventory);
+    }
+  }
+
+  function operationLabel(value) {
+    switch (value) {
+      case "add": return "添加";
+      case "upload": return "上传校验";
+      case "replace": return "替换";
+      case "delete": return "移入回收区";
+      case "restore": return "恢复";
+      default: return "操作";
+    }
+  }
+
+  function renderD3History() {
+    clear(elements.d3HistoryList);
+    if (!Array.isArray(d3.history) || d3.history.length === 0) {
+      setText(elements.d3HistoryStatus, "当前媒体还没有可展示的操作记录。");
+      return;
+    }
+    setText(elements.d3HistoryStatus, "显示 " + d3.history.length + " 条操作记录。");
+    d3.history.forEach((operation) => {
+      const card = document.createElement("article");
+      card.className = "history-item";
+      addText(card, operationLabel(operation.type), "type-badge");
+      addText(card, operation.status === "verified" ? "已核验" : "已校验", "status-badge");
+      if (operation.file_name) addText(card, operation.file_name, "item-title");
+      const facts = document.createElement("p");
+      facts.className = "muted";
+      const values = [];
+      if (operation.language) values.push(operation.language);
+      if (operation.format) values.push(operation.format);
+      if (operation.created_at) values.push(formatDate(operation.created_at));
+      setText(facts, values.join(" · ") || "安全操作摘要");
+      card.appendChild(facts);
+      if ((operation.type === "replace" || operation.type === "delete") && operation.status === "verified") {
+        const restore = document.createElement("button");
+        restore.type = "button";
+        restore.className = "secondary";
+        setText(restore, "恢复旧字幕");
+        restore.disabled = d3.operationBusy;
+        restore.addEventListener("click", () => restoreOperation(operation));
+        card.appendChild(restore);
+      }
+      elements.d3HistoryList.appendChild(card);
+    });
+  }
+
+  async function loadD3History() {
+    if (!d3.writeEnabled || !d2.itemID || !d2.media || !d2.media.media_source_id) {
+      setVisible(elements.d3History, false);
+      return;
+    }
+    const requestID = ++d3.historyRequestID;
+    setVisible(elements.d3History, true);
+    clearError(elements.d3HistoryStatus);
+    setText(elements.d3HistoryStatus, "加载操作历史…");
+    try {
+      const response = await apiGet("/v1/subtitle-operations?item_id=" + encodeURIComponent(d2.itemID));
+      if (requestID !== d3.historyRequestID) return;
+      const operations = Array.isArray(response.operations) ? response.operations : [];
+      // The endpoint intentionally returns the current Item's safe history.
+      // Keep the active UI source-bound so a restore control is never offered
+      // for another version by accident.
+      d3.history = operations.filter((operation) => operation && operation.media_source_id === d2.media.media_source_id);
+      renderD3History();
+    } catch (error) {
+      if (requestID !== d3.historyRequestID) return;
+      d3.history = [];
+      clear(elements.d3HistoryList);
+      setError(elements.d3HistoryStatus, error);
+    }
+  }
+
+  async function restoreOperation(operation) {
+    if (d3.operationBusy || !operation || !operation.operation_id || !d2.media || !d2.media.media_source_id) return;
+    if (!window.confirm("恢复不会覆盖同名现有字幕；发生冲突时会安全拒绝。继续吗？")) return;
+    d3.operationBusy = true;
+    setText(elements.appStatus, "正在恢复、刷新并核验字幕…");
+    renderD3History();
+    try {
+      await apiPost("/v1/subtitle-operations/" + encodeURIComponent(operation.operation_id) + "/restore", {
+        media_source_id: d2.media.media_source_id,
+        operation_id: newOperationID()
+      });
+      setText(elements.appStatus, "旧字幕已恢复，Emby 已刷新并确认可见。");
+      await reloadCurrentDetail();
+    } catch (error) {
+      setError(elements.appStatus, error);
+    } finally {
+      d3.operationBusy = false;
+      renderD3History();
+    }
+  }
+
+  async function reloadCurrentDetail() {
+    if (!d2.itemID || !d2.media || !d2.media.media_source_id) return;
+    await loadDetail(d2.itemID, d2.media.media_source_id);
   }
 
   function formatCueTime(value) {
@@ -772,8 +1020,10 @@
       renderDetail(media, itemID, mediaSourceID);
       const subtitles = await apiGet("/v1/media/" + encodeURIComponent(itemID) + "/subtitles" + query);
       if (requestID !== detailRequestID) return;
-      renderSubtitles(elements.detail, subtitles.inventory || {});
       renderD2Gate(media, itemID, Boolean(mediaSourceID && knownMultiSourceItems.has(itemID)));
+      d2.inventory = subtitles.inventory || {};
+      renderSubtitles(elements.detail, d2.inventory);
+      if (d3.writeEnabled) loadD3History();
     } catch (error) {
       if (requestID !== detailRequestID) return;
       clear(elements.detail);
@@ -781,7 +1031,7 @@
       if (Array.isArray(error.mediaSources)) {
         knownMultiSourceItems.add(itemID);
         const heading = document.createElement("p");
-        setText(heading, "此媒体有多个媒体源，请明确选择后查看详情。D2 只支持单源媒体。");
+        setText(heading, "此媒体有多个媒体源，请明确选择一个版本后再进行字幕操作。");
         elements.detail.appendChild(heading);
         error.mediaSources.forEach((source) => elements.detail.appendChild(sourceButton(source, (sourceID) => loadDetail(itemID, sourceID))));
       } else {
@@ -803,7 +1053,7 @@
     addDetailRow(grid, "季 / 集", media.season != null && media.episode != null ? "S" + media.season + "E" + media.episode : "—");
     addDetailRow(grid, "年份", media.year);
     addDetailRow(grid, "STRM", media.is_strm ? "是" : "否");
-    addDetailRow(grid, "媒体源", mediaSourceID || media.media_source_id ? "已选择" : "未选择");
+    addDetailRow(grid, "媒体源", media.media_source_name || (mediaSourceID || media.media_source_id ? "已选择" : "未选择"));
     addDetailRow(grid, "映射状态", media.mapping_status);
     elements.detail.appendChild(grid);
     addStatus(elements.detail, "媒体上下文完整性", media.inventory_complete ? "完整" : "不完整", media.inventory_complete === true);
@@ -863,9 +1113,11 @@
     loadItems();
   });
   elements.d2Search.addEventListener("click", () => searchD2());
+  elements.d2Upload.addEventListener("click", () => uploadD2());
   elements.d2PreviewLimit.addEventListener("change", () => changePreviewLimit());
   elements.d2PreviewPrevious.addEventListener("click", () => previewPrevious());
   elements.d2PreviewNext.addEventListener("click", () => previewNext());
   elements.d2PreviewReset.addEventListener("click", () => previewReset());
   elements.d3AddButton.addEventListener("click", () => addD3());
+  elements.d3HistoryReload.addEventListener("click", () => loadD3History());
 })();

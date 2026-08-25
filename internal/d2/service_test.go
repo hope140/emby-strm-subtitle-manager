@@ -96,23 +96,76 @@ func TestD2DisabledFailsBeforeEmbyOrProvider(t *testing.T) {
 	}
 }
 
-func TestD2MultisourceFailsClosedForAllOperations(t *testing.T) {
+func TestD2CompatibilityAllowlistDoesNotBypassDisabledCanary(t *testing.T) {
+	fake := &serviceFakeEmby{item: singleMovie()}
+	provider := &serviceFakeProvider{}
+	service, err := New(Options{
+		RemoteSearchEnabled: true,
+		CanaryEnabled:       false,
+		Allowlist:           preview.NewAllowlist([]string{"movie-1"}),
+		Emby:                fake,
+		Provider:            provider,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.Enabled() {
+		t.Fatal("allowlist must not enable D2 while compatibility Canary is disabled")
+	}
+	if _, err := service.Search(context.Background(), "movie-1", SearchRequest{}); !hasD2Code(err, "remote_search_disabled") {
+		t.Fatalf("Search error = %v", err)
+	}
+	if fake.calls.Load() != 0 || provider.searchCalls.Load() != 0 {
+		t.Fatalf("disabled compatibility path made calls: item=%d search=%d", fake.calls.Load(), provider.searchCalls.Load())
+	}
+}
+
+func TestD2MultisourceRequiresExplicitSourceAndKeepsTokenBound(t *testing.T) {
 	item := singleMovie()
 	item.MediaSources = []domain.MediaSource{{ID: "source-a"}, {ID: "source-b"}}
 	fake := &serviceFakeEmby{item: item}
-	provider := &serviceFakeProvider{}
+	provider := &serviceFakeProvider{
+		searchItems: []subtitleprovider.Candidate{{RawID: "candidate-b", Provider: "Bridge", Language: "zh-CN", Format: "srt"}},
+		fetch:       map[string]subtitleprovider.FetchResult{"candidate-b": {Content: []byte("1\n00:00:01,000 --> 00:00:02,000\n多源\n"), Attempts: 1}},
+	}
 	service, _ := enabledService(t, fake, provider)
-	if _, err := service.Search(context.Background(), "movie-1", SearchRequest{MediaSourceID: "source-b"}); !hasD2Code(err, "d2_multisource_unsupported") {
+	if _, err := service.Search(context.Background(), "movie-1", SearchRequest{}); !hasD2Code(err, "media_source_selection_required") {
 		t.Fatalf("Search error = %v", err)
 	}
-	if _, err := service.Fetch(context.Background(), "movie-1", FetchRequest{CandidateToken: "opaque"}); !hasD2Code(err, "d2_multisource_unsupported") {
-		t.Fatalf("Fetch error = %v", err)
+	if provider.searchCalls.Load() != 0 {
+		t.Fatal("unselected multi-source search reached provider")
 	}
-	if _, err := service.Preview(context.Background(), "movie-1", PreviewRequest{ArtifactToken: "opaque"}); !hasD2Code(err, "d2_multisource_unsupported") {
-		t.Fatalf("Preview error = %v", err)
+	search, err := service.Search(context.Background(), "movie-1", SearchRequest{MediaSourceID: "source-b"})
+	if err != nil || len(search.Candidates) != 1 {
+		t.Fatalf("explicit multi-source search = %#v err=%v", search, err)
 	}
-	if provider.searchCalls.Load() != 0 || provider.fetchCalls.Load() != 0 {
-		t.Fatal("multi-source path reached provider")
+	fetched, err := service.Fetch(context.Background(), "movie-1", FetchRequest{CandidateToken: search.Candidates[0].Token})
+	if err != nil || fetched.ArtifactToken == "" {
+		t.Fatalf("multi-source fetch = %#v err=%v", fetched, err)
+	}
+	previewed, err := service.Preview(context.Background(), "movie-1", PreviewRequest{ArtifactToken: fetched.ArtifactToken})
+	if err != nil || len(previewed.Cues) != 1 || previewed.Cues[0].Text != "多源" {
+		t.Fatalf("multi-source preview = %#v err=%v", previewed, err)
+	}
+}
+
+func TestD2DailyGateAndUploadCreatePreviewArtifact(t *testing.T) {
+	fake := &serviceFakeEmby{item: singleMovie()}
+	store, err := preview.NewArtifactStore(preview.ArtifactStoreOptions{Directory: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(Options{Config: config.D2Config{DefaultLanguage: "zh-CN"}, RemoteSearchEnabled: true, Gate: preview.NewDailyGate(), Emby: fake, ArtifactStore: store, AuthContext: "test-auth"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uploaded, err := service.Upload(context.Background(), "movie-1", UploadRequest{MediaSourceID: "source-1", Language: "zh-CN", Content: []byte("1\n00:00:01,000 --> 00:00:02,000\n本地上传\n")})
+	if err != nil || uploaded.Provider != "upload" || !uploaded.PreviewReady {
+		t.Fatalf("upload = %#v err=%v", uploaded, err)
+	}
+	previewed, err := service.Preview(context.Background(), "movie-1", PreviewRequest{ArtifactToken: uploaded.ArtifactToken})
+	if err != nil || len(previewed.Cues) != 1 || previewed.Cues[0].Text != "本地上传" {
+		t.Fatalf("upload preview = %#v err=%v", previewed, err)
 	}
 }
 

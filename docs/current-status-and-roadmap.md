@@ -9,7 +9,7 @@
 - **部分完成**：底层能力或安全拒绝已经完成，但正向产品流程、真实客户端或分发体验仍有缺口。
 - **待做**：尚无可交付实现，主计划中的描述仍只是目标。
 
-“D3 已完成”在当前项目中只指 [ADR-003](adr/003-phase2-milestones-and-deployment.md) 定义的**专用单源 Add Canary**。它不代表 Phase 4 的 Replace、Delete、Upload 和日常全库写入已经完成。
+历史报告中的“D3 已完成”只指 [ADR-003](adr/003-phase2-milestones-and-deployment.md) 定义的**专用单源 Add Canary**。Core A/B 已在本地源码、Fake Emby 和最小浏览器 E2E 中实现日常受控模式、多 source、Replace、Upload、可恢复 Delete 和 Restore；它仍不代表已经部署或完成真实 C92 综合验收。
 
 ## 已完成
 
@@ -23,6 +23,7 @@
 | D2.5 管理员认证 | Compose environment 用户名密码、HttpOnly 会话、CSRF、自动化 Bearer scope 和 C92 登录验收已完成 | [D2.5 管理员认证](d2.5-admin-auth.md) |
 | 多源识别与安全拒绝 | Emby 4.9.x `AlternateMediaSources` 读取、source 对应核对和 D2 多源 `409` fail-closed 已完成 | [多源真实 API Canary](d2-multisource-c92-canary-acceptance-20260825.md) |
 | D3.1 专用单源 Add | Artifact 绑定、Item 锁、幂等、原子非覆盖写入、Refresh/轮询、history/quarantine、Hash、字幕流和真实客户端读取已完成 | [D3 Add 契约](d3-dedicated-add-contract.md)、[D3 C92 Canary](d3-c92-canary-acceptance-20260825.md) |
+| Core A/B 本地实现 | 日常 gate、显式多 source Search→Fetch→Preview→Add、Upload→PreviewArtifact、Replace、可恢复 Delete、History/Restore 与最小 UI 已完成 | [Core A/B 实现评审](core-ab-implementation-review.md)、[ADR-008](adr/008-core-ab-daily-source-bound-recovery.md) |
 
 D3.1 的客户端证据包含两层：自动化控制的 Emby Web 播放器读取，以及环境负责人在手机端进行的独立实际播放确认。手机端结果由用户在 2026-08-25 明确确认；未保存账号、媒体名称、Item ID、截图或客户端私有数据。
 
@@ -31,37 +32,34 @@ D3.1 的客户端证据包含两层：自动化控制的 Emby Web 播放器读�
 | 能力 | 已有部分 | 仍缺什么 |
 |---|---|---|
 | D2 真实管理 UI | 本地 Fake Emby 浏览器 E2E、真实 C92 API Search→Fetch→Preview 已通过 | 真实 C92 管理 UI 中完整点击 Search→Fetch→Preview 尚未形成独立验收报告 |
-| 多 MediaSource | D1 可读取和显式选择 source，D2 会安全拒绝多源 | 多源正向 Search、Fetch、Preview、Add 的 source 绑定和真实 UI 流程尚未实现；不能宣称支持多源字幕写入 |
-| Add 日常使用 | 专用 allowlist 单源 Canary 已完整通过 | 仍需把一次性 Canary 变成管理员可长期使用的受控模式，解决普通 Compose 配置、目标目录可写性预检、授权范围和清晰错误提示 |
-| V1 管理 UI | 浏览、清单、搜索预览和专用 Add 控件已有基础 | Replace、Upload、可恢复 Delete、历史/恢复入口、Provider 状态和面向发布镜像的设置说明未完成 |
+| 多 MediaSource | 本地实现已要求显式 source，并在 Fake Emby/浏览器 E2E 覆盖正向流程 | 真实 C92 多 source、浏览器 UI、Refresh/字幕流和客户端对应验收尚未执行；不得把本地证据扩大为线上支持声明 |
+| Add 日常使用 | 日常 gate、写入 overlay 示例、目标目录隔离、scope/CSRF 和清晰稳定错误码已完成本地实现 | 仍需独立授权后做普通 Compose/实际目录权限与真实运行验收 |
+| V1 管理 UI | 浏览、清单、搜索预览、Add、Replace、Upload、可恢复 Delete、历史/Restore 的最小入口已完成 | Provider 状态页、完整设置/日志页、媒体库层级重构和面向发布镜像的安装体验仍未完成 |
 | 公开分发 | 公开 GitHub 仓库、Dockerfile 和 Compose 示例已存在 | 尚无正式版本标签、GHCR/其他镜像发布、升级/回滚指南和面向新用户的端到端安装验收 |
 
 ## 尚未实现
 
-- Replace：指定一个 `Manageable` 字幕，写入新版本，验证成功后归档旧文件；失败时旧字幕必须继续可用。
-- Upload：限制大小并校验内容，忽略不可信原始文件名，由服务端生成最终文件名。
-- Delete：只接受服务端字幕 ID，默认移动到媒体库外回收目录，不做即时永久删除。
-- 正向多源写入：显式 source 选择、source 绑定、每个版本的字幕归属和客户端对应关系。
-- 正式操作历史与恢复 UI、Provider 状态页、发布版设置说明。
+- Core A/B 的真实 C92 综合验收：Movie、Episode、单源、多 source、字幕流和实际客户端读取，结束后恢复 closed/只读边界。
+- Provider 状态页、完整设置/日志页、发布版设置说明和正式镜像发布。
 - 缺字幕筛选、批量任务、自动下载、评分和时间轴校正；这些仍属于 V1 之后或独立研究线。
 
 ## 核心功能优先的压缩路线
 
 Core A/B 的接口、模块、恢复语义、自动化矩阵和执行边界已经固定在 [Core A/B 连续实施计划](core-ab-implementation-plan.md)。
 
-### Core A　完成搜索到 Add 的日常闭环
+### Core A　完成搜索到 Add 的日常闭环（本地实现完成）
 
 在同一个开发任务中完成日常 Add 和正向多源兼容，不再为单源、多源和管理 UI 点击分别建立独立版本。需要同时兼容“一个 Item 含多个 MediaSource”和“多个独立 Item”两种组织方式，明确绑定选中的 Item/source，再完成 Search→Fetch→Preview→Add。现有 UI 只增加完成闭环所需的最小控件，不调整媒体库层级和整体风格。
 
-### Core B　补齐字幕管理写操作
+### Core B　补齐字幕管理写操作（本地实现完成）
 
 在同一个开发任务中实现 Replace、Upload 和可恢复 Delete，共用现有 Item 锁、Artifact、Validator、原子写入、Refresh、Hash、history 和 quarantine。Replace 必须先验证新版本再归档旧字幕；Upload 忽略不可信文件名；Delete 默认移动到媒体库外回收目录，不执行即时永久删除。
 
-Core A 与 Core B 可以在同一核心开发会话连续完成，中间只做本地自动化和代码审核，不逐项部署。全部完成后再进行一次 Movie、Episode、单源、多源、字幕流和手机端的综合 C92 验收。
+Core A 与 Core B 已在同一核心开发会话连续完成，中间只做本地自动化和代码审核，未逐项部署。下一步只能在独立授权后进行一次 Movie、Episode、单源、多源、字幕流和手机端的综合 C92 验收。
 
 ### Core 0.x　核心测试版
 
-沿用当前 UI 架构，只补必要操作入口、错误提示和最小操作记录查询，发布一个核心功能测试版。Compose 继续作为设置来源；本阶段不开发完整设置页面，也不进行 Emby 风格的媒体库、电视剧、季、集、版本层级重构。
+沿用当前 UI 架构的必要操作入口、错误提示和最小操作记录查询已完成本地实现。Core 功能测试版仍需在真实验收后才能发布；Compose 继续作为设置来源，本阶段不开发完整设置页面，也不进行 Emby 风格的媒体库、电视剧、季、集、版本层级重构。
 
 ### UI/V1　界面重构与正式发布
 
@@ -78,6 +76,8 @@ Core A 与 Core B 可以在同一核心开发会话连续完成，中间只做�
 - 批量和自动下载不属于当前核心收口路径，不应提前占用 Core A、Core B 和 UI/V1 的实现范围。
 
 ## Knowledge Review
+
+2026-08-25 的 Core A/B 实施、文档分流和未验证范围见 [Core A/B 实现评审](core-ab-implementation-review.md)。以下内容保留为实施前状态复核的历史记录，不能覆盖该评审或实时运行状态。
 
 任务或阶段：截至 2026-08-25 的项目完成度、证据边界和后续顺序复核。
 

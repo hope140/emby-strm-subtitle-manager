@@ -72,7 +72,8 @@ type FeatureConfig struct {
 
 // D2Config contains bounded search/preview settings. Zero values are filled
 // with safe defaults by WithDefaults; the feature itself remains disabled
-// unless features.remote_search_enabled and the Canary gate are both enabled.
+// unless features.remote_search_enabled and the runtime installs an explicit
+// daily or Canary Item gate.
 type D2Config struct {
 	CacheDir              string         `yaml:"cache_dir"`
 	DefaultLanguage       string         `yaml:"default_language"`
@@ -97,6 +98,8 @@ type D2CanaryConfig struct {
 type D3Config struct {
 	HistoryDir            string         `yaml:"history_dir"`
 	QuarantineDir         string         `yaml:"quarantine_dir"`
+	ArchiveDir            string         `yaml:"archive_dir"`
+	TrashDir              string         `yaml:"trash_dir"`
 	RefreshTimeoutSeconds int            `yaml:"refresh_timeout_seconds"`
 	Canary                D3CanaryConfig `yaml:"canary"`
 }
@@ -225,7 +228,7 @@ func (c Config) Validate() error {
 		case APIAuthScopeMediaRead, APIAuthScopeSubtitleSearch, APIAuthScopeSubtitlePreview:
 			// Read-only scopes are always available.
 		case APIAuthScopeSubtitleWrite:
-			if !c.Features.WriteEnabled || !c.D3.Canary.Enabled {
+			if !c.Features.WriteEnabled {
 				return errors.New("security.api_auth_scopes cannot include subtitle:write while D3 writes are disabled")
 			}
 		default:
@@ -242,9 +245,6 @@ func (c Config) Validate() error {
 		return fmt.Errorf("emby.timeout_seconds must be between 1 and %d", maxTimeoutSeconds)
 	}
 	d3 := c.D3.WithDefaults()
-	if c.Features.WriteEnabled && (!d3.Canary.Enabled || strings.TrimSpace(d3.Canary.ItemAllowlistFile) == "") {
-		return errors.New("features.write_enabled requires an enabled D3 Canary allowlist")
-	}
 	if c.Features.WriteEnabled && !c.Features.RemoteSearchEnabled {
 		return errors.New("features.write_enabled requires remote_search_enabled for the validated D2 artifact")
 	}
@@ -287,9 +287,6 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(d2.Canary.ItemAllowlistFile) != "" && !isAbsolutePath(d2.Canary.ItemAllowlistFile) {
 		return errors.New("d2.canary.item_allowlist_file must be an absolute path")
-	}
-	if c.Features.RemoteSearchEnabled && (!d2.Canary.Enabled || strings.TrimSpace(d2.Canary.ItemAllowlistFile) == "") {
-		return errors.New("features.remote_search_enabled requires an enabled D2 Canary allowlist")
 	}
 	if len(c.PathMappings) == 0 {
 		return errors.New("path_mappings requires at least one mapping")
@@ -336,10 +333,14 @@ func (c Config) Validate() error {
 	}
 	for name, value := range map[string]string{
 		"d3.history_dir": d3.HistoryDir, "d3.quarantine_dir": d3.QuarantineDir,
+		"d3.archive_dir": d3.ArchiveDir, "d3.trash_dir": d3.TrashDir,
 		"d3.canary.item_allowlist_file": d3.Canary.ItemAllowlistFile,
 	} {
 		if value == "" {
 			continue
+		}
+		if !isAbsolutePath(value) {
+			return errors.New(name + " must be an absolute path")
 		}
 		if usesSymlink, inspectErr := pathsecurity.UsesSymlink(value); inspectErr != nil {
 			return errors.New(name + " path cannot be safely inspected")
@@ -351,11 +352,24 @@ func (c Config) Validate() error {
 		}
 	}
 	if c.Features.WriteEnabled {
-		if strings.TrimSpace(d3.HistoryDir) == "" || strings.TrimSpace(d3.QuarantineDir) == "" {
-			return errors.New("d3.history_dir and d3.quarantine_dir are required when writes are enabled")
+		privateDirs := []string{d3.HistoryDir, d3.QuarantineDir, d3.ArchiveDir, d3.TrashDir}
+		for _, directory := range privateDirs {
+			if strings.TrimSpace(directory) == "" {
+				return errors.New("d3.history_dir, d3.quarantine_dir, d3.archive_dir and d3.trash_dir are required when writes are enabled")
+			}
+			if pathsecurity.IsFilesystemRoot(directory) {
+				return errors.New("d3 private directories must be dedicated non-root directories")
+			}
 		}
-		if pathsecurity.IsFilesystemRoot(d3.HistoryDir) || pathsecurity.IsFilesystemRoot(d3.QuarantineDir) {
-			return errors.New("d3 private directories must be dedicated non-root directories")
+		for i := range privateDirs {
+			for j := i + 1; j < len(privateDirs); j++ {
+				if pathsecurity.Overlaps(privateDirs[i], privateDirs[j]) {
+					return errors.New("d3 private directories must not overlap")
+				}
+			}
+		}
+		if d2.Canary.Enabled != d3.Canary.Enabled {
+			return errors.New("D2 and D3 Canary modes must match when writes are enabled")
 		}
 	}
 	return nil

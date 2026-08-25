@@ -13,6 +13,7 @@ ADR 用于记录跨模块、长期有效且代码本身无法完整解释的选�
 | [ADR-005](005-conditional-d2-entry-without-live-multisource.md) | accepted | 缺少真实多源样本时有条件进入单源 D2；多源搜索保持独立门禁和安全拒绝 |
 | [ADR-006](006-admin-session-and-automation-credentials.md) | accepted | 发布版管理员会话与自动化 API 凭据分离；D2.5 与 D3 Add 认证门禁已实现，真实 D3 Canary 已验收 |
 | [ADR-007](007-subbridge-brand-and-legacy-deployment-identifiers.md) | accepted | SubBridge 新仓库/module/安装标识与 C92 旧部署标识的兼容边界 |
+| [ADR-008](008-core-ab-daily-source-bound-recovery.md) | accepted | Core A/B 日常模式、显式 source 绑定与可恢复字幕操作 |
 
 ## 创建条件
 

@@ -1,4 +1,4 @@
-// Package httpui serves the embedded D1.5 browser UI and its gated D2/D3 controls.
+// Package httpui serves the embedded Core A/B browser UI and its gated subtitle controls.
 package httpui
 
 import (

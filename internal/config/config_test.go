@@ -418,9 +418,11 @@ func TestD3WriteRequiresD2AndDedicatedPrivateDirectories(t *testing.T) {
 	mediaRoot := filepath.Join(baseDir, "media")
 	history := filepath.Join(baseDir, "history")
 	quarantine := filepath.Join(baseDir, "quarantine")
+	archive := filepath.Join(baseDir, "archive")
+	trash := filepath.Join(baseDir, "trash")
 	cache := filepath.Join(baseDir, "cache")
 	allowlist := filepath.Join(baseDir, "d3-items")
-	for _, directory := range []string{mediaRoot, history, quarantine, cache} {
+	for _, directory := range []string{mediaRoot, history, quarantine, archive, trash, cache} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -434,7 +436,7 @@ func TestD3WriteRequiresD2AndDedicatedPrivateDirectories(t *testing.T) {
 		Security:     SecurityConfig{IdentityKeyFile: "/run/secrets/identity", APIAuthTokenFile: "/run/secrets/api-auth-token", APIAuthScopes: []string{APIAuthScopeMediaRead, APIAuthScopeSubtitlePreview, APIAuthScopeSubtitleWrite}},
 		Features:     FeatureConfig{WriteEnabled: true, RemoteSearchEnabled: true},
 		D2:           D2Config{CacheDir: cache, Canary: D2CanaryConfig{Enabled: true, ItemAllowlistFile: allowlist}},
-		D3:           D3Config{HistoryDir: history, QuarantineDir: quarantine, Canary: D3CanaryConfig{Enabled: true, ItemAllowlistFile: allowlist}},
+		D3:           D3Config{HistoryDir: history, QuarantineDir: quarantine, ArchiveDir: archive, TrashDir: trash, Canary: D3CanaryConfig{Enabled: true, ItemAllowlistFile: allowlist}},
 		PathMappings: []PathMapping{{Emby: "/srv/media", Local: mediaRoot}},
 	}
 	if err := base.Validate(); err != nil {
@@ -443,6 +445,12 @@ func TestD3WriteRequiresD2AndDedicatedPrivateDirectories(t *testing.T) {
 	base.D3.HistoryDir = filepath.Join(mediaRoot, "history")
 	if err := base.Validate(); err == nil {
 		t.Fatal("D3 history path overlapping media was accepted")
+	}
+	base.D3.HistoryDir = history
+	base.D2.Canary = D2CanaryConfig{}
+	base.D3.Canary = D3CanaryConfig{}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("daily Core A/B write configuration rejected: %v", err)
 	}
 }
 
@@ -714,7 +722,7 @@ func TestD3ComposeOverlayAddsOnlyDedicatedWritableMediaAndRecoveryMounts(t *test
 	if !ok {
 		t.Fatal("D3 overlay is missing app service")
 	}
-	var media, history, quarantine bool
+	var media, history, quarantine, archive, trash bool
 	for _, mount := range app.Volumes {
 		switch mount.Target {
 		case "/media":
@@ -732,10 +740,20 @@ func TestD3ComposeOverlayAddsOnlyDedicatedWritableMediaAndRecoveryMounts(t *test
 				t.Fatalf("D3 quarantine mount is read-only")
 			}
 			quarantine = true
+		case "/var/lib/subbridge/d3-archive":
+			if mount.ReadOnly {
+				t.Fatalf("D3 archive mount is read-only")
+			}
+			archive = true
+		case "/var/lib/subbridge/d3-trash":
+			if mount.ReadOnly {
+				t.Fatalf("D3 trash mount is read-only")
+			}
+			trash = true
 		}
 	}
-	if !media || !history || !quarantine {
-		t.Fatalf("D3 mounts missing: media=%v history=%v quarantine=%v", media, history, quarantine)
+	if !media || !history || !quarantine || !archive || !trash {
+		t.Fatalf("D3 mounts missing: media=%v history=%v quarantine=%v archive=%v trash=%v", media, history, quarantine, archive, trash)
 	}
 	allowlistRef := false
 	for _, ref := range app.Secrets {
@@ -746,5 +764,39 @@ func TestD3ComposeOverlayAddsOnlyDedicatedWritableMediaAndRecoveryMounts(t *test
 	allowlist, ok := overlay.Secrets["d3_canary_items"]
 	if !allowlistRef || !ok || allowlist.File != "./secrets/d3_canary_items" {
 		t.Fatalf("D3 allowlist is not a file source: ref=%v definition=%#v", allowlistRef, allowlist)
+	}
+}
+
+func TestCoreABWriteComposeOverlayHasOnlyDeclaredWritableBoundaries(t *testing.T) {
+	overlay := readComposeTestDocument(t, filepath.Join("..", "..", "deploy", "compose.write.example.yaml"))
+	app, ok := overlay.Services["app"]
+	if !ok {
+		t.Fatal("Core A/B write overlay is missing app service")
+	}
+	writable := map[string]bool{}
+	for _, mount := range app.Volumes {
+		if mount.ReadOnly {
+			t.Fatalf("Core A/B write mount unexpectedly read-only: %#v", mount)
+		}
+		writable[mount.Target] = true
+	}
+	want := []string{
+		"/media",
+		"/var/lib/subbridge/d2-preview-cache",
+		"/var/lib/subbridge/d3-history",
+		"/var/lib/subbridge/d3-quarantine",
+		"/var/lib/subbridge/d3-archive",
+		"/var/lib/subbridge/d3-trash",
+	}
+	if len(writable) != len(want) {
+		t.Fatalf("unexpected Core A/B writable mounts: %#v", writable)
+	}
+	for _, target := range want {
+		if !writable[target] {
+			t.Fatalf("Core A/B write overlay missing %s", target)
+		}
+	}
+	if len(app.Secrets) != 0 {
+		t.Fatalf("daily write overlay must not add a Canary secret: %#v", app.Secrets)
 	}
 }

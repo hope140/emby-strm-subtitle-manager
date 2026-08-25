@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -40,6 +41,8 @@ const (
 	defaultLimit          = 50
 	maxHTTPItemsLimit     = 200
 	maxD2RequestBody      = 8 << 10
+	maxUploadRequestBody  = (4 << 20) + (64 << 10)
+	maxUploadFieldBytes   = 1024
 	adminSessionCookie    = "subbridge_admin_session"
 )
 
@@ -138,7 +141,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if requiresAuthentication(r.URL.Path) {
 		switch s.authorization(r) {
 		case authorizationGranted:
-			if d3Operation(r.URL.Path) != "" && !s.bearerAuthorized(r) {
+			if isWriteOperation(r.URL.Path) && !s.bearerAuthorized(r) {
 				if ok, code := s.validWriteSession(r); !ok {
 					s.writeError(w, r, http.StatusForbidden, code, "a valid CSRF token and same-origin request are required")
 					return
@@ -151,6 +154,10 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			s.writeUnauthorized(w, r)
 			return
 		}
+	}
+	if route, operationID := subtitleOperationRoute(r.URL.Path); route != "" {
+		s.handleSubtitleOperations(w, r, route, operationID)
+		return
 	}
 	if d2Operation(r.URL.Path) != "" {
 		if r.Method != http.MethodPost {
@@ -229,7 +236,7 @@ func d2Operation(path string) string {
 		return ""
 	}
 	switch parts[2] {
-	case "search", "fetch", "preview":
+	case "search", "fetch", "preview", "upload":
 		return parts[2]
 	default:
 		return ""
@@ -244,7 +251,39 @@ func d3Operation(path string) string {
 	if len(parts) == 3 && parts[1] == "subtitles" && parts[2] == "add" {
 		return "add"
 	}
+	if len(parts) == 4 && parts[1] == "subtitles" && (parts[3] == "replace" || parts[3] == "delete") {
+		return parts[3]
+	}
 	return ""
+}
+
+func subtitleOperationRoute(path string) (string, string) {
+	if path == "/v1/subtitle-operations" {
+		return "list", ""
+	}
+	const prefix = "/v1/subtitle-operations/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", ""
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) == 2 && parts[1] == "restore" && validID(parts[0]) {
+		return "restore", parts[0]
+	}
+	return "", ""
+}
+
+func isWriteOperation(path string) bool {
+	// Upload only creates a short-lived PreviewArtifact, but it accepts a
+	// browser-supplied body and can create a history summary. Treat it as CSRF
+	// sensitive for administrator sessions just like media write operations.
+	if d2Operation(path) == "upload" {
+		return true
+	}
+	if d3Operation(path) != "" {
+		return true
+	}
+	route, _ := subtitleOperationRoute(path)
+	return route == "restore"
 }
 
 func requiresAuthentication(path string) bool {
@@ -340,10 +379,13 @@ func requiredAuthScope(r *http.Request) string {
 	switch d2Operation(r.URL.Path) {
 	case "search":
 		return config.APIAuthScopeSubtitleSearch
-	case "fetch", "preview":
+	case "fetch", "preview", "upload":
 		return config.APIAuthScopeSubtitlePreview
 	case "":
-		if d3Operation(r.URL.Path) == "add" {
+		if d3Operation(r.URL.Path) != "" || func() bool {
+			route, _ := subtitleOperationRoute(r.URL.Path)
+			return route == "list" || route == "restore"
+		}() {
 			return config.APIAuthScopeSubtitleWrite
 		}
 		return config.APIAuthScopeMediaRead
@@ -568,11 +610,42 @@ func (s *Server) handleD2(w http.ResponseWriter, r *http.Request, operation stri
 			return
 		}
 		writeJSON(w, http.StatusOK, response)
+	case "upload":
+		body, err := decodeUpload(r)
+		if err != nil {
+			s.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid subtitle upload")
+			return
+		}
+		response, err := s.d2.Upload(r.Context(), itemID, d2.UploadRequest{MediaSourceID: body.MediaSourceID, Language: body.Language, Content: body.Content})
+		if err != nil {
+			s.writeD2Error(w, r, err)
+			return
+		}
+		if s.d3 != nil && s.d3.Enabled() {
+			record, recordErr := s.d3.RecordUpload(r.Context(), itemID, d3.UploadRecordRequest{MediaSourceID: body.MediaSourceID, OperationID: newRequestID(), Language: response.Language, Format: response.Format, ByteLength: response.ByteLength, ContentHash: response.ContentHash})
+			if recordErr != nil {
+				s.writeD3Error(w, r, recordErr)
+				return
+			}
+			response.OperationID = record.OperationID
+		}
+		writeJSON(w, http.StatusOK, response)
 	}
 }
 
 type d3AddBody struct {
 	ArtifactToken string `json:"artifact_token"`
+	MediaSourceID string `json:"media_source_id"`
+	OperationID   string `json:"operation_id"`
+}
+
+type d3ReplaceBody struct {
+	ArtifactToken string `json:"artifact_token"`
+	MediaSourceID string `json:"media_source_id"`
+	OperationID   string `json:"operation_id"`
+}
+
+type d3DeleteBody struct {
 	MediaSourceID string `json:"media_source_id"`
 	OperationID   string `json:"operation_id"`
 }
@@ -587,26 +660,104 @@ func (s *Server) handleD3(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/v1/media/"), "/")
-	if len(parts) != 3 || !validID(parts[0]) || strings.ContainsAny(parts[0], `/\\`) {
+	operation := d3Operation(r.URL.Path)
+	if (operation == "add" && len(parts) != 3) || ((operation == "replace" || operation == "delete") && len(parts) != 4) || !validID(parts[0]) || strings.ContainsAny(parts[0], `/\\`) {
 		s.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid item id")
 		return
 	}
-	var body d3AddBody
-	if err := decodeJSONBody(r, &body, maxD2RequestBody); err != nil {
-		s.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid JSON request")
-		return
+	var response any
+	var err error
+	switch operation {
+	case "add":
+		var body d3AddBody
+		if err = decodeJSONBody(r, &body, maxD2RequestBody); err == nil {
+			response, err = s.d3.Add(r.Context(), parts[0], d3.AddRequest{ArtifactToken: body.ArtifactToken, MediaSourceID: body.MediaSourceID, OperationID: body.OperationID})
+		}
+	case "replace":
+		var body d3ReplaceBody
+		if err = decodeJSONBody(r, &body, maxD2RequestBody); err == nil {
+			response, err = s.d3.Replace(r.Context(), parts[0], parts[2], d3.ReplaceRequest{ArtifactToken: body.ArtifactToken, MediaSourceID: body.MediaSourceID, OperationID: body.OperationID})
+		}
+	case "delete":
+		var body d3DeleteBody
+		if err = decodeJSONBody(r, &body, maxD2RequestBody); err == nil {
+			response, err = s.d3.Delete(r.Context(), parts[0], parts[2], d3.DeleteRequest{MediaSourceID: body.MediaSourceID, OperationID: body.OperationID})
+		}
 	}
-	response, err := s.d3.Add(r.Context(), parts[0], d3.AddRequest{ArtifactToken: body.ArtifactToken, MediaSourceID: body.MediaSourceID, OperationID: body.OperationID})
 	if err != nil {
 		var d3Err *d3.Error
 		if errors.As(err, &d3Err) && d3Err != nil {
 			s.writeError(w, r, d3Err.Status, d3Err.Code, d3Err.Message)
 			return
 		}
-		s.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error")
+		s.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid JSON request")
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+type restoreBody struct {
+	MediaSourceID string `json:"media_source_id"`
+	OperationID   string `json:"operation_id"`
+}
+
+func (s *Server) handleSubtitleOperations(w http.ResponseWriter, r *http.Request, route, sourceOperationID string) {
+	if s.d3 == nil || !s.d3.Enabled() {
+		s.writeError(w, r, http.StatusForbidden, "write_disabled", "subtitle operations are disabled")
+		return
+	}
+	switch route {
+	case "list":
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			s.writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		query := r.URL.Query()
+		values, ok := query["item_id"]
+		if !ok || len(values) != 1 || !validID(values[0]) || len(query) != 1 {
+			s.writeError(w, r, http.StatusBadRequest, "invalid_query", "item_id is required")
+			return
+		}
+		response, err := s.d3.ListOperations(values[0])
+		if err != nil {
+			s.writeD3Error(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"operations": response})
+	case "restore":
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			s.writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		if r.URL.RawQuery != "" {
+			s.writeError(w, r, http.StatusBadRequest, "invalid_request", "query parameters are not allowed")
+			return
+		}
+		var body restoreBody
+		if err := decodeJSONBody(r, &body, maxD2RequestBody); err != nil {
+			s.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid JSON request")
+			return
+		}
+		response, err := s.d3.Restore(r.Context(), sourceOperationID, d3.RestoreRequest{MediaSourceID: body.MediaSourceID, OperationID: body.OperationID})
+		if err != nil {
+			s.writeD3Error(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, response)
+	default:
+		s.writeError(w, r, http.StatusNotFound, "not_found", "not found")
+	}
+}
+
+func (s *Server) writeD3Error(w http.ResponseWriter, r *http.Request, err error) {
+	var d3Err *d3.Error
+	if errors.As(err, &d3Err) && d3Err != nil {
+		s.writeError(w, r, d3Err.Status, d3Err.Code, d3Err.Message)
+		return
+	}
+	s.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error")
 }
 
 type d2SearchBody struct {
@@ -623,6 +774,68 @@ type d2PreviewBody struct {
 	ArtifactToken string `json:"artifact_token"`
 	Offset        int    `json:"offset"`
 	Limit         int    `json:"limit"`
+}
+
+type uploadBody struct {
+	MediaSourceID string
+	Language      string
+	Content       []byte
+}
+
+// decodeUpload accepts exactly one subtitle body and the two declared text
+// fields. It deliberately ignores the browser filename and MIME type, then
+// lets the service validator determine the supported subtitle format.
+func decodeUpload(r *http.Request) (uploadBody, error) {
+	if r == nil {
+		return uploadBody{}, errors.New("missing request")
+	}
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || !strings.EqualFold(mediaType, "multipart/form-data") {
+		return uploadBody{}, errors.New("multipart content type is required")
+	}
+	r.Body = http.MaxBytesReader(nil, r.Body, maxUploadRequestBody)
+	reader, err := r.MultipartReader()
+	if err != nil {
+		return uploadBody{}, err
+	}
+	result := uploadBody{}
+	seen := make(map[string]bool, 3)
+	for {
+		part, nextErr := reader.NextPart()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			return uploadBody{}, nextErr
+		}
+		name := part.FormName()
+		if name != "file" && name != "media_source_id" && name != "language" || seen[name] {
+			_ = part.Close()
+			return uploadBody{}, errors.New("unknown or duplicate multipart field")
+		}
+		seen[name] = true
+		limit := int64(maxUploadFieldBytes)
+		if name == "file" {
+			limit = 4 << 20
+		}
+		value, readErr := io.ReadAll(io.LimitReader(part, limit+1))
+		closeErr := part.Close()
+		if readErr != nil || closeErr != nil || int64(len(value)) > limit {
+			return uploadBody{}, errors.New("multipart field is too large")
+		}
+		switch name {
+		case "file":
+			result.Content = value
+		case "media_source_id":
+			result.MediaSourceID = string(value)
+		case "language":
+			result.Language = string(value)
+		}
+	}
+	if !seen["file"] || !seen["media_source_id"] || !seen["language"] || len(result.Content) == 0 {
+		return uploadBody{}, errors.New("required multipart field is missing")
+	}
+	return result, nil
 }
 
 func decodeD2JSON(r *http.Request, target any) error {
@@ -703,6 +916,7 @@ func parseMediaRequest(r *http.Request) (mediaRequest, error) {
 type MediaDTO struct {
 	ItemID            string              `json:"item_id"`
 	MediaSourceID     string              `json:"media_source_id"`
+	MediaSourceName   string              `json:"media_source_name,omitempty"`
 	Type              string              `json:"type"`
 	Title             string              `json:"title"`
 	SeriesID          string              `json:"series_id,omitempty"`
@@ -733,7 +947,7 @@ func projectMedia(ctx media.MediaContext) MediaDTO {
 	if len(providers) == 0 {
 		providers = nil
 	}
-	return MediaDTO{ItemID: ctx.ItemID, MediaSourceID: ctx.MediaSourceID, Type: ctx.Type, Title: ctx.Title,
+	return MediaDTO{ItemID: ctx.ItemID, MediaSourceID: ctx.MediaSourceID, MediaSourceName: ctx.MediaSourceName, Type: ctx.Type, Title: ctx.Title,
 		SeriesID: ctx.SeriesID, SeriesName: ctx.SeriesName, Season: ctx.ParentIndexNumber, Episode: ctx.IndexNumber,
 		Year: ctx.ProductionYear, ProviderIDs: providers, Container: ctx.Container, IsSTRM: ctx.IsStrm,
 		MappingStatus: ctx.MappingStatus, Warnings: append([]string(nil), ctx.Warnings...), InventoryComplete: ctx.InventoryComplete}

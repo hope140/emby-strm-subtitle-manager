@@ -1,8 +1,8 @@
 # SubBridge Core A/B 连续实施计划
 
-- 状态　ready for implementation
+- 状态　local implementation completed；真实 C92 综合验收待独立授权
 - 日期　2026-08-25
-- 基线　`main` 至少包含 `d09aa73`（SubBridge 改名收口）
+- 基线　`main` 的 `b675758`（包含 SubBridge 改名收口）
 - 目标　优先完成字幕管理核心能力；沿用当前 UI，只增加必要入口；Core A/B 全部完成后再统一审核和部署验收
 
 ## 1. 最终交付

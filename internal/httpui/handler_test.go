@@ -14,7 +14,7 @@ func TestRootAndAssets(t *testing.T) {
 	if root.Code != http.StatusOK || root.Header().Get("Content-Type") != "text/html; charset=utf-8" {
 		t.Fatalf("root = %d %q", root.Code, root.Header().Get("Content-Type"))
 	}
-	if !strings.Contains(root.Body.String(), "D1.5") || !strings.Contains(root.Body.String(), "/assets/app.js") {
+	if !strings.Contains(root.Body.String(), "CORE A/B") || !strings.Contains(root.Body.String(), "/assets/app.js") {
 		t.Fatal("root did not serve the embedded index")
 	}
 	if got := root.Header().Get("Content-Security-Policy"); got != uiCSP {
@@ -73,7 +73,7 @@ func TestUIHasNoExternalResourcesOrPersistentTokenStorage(t *testing.T) {
 	}
 }
 
-func TestD2UIUsesOnlyTheBoundedSameOriginSurface(t *testing.T) {
+func TestCoreABUIUsesOnlyTheBoundedSameOriginSurface(t *testing.T) {
 	index, err := assets.ReadFile("assets/index.html")
 	if err != nil {
 		t.Fatal(err)
@@ -99,10 +99,17 @@ func TestD2UIUsesOnlyTheBoundedSameOriginSurface(t *testing.T) {
 		"remote_search_enabled",
 		"candidate_token",
 		"artifact_token",
-		"d2_multisource_unsupported",
+		"media_source_selection_required",
 		"candidate_expired",
 		"artifact_expired",
 		"rate_limited",
+		"/subtitles/upload",
+		"/subtitles/add",
+		"/replace",
+		"/delete",
+		"/v1/subtitle-operations",
+		"FormData",
+		"restore_target_conflict",
 	} {
 		if !strings.Contains(appText, required) {
 			t.Errorf("app.js is missing D2 contract marker %q", required)
@@ -126,7 +133,7 @@ func TestD2UIUsesOnlyTheBoundedSameOriginSurface(t *testing.T) {
 			t.Errorf("D2 UI contains forbidden surface %q", forbidden)
 		}
 	}
-	for _, forbiddenLabel := range []string{"Save", "Refresh", "Download", "Install", "Replace", "Delete", "Upload"} {
+	for _, forbiddenLabel := range []string{"Save", "Refresh", "Download", "Install"} {
 		if strings.Contains(appText, forbiddenLabel) || strings.Contains(indexText, forbiddenLabel) {
 			t.Errorf("D2 UI contains forbidden label %q", forbiddenLabel)
 		}

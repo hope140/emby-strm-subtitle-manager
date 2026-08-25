@@ -11,6 +11,7 @@ import (
 
 	"github.com/hope140/subbridge/internal/config"
 	"github.com/hope140/subbridge/internal/domain"
+	"github.com/hope140/subbridge/internal/inventory"
 	"github.com/hope140/subbridge/internal/pathmap"
 	"github.com/hope140/subbridge/internal/preview"
 	"github.com/hope140/subbridge/internal/subtitle"
@@ -63,12 +64,18 @@ func newD3TestService(t *testing.T, refreshErr error) (*Service, *fakeItemReader
 	}
 	history := filepath.Join(t.TempDir(), "history")
 	quarantine := filepath.Join(t.TempDir(), "quarantine")
+	archive := filepath.Join(t.TempDir(), "archive")
+	trash := filepath.Join(t.TempDir(), "trash")
 	cache := filepath.Join(t.TempDir(), "cache")
 	mapper, err := pathmap.New([]pathmap.Mapping{{Emby: "/srv/media", Local: root}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	guard, err := pathmap.NewPathGuard([]string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventoryService, err := inventory.New(inventory.Options{FileSystem: inventory.OSFileSystem{}, IdentityKey: []byte("d3-test-identity-key-012345678901234567890"), Mapper: mapper, Guard: guard})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +88,7 @@ func newD3TestService(t *testing.T, refreshErr error) (*Service, *fakeItemReader
 	reader := &fakeItemReader{item: item}
 	refresher := &fakeRefresher{reader: reader, err: refreshErr}
 	allowlist := preview.NewAllowlist([]string{"movie-1"})
-	service, err := New(Options{Config: config.D3Config{HistoryDir: history, QuarantineDir: quarantine}, WriteEnabled: true, Canary: allowlist, Emby: reader, Refresher: refresher, Mapper: mapper, Guard: guard, Artifacts: store, AuthContext: "ctx"})
+	service, err := New(Options{Config: config.D3Config{HistoryDir: history, QuarantineDir: quarantine, ArchiveDir: archive, TrashDir: trash}, WriteEnabled: true, Canary: allowlist, Emby: reader, Refresher: refresher, Mapper: mapper, Guard: guard, Inventory: inventoryService, Artifacts: store, AuthContext: "ctx"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,6 +132,17 @@ func TestAddWritesAtomicVersionAndIsIdempotent(t *testing.T) {
 	replay, err := service.Add(context.Background(), "movie-1", AddRequest{ArtifactToken: artifact.Token, MediaSourceID: "source-1", OperationID: "operation-123"})
 	if err != nil || replay.FileName != result.FileName {
 		t.Fatalf("replay = %#v err=%v", replay, err)
+	}
+	secondDocument, err := subtitle.ValidateAndParse([]byte("1\n00:00:01,000 --> 00:00:02,000\n不同内容\n"), "srt", 4<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondArtifact, err := store.Create(preview.Binding{ItemID: "movie-1", SourceID: "source-1", Language: "zh-CN", AuthContext: "ctx", AllowlistGeneration: generation}, secondDocument.Format, "zh-CN", secondDocument.Canonical, secondDocument.Cues)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Add(context.Background(), "movie-1", AddRequest{ArtifactToken: secondArtifact.Token, MediaSourceID: "source-1", OperationID: "operation-123"}); err == nil || !hasD3Code(err, "operation_conflict") {
+		t.Fatalf("same operation id with a different artifact = %v", err)
 	}
 	if refresher.calls != 1 || reader.getCalls < 2 {
 		t.Fatalf("refresh/get calls = %d/%d", refresher.calls, reader.getCalls)

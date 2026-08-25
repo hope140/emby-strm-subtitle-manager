@@ -50,7 +50,7 @@ func (f *d2FakeEmby) handler(w http.ResponseWriter, r *http.Request) {
 	case "/Items":
 		f.writeItem(w)
 	case "/Items/movie-1/RemoteSearch/Subtitles/zh-CN":
-		if got := r.URL.Query(); got.Get("MediaSourceId") != "source-1" || got.Get("IsForced") != "true" || got.Get("IsPerfectMatch") != "false" || got.Get("IsHearingImpaired") != "false" {
+		if got := r.URL.Query(); (got.Get("MediaSourceId") != "source-1" && got.Get("MediaSourceId") != "source-2") || (got.Get("IsForced") != "true" && got.Get("IsForced") != "false") || got.Get("IsPerfectMatch") != "false" || got.Get("IsHearingImpaired") != "false" {
 			f.Errorf("unsafe Search query = %#v", got)
 		}
 		candidates := make([]map[string]any, 0, 21)
@@ -247,21 +247,38 @@ func TestD2HTTPMultisourceAndRequestBodyBoundaries(t *testing.T) {
 	fake := &d2FakeEmby{TB: t, multiSource: true}
 	handler, upstream, _ := newD2HTTPTestServer(t, fake, true)
 	defer upstream.Close()
-	for _, test := range []struct {
-		path string
-		body string
-	}{
-		{"/v1/media/movie-1/subtitles/search", `{"media_source_id":"source-2"}`},
-		{"/v1/media/movie-1/subtitles/fetch", `{"candidate_token":"opaque"}`},
-		{"/v1/media/movie-1/subtitles/preview", `{"artifact_token":"opaque"}`},
-	} {
-		response := d2POST(t, handler, test.path, test.body)
-		if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `"d2_multisource_unsupported"`) {
-			t.Fatalf("multi-source %s = %d %s", test.path, response.Code, response.Body.String())
-		}
+	missing := d2POST(t, handler, "/v1/media/movie-1/subtitles/search", `{"language":"zh-CN"}`)
+	if missing.Code != http.StatusConflict || !strings.Contains(missing.Body.String(), `"media_source_selection_required"`) {
+		t.Fatalf("missing source selection = %d %s", missing.Code, missing.Body.String())
 	}
-	if countD2Path(fake.snapshot(), "/Items/movie-1/RemoteSearch/Subtitles/zh-CN") != 0 || countD2Path(fake.snapshot(), "/Providers/Subtitles/Subtitles/opaque") != 0 {
-		t.Fatal("multi-source reached provider")
+	if countD2Path(fake.snapshot(), "/Items/movie-1/RemoteSearch/Subtitles/zh-CN") != 0 {
+		t.Fatal("unselected multi-source request reached provider")
+	}
+	search := d2POST(t, handler, "/v1/media/movie-1/subtitles/search", `{"media_source_id":"source-2"}`)
+	if search.Code != http.StatusOK {
+		t.Fatalf("explicit source search = %d %s", search.Code, search.Body.String())
+	}
+	var searchBody struct {
+		Candidates []struct {
+			Token string `json:"token"`
+		} `json:"candidates"`
+	}
+	if err := json.Unmarshal(search.Body.Bytes(), &searchBody); err != nil || len(searchBody.Candidates) < 2 {
+		t.Fatalf("multi-source search decode = %#v err=%v", searchBody, err)
+	}
+	fetched := d2POST(t, handler, "/v1/media/movie-1/subtitles/fetch", `{"candidate_token":"`+searchBody.Candidates[1].Token+`"}`)
+	if fetched.Code != http.StatusOK {
+		t.Fatalf("multi-source fetch = %d %s", fetched.Code, fetched.Body.String())
+	}
+	var fetchedBody struct {
+		ArtifactToken string `json:"artifact_token"`
+	}
+	if err := json.Unmarshal(fetched.Body.Bytes(), &fetchedBody); err != nil || fetchedBody.ArtifactToken == "" {
+		t.Fatalf("multi-source fetch decode = %s err=%v", fetched.Body.String(), err)
+	}
+	previewed := d2POST(t, handler, "/v1/media/movie-1/subtitles/preview", `{"artifact_token":"`+fetchedBody.ArtifactToken+`"}`)
+	if previewed.Code != http.StatusOK || !strings.Contains(previewed.Body.String(), "预览内容") {
+		t.Fatalf("multi-source preview = %d %s", previewed.Code, previewed.Body.String())
 	}
 	tooLarge := d2POST(t, handler, "/v1/media/movie-1/subtitles/search", `{"language":"`+strings.Repeat("x", 9000)+`"}`)
 	if tooLarge.Code != http.StatusBadRequest || !strings.Contains(tooLarge.Body.String(), `"invalid_request"`) {

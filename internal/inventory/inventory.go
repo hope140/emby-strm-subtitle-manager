@@ -108,9 +108,12 @@ type Options struct {
 }
 
 var (
-	ErrInvalidOptions     = errors.New("invalid inventory options")
-	ErrConflictingStream  = errors.New("conflicting subtitle stream")
-	ErrInvalidStreamIndex = errors.New("invalid subtitle stream index")
+	ErrInvalidOptions       = errors.New("invalid inventory options")
+	ErrConflictingStream    = errors.New("conflicting subtitle stream")
+	ErrInvalidStreamIndex   = errors.New("invalid subtitle stream index")
+	ErrInventoryIncomplete  = errors.New("subtitle inventory is incomplete")
+	ErrSubtitleNotFound     = errors.New("subtitle was not found")
+	ErrSubtitleUnmanageable = errors.New("subtitle is not safely manageable")
 )
 
 // Build constructs a bounded inventory for one MediaContext. A degraded
@@ -128,7 +131,7 @@ func Build(ctx media.MediaContext, options Options) (Inventory, error) {
 		result.Warnings = append(result.Warnings, "media_directory_unavailable")
 	}
 
-	files, scanComplete := scanSidecars(options.FileSystem, ctx.LocalDirectory, baseName(ctx.LocalPath), ctx.ItemID, ctx.MediaSourceID, options.IdentityKey, &result)
+	files, scanComplete := scanContextSidecars(options.FileSystem, ctx, options.IdentityKey, &result)
 	if !scanComplete {
 		result.Complete = false
 	}
@@ -180,12 +183,132 @@ func (s *Service) Build(ctx media.MediaContext) (Inventory, error) {
 	return Build(ctx, s.options)
 }
 
+// ResolvedSubtitle is an internal resolver result. Its filesystem facts stay
+// unexported so the normal JSON encoder cannot accidentally disclose a media
+// path. Consumers use Path only inside a server-side write transaction.
+type ResolvedSubtitle struct {
+	Subtitle  Subtitle
+	path      string
+	canonical string
+}
+
+func (r ResolvedSubtitle) Path() string          { return r.path }
+func (r ResolvedSubtitle) CanonicalPath() string { return r.canonical }
+
+// Resolve re-runs the inventory for the current Item/source and converts one
+// opaque subtitle ID into a private sidecar path. It never accepts a filename
+// or path from a caller. Incomplete, duplicate or unmanaged inventory states
+// fail closed before a write operation can touch the media directory.
+func (s *Service) Resolve(ctx media.MediaContext, subtitleID string) (ResolvedSubtitle, error) {
+	if s == nil || subtitleID == "" {
+		return ResolvedSubtitle{}, ErrInvalidOptions
+	}
+	result, err := s.Build(ctx)
+	if err != nil {
+		return ResolvedSubtitle{}, err
+	}
+	if !result.Complete {
+		return ResolvedSubtitle{}, ErrInventoryIncomplete
+	}
+	for _, issue := range result.Issues {
+		if issue.Code == IssueDuplicate {
+			return ResolvedSubtitle{}, ErrInventoryIncomplete
+		}
+	}
+	var public *Subtitle
+	for index := range result.Subtitles {
+		if result.Subtitles[index].ID == subtitleID {
+			public = &result.Subtitles[index]
+			break
+		}
+	}
+	if public == nil {
+		return ResolvedSubtitle{}, ErrSubtitleNotFound
+	}
+	if !public.Manageable || public.Kind != KindSidecar || public.FileName == "" {
+		return ResolvedSubtitle{}, ErrSubtitleUnmanageable
+	}
+	transient := Inventory{Issues: []Issue{}, Warnings: []string{}}
+	files, complete := scanContextSidecars(s.options.FileSystem, ctx, s.options.IdentityKey, &transient)
+	if !complete {
+		return ResolvedSubtitle{}, ErrInventoryIncomplete
+	}
+	for _, file := range files {
+		if file.subtitle.ID != subtitleID || !file.eligible || file.subtitle.FileName != public.FileName || file.path == "" || file.canonical == "" {
+			continue
+		}
+		if s.options.Guard == nil || s.options.Guard.CheckDirectory(filepath.Dir(file.path)) != nil {
+			return ResolvedSubtitle{}, ErrInventoryIncomplete
+		}
+		return ResolvedSubtitle{Subtitle: *public, path: file.path, canonical: file.canonical}, nil
+	}
+	return ResolvedSubtitle{}, ErrSubtitleNotFound
+}
+
 type sidecar struct {
 	subtitle  Subtitle
 	path      string
 	canonical string
 	eligible  bool
 	merged    bool
+}
+
+type sidecarScope struct {
+	directory string
+	base      string
+}
+
+// scanContextSidecars bounds filesystem discovery to the Item path plus the
+// explicitly selected source path when it is safely mapped. This preserves
+// STRM inventory behavior while allowing a multi-version source to expose
+// only sidecars written with its own basename.
+func scanContextSidecars(fsys FileSystem, ctx media.MediaContext, key []byte, result *Inventory) ([]sidecar, bool) {
+	scopes := make([]sidecarScope, 0, 2)
+	addScope := func(directory, path string) {
+		base := baseName(path)
+		if directory == "" || base == "" {
+			return
+		}
+		for _, prior := range scopes {
+			if filepath.Clean(prior.directory) == filepath.Clean(directory) && prior.base == base {
+				return
+			}
+		}
+		scopes = append(scopes, sidecarScope{directory: directory, base: base})
+	}
+	addScope(ctx.LocalDirectory, ctx.LocalPath)
+	addScope(ctx.SourceLocalDirectory, ctx.SourceLocalPath)
+	if len(scopes) == 0 {
+		return nil, false
+	}
+	files := make([]sidecar, 0)
+	complete := true
+	byName := make(map[string]int)
+	for _, scope := range scopes {
+		current, currentComplete := scanSidecars(fsys, scope.directory, scope.base, ctx.ItemID, ctx.MediaSourceID, key, result)
+		if !currentComplete {
+			complete = false
+		}
+		for _, file := range current {
+			if previousIndex, exists := byName[file.subtitle.FileName]; exists {
+				previous := &files[previousIndex]
+				if previous.canonical != file.canonical {
+					previous.eligible = false
+					previous.subtitle.Manageable = false
+					previous.subtitle.Reason = "sidecar_duplicate_location"
+					file.eligible = false
+					file.subtitle.Manageable = false
+					file.subtitle.Reason = "sidecar_duplicate_location"
+					result.Issues = append(result.Issues, Issue{Code: IssueDuplicate, Reason: "sidecar_duplicate_location"})
+					complete = false
+				}
+				continue
+			}
+			byName[file.subtitle.FileName] = len(files)
+			files = append(files, file)
+		}
+	}
+	return files, complete
 }
 
 type streamResult struct {

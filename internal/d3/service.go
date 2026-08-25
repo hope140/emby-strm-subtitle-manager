@@ -1,6 +1,4 @@
-// Package d3 contains the first, deliberately narrow write capability:
-// adding one validated D2 artifact to one allowlisted Movie/Episode sample.
-// Replace, Delete, Upload and batch operations are intentionally absent.
+// Package d3 contains the bounded local subtitle write and recovery flows.
 package d3
 
 import (
@@ -20,10 +18,12 @@ import (
 
 	"github.com/hope140/subbridge/internal/config"
 	"github.com/hope140/subbridge/internal/domain"
+	"github.com/hope140/subbridge/internal/inventory"
 	"github.com/hope140/subbridge/internal/media"
 	"github.com/hope140/subbridge/internal/pathmap"
 	"github.com/hope140/subbridge/internal/pathsecurity"
 	"github.com/hope140/subbridge/internal/preview"
+	"github.com/hope140/subbridge/internal/subtitle"
 )
 
 const (
@@ -82,31 +82,42 @@ type Refresher interface {
 type Options struct {
 	Config       config.D3Config
 	WriteEnabled bool
-	Canary       *preview.Allowlist
-	Emby         ItemReader
-	Refresher    Refresher
-	Mapper       *pathmap.Mapper
-	Guard        *pathmap.PathGuard
-	Artifacts    *preview.ArtifactStore
-	AuthContext  string
-	Now          func() time.Time
+	Gate         preview.ItemGate
+	// Canary remains for source-compatible callers. New construction should
+	// pass the common Gate shared with D2.
+	Canary           *preview.Allowlist
+	Emby             ItemReader
+	Refresher        Refresher
+	Mapper           *pathmap.Mapper
+	Guard            *pathmap.PathGuard
+	Inventory        *inventory.Service
+	Artifacts        *preview.ArtifactStore
+	AuthContext      string
+	MaxSubtitleBytes int64
+	Now              func() time.Time
 }
 
 type Service struct {
-	settings    config.D3Config
-	enabled     bool
-	canary      *preview.Allowlist
-	emby        ItemReader
-	refresher   Refresher
-	mapper      *pathmap.Mapper
-	guard       *pathmap.PathGuard
-	artifacts   *preview.ArtifactStore
-	authContext string
-	now         func() time.Time
-	global      chan struct{}
-	mu          sync.Mutex
-	itemLocks   map[string]*sync.Mutex
-	operations  map[[32]byte]AddResponse
+	settings config.D3Config
+	enabled  bool
+	gate     preview.ItemGate
+	// Retained only for legacy in-package tests and callers that inspect the
+	// original Canary object; all admission decisions go through gate.
+	canary             *preview.Allowlist
+	emby               ItemReader
+	refresher          Refresher
+	mapper             *pathmap.Mapper
+	guard              *pathmap.PathGuard
+	inventory          *inventory.Service
+	artifacts          *preview.ArtifactStore
+	authContext        string
+	maxSubtitleBytes   int64
+	now                func() time.Time
+	global             chan struct{}
+	mu                 sync.Mutex
+	itemLocks          map[string]*sync.Mutex
+	operations         map[[32]byte]AddResponse
+	recoveryOperations map[[32]byte]operationMemory
 }
 
 type AddRequest struct {
@@ -116,16 +127,18 @@ type AddRequest struct {
 }
 
 type AddResponse struct {
-	OperationID   string    `json:"operation_id"`
-	ItemID        string    `json:"item_id"`
-	MediaSourceID string    `json:"media_source_id"`
-	FileName      string    `json:"file_name"`
-	Language      string    `json:"language"`
-	Format        string    `json:"format"`
-	ByteLength    int       `json:"byte_length"`
-	ContentHash   string    `json:"content_sha256"`
-	Refresh       string    `json:"refresh"`
-	CreatedAt     time.Time `json:"created_at"`
+	OperationID   string        `json:"operation_id"`
+	Type          OperationType `json:"type"`
+	ItemID        string        `json:"item_id"`
+	MediaSourceID string        `json:"media_source_id"`
+	FileName      string        `json:"file_name"`
+	Language      string        `json:"language"`
+	Format        string        `json:"format"`
+	ByteLength    int           `json:"byte_length"`
+	ContentHash   string        `json:"content_sha256"`
+	Refresh       string        `json:"refresh"`
+	Status        string        `json:"status"`
+	CreatedAt     time.Time     `json:"created_at"`
 }
 
 type historyRecord struct {
@@ -146,23 +159,33 @@ func New(options Options) (*Service, error) {
 	if options.Now == nil {
 		options.Now = time.Now
 	}
-	service := &Service{settings: settings, enabled: options.WriteEnabled, canary: options.Canary,
+	gate := options.Gate
+	if gate == nil && options.Canary != nil {
+		gate = options.Canary
+	}
+	if options.MaxSubtitleBytes <= 0 {
+		options.MaxSubtitleBytes = subtitle.DefaultMaxBytes
+	}
+	service := &Service{settings: settings, enabled: options.WriteEnabled, gate: gate, canary: options.Canary,
 		emby: options.Emby, refresher: options.Refresher, mapper: options.Mapper, guard: options.Guard,
-		artifacts: options.Artifacts, authContext: options.AuthContext, now: options.Now,
-		global: make(chan struct{}, 1), itemLocks: make(map[string]*sync.Mutex), operations: make(map[[32]byte]AddResponse)}
-	if !service.enabled || service.canary == nil || service.canary.Len() == 0 {
+		inventory: options.Inventory, artifacts: options.Artifacts, authContext: options.AuthContext, maxSubtitleBytes: options.MaxSubtitleBytes, now: options.Now,
+		global: make(chan struct{}, 1), itemLocks: make(map[string]*sync.Mutex), operations: make(map[[32]byte]AddResponse), recoveryOperations: make(map[[32]byte]operationMemory)}
+	if !service.enabled {
 		return service, nil
+	}
+	if service.gate == nil {
+		return nil, errors.New("D3 item gate is required when writes are enabled")
 	}
 	if service.authContext == "" {
 		service.authContext = "shared"
 	}
-	if service.artifacts == nil || service.emby == nil || service.refresher == nil || service.mapper == nil || service.guard == nil {
+	if service.artifacts == nil || service.emby == nil || service.refresher == nil || service.mapper == nil || service.guard == nil || service.inventory == nil {
 		return nil, errors.New("D3 dependencies are incomplete")
 	}
-	if settings.HistoryDir == "" || settings.QuarantineDir == "" || !filepath.IsAbs(settings.HistoryDir) || !filepath.IsAbs(settings.QuarantineDir) {
+	if settings.HistoryDir == "" || settings.QuarantineDir == "" || settings.ArchiveDir == "" || settings.TrashDir == "" || !filepath.IsAbs(settings.HistoryDir) || !filepath.IsAbs(settings.QuarantineDir) || !filepath.IsAbs(settings.ArchiveDir) || !filepath.IsAbs(settings.TrashDir) {
 		return nil, errors.New("D3 private directories are required")
 	}
-	for _, directory := range []string{settings.HistoryDir, settings.QuarantineDir} {
+	for _, directory := range []string{settings.HistoryDir, settings.QuarantineDir, settings.ArchiveDir, settings.TrashDir} {
 		if pathsecurity.IsFilesystemRoot(directory) {
 			return nil, errors.New("D3 private directory must not be a filesystem root")
 		}
@@ -180,7 +203,7 @@ func New(options Options) (*Service, error) {
 }
 
 func (s *Service) Enabled() bool {
-	return s != nil && s.enabled && s.canary != nil && s.canary.Len() > 0
+	return s != nil && s.enabled && s.gate != nil
 }
 
 func (s *Service) Add(ctx context.Context, itemID string, request AddRequest) (AddResponse, error) {
@@ -190,35 +213,17 @@ func (s *Service) Add(ctx context.Context, itemID string, request AddRequest) (A
 	if !validID(itemID) || !validID(request.MediaSourceID) || request.ArtifactToken == "" || !validOperationID(request.OperationID) {
 		return AddResponse{}, &Error{Status: 400, Code: "invalid_request", Message: "invalid D3 Add request", Cause: ErrInvalidRequest}
 	}
-	if allowed, _ := s.canary.Allows(itemID); !allowed {
+	if allowed, _ := s.gate.Allows(itemID); !allowed {
 		return AddResponse{}, &Error{Status: 403, Code: "d3_item_not_allowed", Message: "item is not allowed for D3 Add", Cause: ErrItemNotAllowed}
 	}
 	opHash := sha256.Sum256([]byte(request.OperationID))
 	s.mu.Lock()
-	if result, ok := s.operations[opHash]; ok {
-		s.mu.Unlock()
-		if result.ItemID != itemID || result.MediaSourceID != request.MediaSourceID {
-			return AddResponse{}, &Error{Status: 409, Code: "operation_conflict", Message: "operation id is already bound to another Add", Cause: ErrOperationConflict}
-		}
-		return result, nil
-	}
 	lock := s.itemLockLocked(itemID)
 	s.mu.Unlock()
 	s.global <- struct{}{}
 	defer func() { <-s.global }()
 	lock.Lock()
 	defer lock.Unlock()
-	// A concurrent request may have completed while this caller waited.
-	s.mu.Lock()
-	if result, ok := s.operations[opHash]; ok {
-		s.mu.Unlock()
-		if result.ItemID != itemID || result.MediaSourceID != request.MediaSourceID {
-			return AddResponse{}, &Error{Status: 409, Code: "operation_conflict", Message: "operation id is already bound to another Add", Cause: ErrOperationConflict}
-		}
-		return result, nil
-	}
-	s.mu.Unlock()
-
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -231,10 +236,7 @@ func (s *Service) Add(ctx context.Context, itemID string, request AddRequest) (A
 	if item.ID != itemID || (item.Type != "Movie" && item.Type != "Episode") {
 		return AddResponse{}, &Error{Status: 502, Code: "emby_invalid_response", Message: "Emby response was invalid"}
 	}
-	if len(item.MediaSources) != 1 {
-		return AddResponse{}, &Error{Status: 409, Code: "d3_multisource_unsupported", Message: "D3 Add requires one media source", Cause: ErrMultiSource}
-	}
-	generationAllowed, generation := s.canary.Allows(item.ID)
+	generationAllowed, generation := s.gate.Allows(item.ID)
 	if !generationAllowed {
 		return AddResponse{}, &Error{Status: 403, Code: "d3_item_not_allowed", Message: "item is not allowed for D3 Add", Cause: ErrItemNotAllowed}
 	}
@@ -245,14 +247,9 @@ func (s *Service) Add(ctx context.Context, itemID string, request AddRequest) (A
 	if mediaCtx.MappingStatus != media.MappingStatusMapped || mediaCtx.LocalDirectory == "" || mediaCtx.LocalPath == "" {
 		return AddResponse{}, &Error{Status: 422, Code: "media_path_unsafe", Message: "media path is unavailable for D3 Add", Cause: ErrUnsafeMediaPath}
 	}
-	if result, found, conflict := s.loadHistory(opHash, request.OperationID, item.ID, mediaCtx.MediaSourceID, mediaCtx.LocalDirectory); found {
-		if conflict {
-			return AddResponse{}, &Error{Status: 409, Code: "operation_conflict", Message: "operation id is already bound to another Add", Cause: ErrOperationConflict}
-		}
-		s.mu.Lock()
-		s.operations[opHash] = result
-		s.mu.Unlock()
-		return result, nil
+	writeTarget, err := media.ResolveWriteTarget(item, request.MediaSourceID, s.mapper, s.guard)
+	if err != nil {
+		return AddResponse{}, mapMediaError(err)
 	}
 	artifact, content, err := s.artifacts.GetContent(request.ArtifactToken, preview.Binding{ItemID: item.ID, SourceID: mediaCtx.MediaSourceID, AuthContext: s.authContext, AllowlistGeneration: generation})
 	if err != nil {
@@ -264,11 +261,32 @@ func (s *Service) Add(ctx context.Context, itemID string, request AddRequest) (A
 	if len(content) != artifact.ByteLength || hashBytes(content) != artifact.ContentHash {
 		return AddResponse{}, &Error{Status: 502, Code: "artifact_invalid", Message: "preview artifact is unavailable", Cause: ErrArtifact}
 	}
-	fileName, err := s.writeNewFile(mediaCtx.LocalDirectory, mediaCtx.LocalPath, artifact, content, request.OperationID)
+	// An operation ID is bound to the fully validated artifact content as well
+	// as the item and source. Do this only after obtaining the item lock, so a
+	// concurrent retry cannot create a second versioned sidecar.
+	s.mu.Lock()
+	if result, ok := s.operations[opHash]; ok {
+		s.mu.Unlock()
+		if result.ItemID != item.ID || result.MediaSourceID != mediaCtx.MediaSourceID || result.ContentHash != artifact.ContentHash {
+			return AddResponse{}, operationConflict()
+		}
+		return result, nil
+	}
+	s.mu.Unlock()
+	if result, found, conflict := s.loadHistory(opHash, request.OperationID, item.ID, mediaCtx.MediaSourceID, writeTarget.LocalDirectory, artifact.ContentHash); found {
+		if conflict {
+			return AddResponse{}, operationConflict()
+		}
+		s.mu.Lock()
+		s.operations[opHash] = result
+		s.mu.Unlock()
+		return result, nil
+	}
+	fileName, err := s.writeNewFile(writeTarget.LocalDirectory, writeTarget.LocalPath, artifact, content, request.OperationID)
 	if err != nil {
 		return AddResponse{}, err
 	}
-	target := filepath.Join(mediaCtx.LocalDirectory, fileName)
+	target := filepath.Join(writeTarget.LocalDirectory, fileName)
 	if err := verifyFile(target, content); err != nil {
 		s.quarantine(target, request.OperationID, fileName)
 		return AddResponse{}, &Error{Status: 503, Code: "write_verification_failed", Message: "subtitle write could not be verified", Cause: err}
@@ -286,7 +304,7 @@ func (s *Service) Add(ctx context.Context, itemID string, request AddRequest) (A
 		return AddResponse{}, &Error{Status: 502, Code: "emby_subtitle_not_visible", Message: "Emby did not expose the new subtitle; it was quarantined", Cause: ErrNotVisible}
 	}
 	created := s.now().UTC()
-	response := AddResponse{OperationID: request.OperationID, ItemID: item.ID, MediaSourceID: mediaCtx.MediaSourceID, FileName: fileName, Language: artifact.Language, Format: artifact.Format, ByteLength: artifact.ByteLength, ContentHash: artifact.ContentHash, Refresh: "verified", CreatedAt: created}
+	response := AddResponse{OperationID: request.OperationID, Type: OperationAdd, ItemID: item.ID, MediaSourceID: mediaCtx.MediaSourceID, FileName: fileName, Language: artifact.Language, Format: artifact.Format, ByteLength: artifact.ByteLength, ContentHash: artifact.ContentHash, Refresh: "verified", Status: "verified", CreatedAt: created}
 	if err := s.writeHistory(response); err != nil {
 		s.quarantine(target, request.OperationID, fileName)
 		return AddResponse{}, &Error{Status: 503, Code: "d3_history_unavailable", Message: "D3 history could not be recorded; the new subtitle was quarantined", Cause: ErrHistory}
@@ -465,45 +483,37 @@ func (s *Service) quarantine(source, operationID, fileName string) {
 
 func (s *Service) writeHistory(result AddResponse) error {
 	hash := sha256.Sum256([]byte(result.OperationID))
-	record := historyRecord{Version: 1, OperationHash: hex.EncodeToString(hash[:]), ItemID: result.ItemID, MediaSourceID: result.MediaSourceID, FileName: result.FileName, Language: result.Language, Format: result.Format, ByteLength: result.ByteLength, ContentHash: result.ContentHash, CreatedAt: result.CreatedAt}
-	data, err := json.Marshal(record)
-	if err != nil {
-		return ErrHistory
-	}
-	filename := filepath.Join(s.settings.HistoryDir, hex.EncodeToString(hash[:])+".json")
-	tmp := filename + ".tmp"
-	file, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return ErrHistory
-	}
-	if _, err := file.Write(data); err == nil {
-		err = file.Sync()
-	}
-	closeErr := file.Close()
-	if err == nil {
-		err = closeErr
-	}
-	if err == nil {
-		err = os.Rename(tmp, filename)
-	}
-	if err != nil {
-		_ = os.Remove(tmp)
-		return ErrHistory
-	}
-	return nil
+	record := recoveryRecord{Version: 2, OperationHash: hex.EncodeToString(hash[:]), OperationID: result.OperationID, Type: OperationAdd,
+		Fingerprint: operationFingerprint(OperationAdd, result.ItemID, result.MediaSourceID, "", result.ContentHash), ItemID: result.ItemID, MediaSourceID: result.MediaSourceID,
+		FileName: result.FileName, Language: result.Language, Format: result.Format, ByteLength: result.ByteLength, ContentHash: result.ContentHash, Status: "verified", CreatedAt: result.CreatedAt}
+	return s.writeRecoveryHistory(record)
 }
 
-func (s *Service) loadHistory(operationHash [32]byte, operationID, itemID, sourceID, directory string) (AddResponse, bool, bool) {
+func (s *Service) loadHistory(operationHash [32]byte, operationID, itemID, sourceID, directory, expectedHash string) (AddResponse, bool, bool) {
 	filename := filepath.Join(s.settings.HistoryDir, hex.EncodeToString(operationHash[:])+".json")
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return AddResponse{}, false, false
 	}
+	var current recoveryRecord
+	if json.Unmarshal(data, &current) == nil && current.Version == 2 {
+		if !validOperationRecord(current) || current.Type != OperationAdd || current.OperationID != operationID || current.OperationHash != hex.EncodeToString(operationHash[:]) {
+			return AddResponse{}, true, true
+		}
+		if current.ItemID != itemID || current.MediaSourceID != sourceID || current.ContentHash != expectedHash || current.Fingerprint != operationFingerprint(OperationAdd, itemID, sourceID, "", expectedHash) {
+			return AddResponse{}, true, true
+		}
+		content, readErr := os.ReadFile(filepath.Join(directory, current.FileName))
+		if readErr != nil || hashBytes(content) != current.ContentHash || len(content) != current.ByteLength {
+			return AddResponse{}, false, false
+		}
+		return AddResponse{OperationID: operationID, Type: OperationAdd, ItemID: current.ItemID, MediaSourceID: current.MediaSourceID, FileName: current.FileName, Language: current.Language, Format: current.Format, ByteLength: current.ByteLength, ContentHash: current.ContentHash, Refresh: "verified", Status: "verified", CreatedAt: current.CreatedAt}, true, false
+	}
 	var record historyRecord
 	if json.Unmarshal(data, &record) != nil || record.Version != 1 || record.OperationHash != hex.EncodeToString(operationHash[:]) {
 		return AddResponse{}, false, false
 	}
-	if record.ItemID != itemID || record.MediaSourceID != sourceID {
+	if record.ItemID != itemID || record.MediaSourceID != sourceID || record.ContentHash != expectedHash {
 		return AddResponse{}, true, true
 	}
 	if record.FileName == "" || record.FileName == "." || record.FileName == ".." || strings.ContainsAny(record.FileName, `/\\:`) || strings.IndexFunc(record.FileName, unicode.IsControl) >= 0 {
@@ -513,7 +523,7 @@ func (s *Service) loadHistory(operationHash [32]byte, operationID, itemID, sourc
 	if err != nil || hashBytes(content) != record.ContentHash || len(content) != record.ByteLength {
 		return AddResponse{}, false, false
 	}
-	return AddResponse{OperationID: operationID, ItemID: record.ItemID, MediaSourceID: record.MediaSourceID, FileName: record.FileName, Language: record.Language, Format: record.Format, ByteLength: record.ByteLength, ContentHash: record.ContentHash, Refresh: "verified", CreatedAt: record.CreatedAt}, true, false
+	return AddResponse{OperationID: operationID, Type: OperationAdd, ItemID: record.ItemID, MediaSourceID: record.MediaSourceID, FileName: record.FileName, Language: record.Language, Format: record.Format, ByteLength: record.ByteLength, ContentHash: record.ContentHash, Refresh: "verified", Status: "verified", CreatedAt: record.CreatedAt}, true, false
 }
 
 func safeMediaBase(value string) string {
@@ -550,8 +560,10 @@ func mapItemError(err error) error {
 
 func mapMediaError(err error) error {
 	switch {
-	case errors.Is(err, media.ErrMediaSourceSelectionRequired), errors.Is(err, media.ErrMediaSourceNotFound):
-		return &Error{Status: 409, Code: "media_source_required", Message: "a valid media source is required", Cause: err}
+	case errors.Is(err, media.ErrMediaSourceSelectionRequired):
+		return &Error{Status: 409, Code: "media_source_selection_required", Message: "media source selection is required", Cause: err}
+	case errors.Is(err, media.ErrMediaSourceNotFound):
+		return &Error{Status: 409, Code: "media_source_mismatch", Message: "media source does not match the item", Cause: err}
 	case errors.Is(err, media.ErrMappedPathUnavailable), errors.Is(err, media.ErrMediaSourceUnavailable):
 		return &Error{Status: 422, Code: "media_path_unsafe", Message: "media path is unavailable for D3 Add", Cause: err}
 	default:

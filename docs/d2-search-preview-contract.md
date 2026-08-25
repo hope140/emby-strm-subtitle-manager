@@ -1,11 +1,22 @@
 # D2 搜索预览契约与安全设计
 
-- 状态　D2 后端、内嵌只读 UI 与 D2.5 管理员认证已实现；C92 单源真实 Provider API Canary、完整 source 字段、应用/API 对应和多源 409 安全拒绝均已通过，真实管理 UI 点击验收和多源正向支持仍待独立任务
+- 状态　D2-B1 单源 Canary 的真实 C92 证据已完成；Core A/B 已在本地实现日常 gate、正向多 source、Upload→PreviewArtifact 与最小 UI，真实 C92 综合验收仍待独立授权
 - 日期　2026-08-25
 - 适用范围　ADR-003 的 D2、ADR-005 规定的单源条件入口
-- 当前实现　后端、安全门禁、内嵌 UI、Compose environment 管理员登录、Fake Emby 测试和 C92 单源真实 API Canary 已完成；C92 管理 UI Search→Fetch→Preview 点击流程和多源正向 Search、Fetch、Preview 尚未完成
+- 当前实现　后端、安全门禁、内嵌 UI、Compose environment 管理员登录、Fake Emby 测试和 C92 单源真实 API Canary 已完成；Core A/B 的本地多 source Search、Fetch、Preview、Upload 和写入消费链见 [ADR-008](adr/008-core-ab-daily-source-bound-recovery.md) 与 [Core A/B 实现评审](core-ab-implementation-review.md)
 
 本文把 D2 的搜索、Fetch、预览和安全边界固定下来。它不授权真实环境启用远程搜索，不改变 `remote_search_enabled=false` 的默认值，也不授权部署、重启、媒体库写入或 Emby 配置修改。
+
+## Core A/B 当前扩展
+
+本文后续“单 source”“多 source 409”与“不做 Upload”的描述记录 D2-B1 原始 Canary 契约及其真实证据；若与本节冲突，应以 [ADR-008](adr/008-core-ab-daily-source-bound-recovery.md) 为当前本地实现契约。
+
+- 日常模式使用稳定 generation 的 Item gate；Canary 开启时仍使用 allowlist generation。模式变化与服务重启使内存 Token/Artifact 失效。
+- 多 source Item 的 Search 必须带精确 `media_source_id`，Fetch/Preview 从绑定中取得 source 并重新验证；缺失、错误、重复或变化一律 fail closed，绝不选择默认 source。
+- `POST /v1/media/{item_id}/subtitles/upload` 仅接受有界 multipart `file`、`media_source_id` 与 `language`，使用同一 Validator 生成绑定 PreviewArtifact。它不调用 Emby Save、不直接写媒体目录，也不接受原文件名、MIME 类型、路径或候选原始 ID 作为可信输入。
+- Upload、Fetch 与 Preview 使用 `subtitle:preview`；管理员浏览器会话的 Upload 也必须通过同源/CSRF 校验。实际 Add/Replace/Delete/Restore 仍由独立 D3 写入路由、`subtitle:write`、CSRF、PathMapper/PathGuard 和私有状态目录控制。
+
+Core A/B 的本地自动化不替代 C92 多 source、真实管理 UI、实际文件系统权限、字幕流或客户端验收。默认开关与部署授权边界保持不变。
 
 ## 1. 范围与门禁
 

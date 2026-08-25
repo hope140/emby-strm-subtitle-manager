@@ -97,6 +97,28 @@ func TestBuildScansOneDirectoryWithoutReadingBodies(t *testing.T) {
 	}
 }
 
+func TestBuildIncludesSelectedSourceBasenameForSTRMMultiVersion(t *testing.T) {
+	dir := "/media"
+	files := []string{"Movie.zh.srt", "Version-B.subbridge.zh-CN.srt"}
+	f := &recordingFS{info: map[string]fs.FileInfo{}, canonical: map[string]string{}}
+	for _, name := range files {
+		f.entries = append(f.entries, fakeEntry{name: name})
+		full := filepath.Join(dir, name)
+		f.info[full] = fakeInfo{name: name, mode: 0}
+		f.canonical[full] = full
+	}
+	ctx := completeContext()
+	ctx.SourceLocalPath = "/media/Version-B.mkv"
+	ctx.SourceLocalDirectory = dir
+	result, err := Build(ctx, Options{FileSystem: f, IdentityKey: testKey()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Complete || len(result.Subtitles) != 2 || sidecarID(result, "Version-B.subbridge.zh-CN.srt") == "" {
+		t.Fatalf("selected source sidecar inventory = %#v", result)
+	}
+}
+
 func TestBuildSeparatesEmbeddedAndMergesExternalBySafeBasename(t *testing.T) {
 	dir := "/media"
 	name := "Movie.zh.srt"

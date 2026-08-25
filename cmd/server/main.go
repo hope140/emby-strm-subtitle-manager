@@ -94,6 +94,7 @@ func main() {
 		os.Exit(1)
 	}
 	var allowlist *preview.Allowlist
+	var itemGate preview.ItemGate
 	if cfg.D2.Canary.Enabled {
 		items, err := config.ReadItemAllowlist(cfg.D2.Canary.ItemAllowlistFile)
 		if err != nil {
@@ -101,6 +102,9 @@ func main() {
 			os.Exit(1)
 		}
 		allowlist = preview.NewAllowlist(items)
+		itemGate = allowlist
+	} else {
+		itemGate = preview.NewDailyGate()
 	}
 	var artifactStore *preview.ArtifactStore
 	if cfg.Features.RemoteSearchEnabled {
@@ -115,7 +119,7 @@ func main() {
 	}
 	d2Service, err := d2.New(d2.Options{
 		Config: cfg.D2, RemoteSearchEnabled: cfg.Features.RemoteSearchEnabled,
-		CanaryEnabled: cfg.D2.Canary.Enabled, Allowlist: allowlist, Emby: client,
+		Gate: itemGate, Emby: client,
 		Provider:      subtitleprovider.NewEmbyRemoteSubtitleProvider(client),
 		ArtifactStore: artifactStore, AuthContext: d2.AuthContextFromToken(authToken),
 	})
@@ -126,7 +130,6 @@ func main() {
 	cleanupContext, stopCleanup := context.WithCancel(context.Background())
 	defer stopCleanup()
 	go d2Service.RunCleanup(cleanupContext)
-	var d3Allowlist *preview.Allowlist
 	if cfg.D3.Canary.Enabled {
 		items, err := config.ReadItemAllowlist(cfg.D3.Canary.ItemAllowlistFile)
 		if err != nil {
@@ -146,12 +149,11 @@ func main() {
 				os.Exit(1)
 			}
 		}
-		d3Allowlist = allowlist
 	}
 	d3Service, err := d3.New(d3.Options{
-		Config: cfg.D3, WriteEnabled: cfg.Features.WriteEnabled, Canary: d3Allowlist,
+		Config: cfg.D3, WriteEnabled: cfg.Features.WriteEnabled, Gate: itemGate,
 		Emby: client, Refresher: client, Mapper: mapper, Guard: guard, Artifacts: artifactStore,
-		AuthContext: d2.AuthContextFromToken(authToken),
+		Inventory: inventoryService, AuthContext: d2.AuthContextFromToken(authToken), MaxSubtitleBytes: cfg.D2.MaxSubtitleBytes,
 	})
 	if err != nil {
 		logger.Error("D3 configuration rejected", "error", err.Error())

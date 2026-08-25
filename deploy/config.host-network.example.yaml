@@ -41,6 +41,8 @@ d2:
 d3:
   history_dir: /var/lib/subbridge/d3-history
   quarantine_dir: /var/lib/subbridge/d3-quarantine
+  archive_dir: /var/lib/subbridge/d3-archive
+  trash_dir: /var/lib/subbridge/d3-trash
   refresh_timeout_seconds: 10
   canary:
     enabled: false

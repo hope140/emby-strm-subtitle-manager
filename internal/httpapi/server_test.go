@@ -322,7 +322,16 @@ func TestBearerScopesSeparateMediaReadFromSubtitleOperations(t *testing.T) {
 	if rec := serveWithAuthorization(handler, http.MethodGet, "/v1/health", "Bearer "+testAuthToken); rec.Code != http.StatusOK {
 		t.Fatalf("media read status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, path := range []string{"/v1/media/movie-1/subtitles/search", "/v1/media/movie-1/subtitles/fetch", "/v1/media/movie-1/subtitles/preview"} {
+	for _, path := range []string{
+		"/v1/media/movie-1/subtitles/search",
+		"/v1/media/movie-1/subtitles/fetch",
+		"/v1/media/movie-1/subtitles/preview",
+		"/v1/media/movie-1/subtitles/upload",
+		"/v1/media/movie-1/subtitles/add",
+		"/v1/media/movie-1/subtitles/sub_v1_scope-test/replace",
+		"/v1/media/movie-1/subtitles/sub_v1_scope-test/delete",
+		"/v1/subtitle-operations/operation-scope-test/restore",
+	} {
 		t.Run(path, func(t *testing.T) {
 			rec := serveWithAuthorization(handler, http.MethodPost, path, "Bearer "+testAuthToken)
 			if rec.Code != http.StatusForbidden {
@@ -333,6 +342,11 @@ func TestBearerScopesSeparateMediaReadFromSubtitleOperations(t *testing.T) {
 				t.Fatalf("WWW-Authenticate = %q", rec.Header().Get("WWW-Authenticate"))
 			}
 		})
+	}
+	if rec := serveWithAuthorization(handler, http.MethodGet, "/v1/subtitle-operations?item_id=movie-1", "Bearer "+testAuthToken); rec.Code != http.StatusForbidden {
+		t.Fatalf("history scope status = %d body=%s", rec.Code, rec.Body.String())
+	} else {
+		assertErrorEnvelope(t, rec, "insufficient_scope")
 	}
 }
 
@@ -478,6 +492,47 @@ func TestD3AddRequiresWriteScopeAndSessionCSRF(t *testing.T) {
 		t.Fatalf("bearer D3 = %d %s", bearerRecorder.Code, bearerRecorder.Body.String())
 	}
 	assertErrorEnvelope(t, bearerRecorder, "write_disabled")
+}
+
+func TestUploadRequiresSessionCSRF(t *testing.T) {
+	admin, err := auth.New("operator", "correct horse battery staple", auth.Options{SessionTTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewServerWithServices(config.Config{Features: config.FeatureConfig{RemoteSearchEnabled: true}}, version.Info{Version: "test"}, slog.Default(), Services{AdminAuth: admin}).Handler()
+	login := loginRequest(handler, `{"username":"operator","password":"correct horse battery staple"}`)
+	if login.Code != http.StatusOK {
+		t.Fatalf("login = %d %s", login.Code, login.Body.String())
+	}
+	var loginBody struct {
+		CSRFToken string `json:"csrf_token"`
+	}
+	if err := json.Unmarshal(login.Body.Bytes(), &loginBody); err != nil || loginBody.CSRFToken == "" {
+		t.Fatalf("login csrf = %q err=%v", loginBody.CSRFToken, err)
+	}
+	cookies := login.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatal("login did not issue one session cookie")
+	}
+	withoutCSRF := httptest.NewRequest(http.MethodPost, "/v1/media/movie-1/subtitles/upload", strings.NewReader("--invalid"))
+	withoutCSRF.Header.Set("Content-Type", "multipart/form-data; boundary=invalid")
+	withoutCSRF.AddCookie(cookies[0])
+	withoutCSRFResponse := httptest.NewRecorder()
+	handler.ServeHTTP(withoutCSRFResponse, withoutCSRF)
+	if withoutCSRFResponse.Code != http.StatusForbidden {
+		t.Fatalf("upload without CSRF = %d %s", withoutCSRFResponse.Code, withoutCSRFResponse.Body.String())
+	}
+	assertErrorEnvelope(t, withoutCSRFResponse, "csrf_required")
+
+	withCSRF := httptest.NewRequest(http.MethodPost, "/v1/media/movie-1/subtitles/upload", strings.NewReader("--invalid"))
+	withCSRF.Header.Set("Content-Type", "multipart/form-data; boundary=invalid")
+	withCSRF.Header.Set("X-CSRF-Token", loginBody.CSRFToken)
+	withCSRF.AddCookie(cookies[0])
+	withCSRFResponse := httptest.NewRecorder()
+	handler.ServeHTTP(withCSRFResponse, withCSRF)
+	if withCSRFResponse.Code == http.StatusForbidden && strings.Contains(withCSRFResponse.Body.String(), `"csrf_required"`) {
+		t.Fatalf("upload with CSRF was rejected at CSRF boundary: %d %s", withCSRFResponse.Code, withCSRFResponse.Body.String())
+	}
 }
 
 func loginRequest(handler http.Handler, body string) *httptest.ResponseRecorder {

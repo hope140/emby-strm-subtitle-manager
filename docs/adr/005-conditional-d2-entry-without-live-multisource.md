@@ -10,6 +10,8 @@ C92 已提供一个真实 Movie 版本组。只读复核发现：列表或详情
 
 本轮已在 `internal/embyclient` 详情请求中固定加入 `AlternateMediaSources`，并补充完整 source 列表的 DTO 合并、去重边界和 D2 409 回归测试。随后 C92 对两个真实多源 Movie Item 完成了 API/source 对应和 D2 Search、Fetch、Preview 的真实 409 安全拒绝验收，证据见 [D2 多源真实 API Canary](../d2-multisource-c92-canary-acceptance-20260825.md)。该事实更新不授权多源正向搜索、部署常开、重启或任何写入。
 
+随后 Core A/B 已在本地源码和 Fake Emby/浏览器自动化中实现正向多 source Search、Fetch、Preview、Add 与可恢复写入，具体决策见 [ADR-008](008-core-ab-daily-source-bound-recovery.md)。本 ADR 后文的“多源继续 fail closed”描述保留其原始 Canary 门禁和真实 409 证据；真实 C92 正向多 source、文件系统、字幕流和客户端验收尚未执行，默认开关和部署授权仍不变。
+
 ## 背景
 
 D1 的代码、自动化、C92 Docker Compose 部署、公网 HTTPS 和真实 Movie/Episode STRM Canary 已通过。两轮有界只读扫描覆盖 11 个媒体库，分别检查 1,026 个最新样本和 938 个分层样本，但没有找到包含多个 `MediaSource` 的 Movie/Episode。该结果只能证明取样范围未命中，不能证明全库不存在多源 Item，也不是多源代码失败。

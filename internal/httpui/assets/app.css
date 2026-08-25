@@ -59,6 +59,7 @@ button.secondary:hover:not(:disabled) { background: #d6e4e7; }
 .subtitles { border-top: 1px solid #e1e9eb; margin-top: 1rem; padding-top: 1rem; }
 .subtitle { border: 1px solid #dce7ea; border-radius: 8px; margin-top: .55rem; padding: .65rem; }
 .subtitle p { margin: .3rem 0 0; }
+.subtitle-actions { align-items: center; display: flex; flex-wrap: wrap; gap: .55rem; margin-top: .65rem; }
 .warning-list, .issue-list { color: #8a5a1c; margin: .4rem 0 0; padding-left: 1.2rem; }
 .success { color: #27704c; }
 .d2-panel { border-top: 1px solid #e1e9eb; margin-top: 1rem; padding-top: 1rem; }
@@ -66,6 +67,8 @@ button.secondary:hover:not(:disabled) { background: #d6e4e7; }
 .d2-status { color: #53636b; min-height: 1.25rem; }
 .d2-status.error, .candidate-error { color: #ad2f38; }
 .d2-actions, .preview-toolbar { align-items: center; display: flex; flex-wrap: wrap; gap: .65rem; }
+.upload-label { align-items: center; display: inline-flex; flex-wrap: wrap; gap: .35rem; margin: 0; }
+.upload-label input { max-width: min(18rem, 70vw); }
 .checkbox-label { align-items: center; display: inline-flex; gap: .35rem; margin: 0; }
 .checkbox-label input { accent-color: #167c80; }
 .d2-results { margin-top: 1rem; }
@@ -91,6 +94,10 @@ button.secondary:hover:not(:disabled) { background: #d6e4e7; }
 .cue { border-left: 3px solid #9ccfd0; padding: .45rem .7rem; }
 .cue-time { color: #16686b; display: block; font-size: .82rem; font-variant-numeric: tabular-nums; margin-bottom: .2rem; }
 .cue-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.d3-history { border-top: 1px solid #e1e9eb; margin-top: 1rem; padding-top: 1rem; }
+.history-list { display: grid; gap: .55rem; }
+.history-item { border: 1px solid #dce7ea; border-radius: 8px; padding: .65rem; }
+.history-item button { margin-top: .55rem; }
 .hidden { display: none !important; }
 .visually-hidden { clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
 

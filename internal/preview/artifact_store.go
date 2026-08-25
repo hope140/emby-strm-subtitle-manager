@@ -194,6 +194,32 @@ func (s *ArtifactStore) Get(token string, binding Binding) (Artifact, error) {
 	return artifact, err
 }
 
+// GetForItem returns an internal artifact binding after validating the Item,
+// authentication context and admission-policy generation. It is intentionally
+// narrower than GetContent: callers must re-read the Item and validate the
+// stored SourceID exactly before they can read or write the artifact content.
+func (s *ArtifactStore) GetForItem(token string, binding Binding) (Artifact, error) {
+	if s == nil || token == "" {
+		return Artifact{}, ErrArtifactInvalid
+	}
+	digest := sha256.Sum256([]byte(token))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.entries[digest]
+	if !ok {
+		return Artifact{}, ErrArtifactInvalid
+	}
+	if !s.now().Before(entry.ExpiresAt) {
+		delete(s.entries, digest)
+		_ = os.Remove(entry.Filename)
+		return Artifact{}, ErrArtifactExpired
+	}
+	if !sameItemBinding(entry.Binding, binding) {
+		return Artifact{}, ErrArtifactInvalid
+	}
+	return cloneArtifact(entry.Artifact), nil
+}
+
 // GetContent returns a validated artifact and its canonical bytes for the
 // explicitly gated D3 Add flow. The binding and integrity checks are exactly
 // the same as Get; callers must not use it as an arbitrary file reader.
