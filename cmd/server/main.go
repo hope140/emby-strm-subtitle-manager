@@ -133,7 +133,20 @@ func main() {
 			logger.Error("D3 Canary allowlist rejected", "error", err.Error())
 			os.Exit(1)
 		}
-		d3Allowlist = preview.NewAllowlist(items)
+		// D2 creates the Artifact that D3 consumes. Reuse the D2 allowlist
+		// object after verifying the separately mounted D3 file has exactly the
+		// same set, so both services bind the Artifact to one generation.
+		if allowlist == nil || len(items) != allowlist.Len() {
+			logger.Error("D3 Canary allowlist must match the D2 allowlist")
+			os.Exit(1)
+		}
+		for _, itemID := range items {
+			if allowed, _ := allowlist.Allows(itemID); !allowed {
+				logger.Error("D3 Canary allowlist must match the D2 allowlist")
+				os.Exit(1)
+			}
+		}
+		d3Allowlist = allowlist
 	}
 	d3Service, err := d3.New(d3.Options{
 		Config: cfg.D3, WriteEnabled: cfg.Features.WriteEnabled, Canary: d3Allowlist,
