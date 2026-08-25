@@ -1,6 +1,6 @@
 # 当前架构
 
-本文只描述截至 2026 年 8 月 25 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已验收；D2 后端、内嵌 UI、本地 Fake Emby 浏览器自动化和 D2.5-A/B 管理员会话已完成本地验证。D2.5 尚未部署 C92/SH；真实 Provider/客户端 Canary 与真实多媒体源样本仍待验收。真实多源搜索仍不得宣称支持。Installer 和写入能力仍属于后续阶段。
+本文只描述截至 2026 年 8 月 25 日已经由官方接口、当前源码、自动化检查和真实运行确认的内容。D1 的 Go 后端只读切片、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM Canary 已验收；D2 后端、内嵌 UI、本地 Fake Emby 浏览器自动化和 D2.5-A/B 管理员会话已完成本地验证。D2.5 已基于公开 b9916d1 完成 C92 app-only 部署与认证验收，SH/FRP/OpenResty 和公网 18080 未在本任务处理；真实 Provider/客户端 Canary 与真实多媒体源样本仍待验收。真实多源搜索仍不得宣称支持。Installer 和写入能力仍属于后续阶段。
 
 ## D1 本地实现
 

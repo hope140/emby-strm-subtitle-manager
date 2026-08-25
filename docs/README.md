@@ -2,7 +2,7 @@
 
 这套文档把当前事实、长期决策、维护经验和本机信息分开保存。开发前按需要读取，任务结束后通过 Knowledge Review 决定是否更新。
 
-当前状态：Phase 1 已完成路线决策和文档收口，ADR-002 和 ADR-003 已接受并选择方案 B 及其 D1→D2→D3 里程碑。D1 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM 真实 Canary 已验收；D2 实现已形成不可变 commit，并完成一次 C92 单源真实 Search→Fetch→Preview Canary，随后已关闭 D2 开关。D2.5-A/B 已在本地实现 Compose environment 管理员登录、短期 HttpOnly 会话、失败限速和 Bearer 自动化兼容，但尚未迁移到 C92/SH。2026-08-25 的目标环境只读预检确认 C92 仍运行 D2 closed Canary；env-only 迁移尚未部署，记录见 [D2.5 目标环境迁移预检](d2.5-target-migration-preflight-20260825.md)。D2.5-C scope、CSRF 和 D3 写入仍未实现。真实多媒体源样本仍未找到；[ADR-005](adr/005-conditional-d2-entry-without-live-multisource.md) 允许有条件进入 D2 的契约、实现和单源 Canary，但真实多源搜索在样本验收前保持安全拒绝且不得宣称支持。上游构建基线的失败和未验证项仍以 [Phase 1 基线报告](../BASELINE.md) 为准；它们不等同于新 Go 服务的验证结果。
+当前状态：Phase 1 已完成路线决策和文档收口，ADR-002 和 ADR-003 已接受并选择方案 B 及其 D1→D2→D3 里程碑。D1 代码切片、Linux 全包自动化验证、C92 Docker Compose 部署、公网 HTTPS 和 Movie/Episode STRM 真实 Canary 已验收；D2 实现已形成不可变 commit，并完成一次 C92 单源真实 Search→Fetch→Preview Canary，随后已关闭 D2 开关。D2.5-A/B 已完成 Compose environment 管理员登录、短期 HttpOnly 会话、失败限速和 Bearer 自动化兼容；2026-08-25 已基于公开 b9916d1 完成 C92 app-only 部署及既有 HTTPS 路径验收，记录见 [D2.5 目标环境迁移预检](d2.5-target-migration-preflight-20260825.md)。SH/FRP/OpenResty、公网 18080、D2.5-C scope、CSRF 和 D3 写入仍未在本任务处理或实现。真实多媒体源样本仍未找到；[ADR-005](adr/005-conditional-d2-entry-without-live-multisource.md) 允许有条件进入 D2 的契约、实现和单源 Canary，但真实多源搜索在样本验收前保持安全拒绝且不得宣称支持。上游构建基线的失败和未验证项仍以 [Phase 1 基线报告](../BASELINE.md) 为准；它们不等同于新 Go 服务的验证结果。
 
 ## 正式文档
 
