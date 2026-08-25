@@ -19,6 +19,7 @@
 | [D2-C C92 预检](d2-c-c92-canary-preflight.md) | C92 有界只读 Item 选择、实时版本核对和 Canary 阻断证据 | 真实 D2 Search、Fetch、Preview Canary |
 | [D2-C C92 部署前核对](d2-c92-deployment-preflight.md) | C92 现网 D1 安全边界、回滚点和 D2 发布阻断证据 | D2 部署、重启和真实 Canary |
 | [D2 发布候选审计](d2-release-candidate-audit.md) | 本地 Git、敏感信息、测试构建证据与发布阻断项 | C92 部署、重启和真实 canary |
+| [D2-C C92 单源真实 Canary 验收](d2-c92-canary-acceptance.md) | C92 可回滚 D2 部署、真实 Search/Fetch/Preview、候选失败隔离和关闭后的状态 | 多源支持、真实客户端、公网 UI 和 D3 写入 |
 | [D1 部署验收报告](d1-deployment-acceptance.md) | 已验证的部署、真实 STRM Canary 和剩余门禁 | 私有部署细节、凭据和一次性操作记录 |
 | [D1.5 最小只读 Web UI](d1.5-readonly-ui.md) | 内嵌 UI、Token 内存边界和三种访问方式 | 真实部署验收和私有环境细节 |
 | [D1.5 部署前预检](d1.5-deployment-preflight.md) | 发布不变量、三种访问方式、目标主机预检、验收顺序和回滚准备 | 实际 Secret、私有路径和一次性部署操作 |
