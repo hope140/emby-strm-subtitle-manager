@@ -334,17 +334,30 @@ func TestResolveWriteTargetRegularLocalMediaUsesSelectedSourceAndRejectsRemoteFa
 	}
 }
 
-func TestResolveWriteTargetRejectsMultiSourceSTRMBeforePathResolution(t *testing.T) {
+func TestResolveWriteTargetUsesItemAnchorForSelectedMultiSourceSTRM(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "movie.strm"), []byte("stub"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mapper, err := pathmap.New([]pathmap.Mapping{{Emby: "/srv/media", Local: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard, err := pathmap.NewPathGuard([]string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
 	item := domain.EmbyItem{
 		ItemSummary: domain.ItemSummary{ID: "movie-1", Name: "Movie", Type: "Movie"},
-		Path:        "/missing/movie.strm",
+		Path:        "/srv/media/movie.strm",
 		MediaSources: []domain.MediaSource{
 			{ID: "source-a", Path: "https://media.example/a.mkv"},
 			{ID: "source-b", Path: "https://media.example/b.mkv"},
 		},
 	}
-	if _, err := ResolveWriteTarget(item, "source-b", nil, nil); !errors.Is(err, ErrStrmMultiSourceWriteUnsupported) {
-		t.Fatalf("multi-source STRM error = %v", err)
+	target, err := ResolveWriteTarget(item, "source-b", mapper, guard)
+	if err != nil || target.MediaSourceID != "source-b" || target.Location != WriteTargetLocationItem || !sameLocalPath(target.LocalPath, filepath.Join(root, "movie.strm")) {
+		t.Fatalf("multi-source STRM target = %#v err=%v", target, err)
 	}
 }
 

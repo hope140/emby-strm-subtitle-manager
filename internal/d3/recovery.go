@@ -291,9 +291,6 @@ func (s *Service) Restore(ctx context.Context, sourceOperationID string, request
 	if err != nil {
 		return OperationResponse{}, err
 	}
-	if media.IsSTRMPath(currentItem.Path) && len(currentItem.MediaSources) > 1 {
-		return OperationResponse{}, mapMediaError(media.ErrStrmMultiSourceWriteUnsupported)
-	}
 	if media.IsSTRMPath(currentItem.Path) && sourceRecord.OriginalLocation == string(media.WriteTargetLocationSource) {
 		return OperationResponse{}, &Error{Status: 409, Code: "strm_history_location_unsupported", Message: "the STRM recovery history cannot be safely restored", Cause: ErrHistory}
 	}
@@ -440,10 +437,7 @@ func (s *Service) ListOperationsForSource(ctx context.Context, itemID, sourceID 
 		if operation.Type == OperationReplace || operation.Type == OperationDelete {
 			supported := true
 			reason := ""
-			if media.IsSTRMPath(item.Path) && len(item.MediaSources) > 1 {
-				supported = false
-				reason = "strm_multisource_write_unsupported"
-			} else if record, found := s.loadRecoveryRecord(operation.OperationID); !found {
+			if record, found := s.loadRecoveryRecord(operation.OperationID); !found {
 				supported = false
 				reason = "restore_unavailable"
 			} else if media.IsSTRMPath(item.Path) && record.OriginalLocation == string(media.WriteTargetLocationSource) {
@@ -464,9 +458,6 @@ func (s *Service) ListOperationsForSource(ctx context.Context, itemID, sourceID 
 }
 
 func writeCapabilityErrorCode(err error) string {
-	if errors.Is(err, media.ErrStrmMultiSourceWriteUnsupported) {
-		return "strm_multisource_write_unsupported"
-	}
 	if errors.Is(err, media.ErrMediaSourceNotFound) {
 		return "media_source_mismatch"
 	}

@@ -19,10 +19,10 @@
 1. 所有 D3 写请求继续要求非空 `media_source_id`。服务端每次重新读取 Item，校验 Movie/Episode、source 结构、source 数量以及请求 ID 与当前 source 的精确匹配。
 2. 单源 STRM 使用 `Item.Path` 作为写入锚点。该路径必须通过 PathMapper 和 PathGuard，映射后的 `.strm` 必须是现存普通文件；symlink、目录、设备文件、控制字符、未映射路径和缺失文件均拒绝。写入目录是 `.strm` 所在目录，字幕 basename 来自 `.strm` basename。source ID 只用于请求绑定、Artifact/Item 校验、Refresh 和 MediaStreams 核验。
 3. 普通本地媒体使用当前显式 source 的 `MediaSource.Path`。该路径必须是本地路径、通过 PathMapper/PathGuard 并映射为现存普通文件。远程 source 不回退到 `Item.Path`。
-4. 多源 STRM 的 Add、Replace、Delete、Restore 在读取 Artifact 内容或接触媒体文件前返回 HTTP `409`，稳定错误码为 `strm_multisource_write_unsupported`。Search、Fetch、Preview 和 Upload 仍可保持显式 source 绑定，因为它们不直接写媒体目录。
+4. 多源 STRM 的 Add、Replace、Delete、Restore 使用明确选择的 `media_source_id` 进行绑定、Refresh 和字幕流验证；本地写入锚点仍是 Item.Path。Emby 已实测将写入结果绑定到所选版本，不再因版本组拒绝写入。
 5. 多源 STRM Inventory 只扫描 Item 目录，不扫描选中 source 的目录。共享 Item sidecar 可以只读展示，但 `manageable=false`，并使用不随 source 改变的共享 opaque 身份；Replace/Delete resolver 对其 fail closed。
 6. 新 Replace/Delete history 保存 `OriginalLocation=item`（单源 STRM）或 `OriginalLocation=source`（普通本地媒体），类别必须直接来自最终 `WriteTarget.Location`，不能通过 Item/source 目录相等关系反推；只保存类别和安全 basename，不保存媒体绝对路径。当前 Item 重新识别为 STRM 时，Restore 先在认证、gate、Item 类型、source 唯一性和 source 绑定通过后判定 STRM 及 history 类别，再对旧 v2 `OriginalLocation=source` 返回 `409 strm_history_location_unsupported`，不受 Item.Path 未映射、缺失、目录或 symlink 影响，也不读取恢复副本或写入媒体。
-7. 媒体公开投影只提供不含路径的 `write_capabilities`。多源 STRM 的 Add、Replace、Delete、Restore 控件由 `strm_multisource_write_unsupported` 能力原因隐藏或禁用；History 按当前选中 Item/source 返回安全的 Restore 能力和 `strm_history_location_unsupported` 原因，D2 Search、Fetch、Preview、Upload 不因该 D3 边界被关闭。
+7. 媒体公开投影只提供不含路径的 `write_capabilities`。多源 STRM 的 Add、Replace、Delete、Restore 控件与单源一致，但必须已有明确选中的 source；History 按当前选中 Item/source 返回安全的 Restore 能力。旧 history 的 `OriginalLocation=source` 仍返回 `strm_history_location_unsupported`，因为该旧记录无法证明原始目录。
 
 本 ADR 修订 [ADR-008](008-core-ab-daily-source-bound-recovery.md) 中“Add 的目标 basename 只来自 source path”和多源 STRM 允许 source-specific sidecar 的部分规则；[ADR-004](004-item-and-source-path-separation.md) 关于 STRM 的 Item.Path 锚点和远程 source 仅作为播放定位符的决定继续有效。
 
@@ -35,15 +35,14 @@
 
 ## 已知代价
 
-- 多源 STRM 暂不支持写入；需要独立的 Emby source-sidecar 关联证据和新设计后才能解除。
-- 单源 STRM 的本地 `.strm` 文件必须存在并位于允许的映射目录，部署前需要单独完成权限和文件类型预检。
-- 本地测试和 Fake Emby 只证明代码契约与安全拒绝；它们不能替代 C92 Canary、Emby MediaStreams、官方字幕流或实际客户端读取。
+- 多版本 STRM 必须明确选择 source；本地 `.strm` 文件仍必须存在并位于允许的映射目录，部署前需要单独完成权限和文件类型预检。
+- 本地测试和 Fake Emby 只证明代码契约；它们不能替代 C92 Canary、Emby MediaStreams、官方字幕流或实际客户端读取。
 
 ## 验证依据
 
-- `internal/media`：单源 STRM 远程 source、普通本地 source、缺失/目录/symlink 锚点、多源 STRM 和 source 绑定测试。
-- `internal/inventory`：多源 STRM 只读共享 sidecar、单一扫描范围和跨 source 稳定身份测试。
-- `internal/d3`：单源 STRM Add/Replace/Delete/Restore、`OriginalLocation=item`、多源 STRM 四类写操作 409、旧 history 拒绝测试。
-- `internal/httpapi`：普通本地多源 Fake Emby 正向流程、真实形态单源 STRM Search/Fetch/Preview/Add/Upload/Replace/Delete/Restore、真实形态多源 STRM 四类写路由 409 和无媒体变更测试。
-- `internal/httpui` 与 `scripts/core-ab-ui-e2e.ps1`：公开能力投影、稳定提示、多源 STRM D3 控件禁用/隐藏，以及单源 STRM 完整浏览器流程测试。
+- `internal/media`：STRM 远程 source、普通本地 source、缺失/目录/symlink 锚点和多版本显式 source 绑定测试。
+- `internal/inventory`：STRM 单一扫描范围与跨 source 身份测试。
+- `internal/d3`：STRM Add/Replace/Delete/Restore、`OriginalLocation=item`、显式 source 绑定与旧 history 拒绝测试。
+- `internal/httpapi`：普通本地多源 Fake Emby 正向流程、STRM Search/Fetch/Preview/Add/Upload/Replace/Delete/Restore 与多版本选中 source 写入测试。
+- `internal/httpui` 与 `scripts/core-ab-ui-e2e.ps1`：公开能力投影、显式版本选择和 STRM 完整浏览器流程测试。
 - `go test`、`go vet`、`go build` 与 `scripts/verify.ps1` 的结果以本次任务交付记录为准；C92、Docker、真实 Provider 和客户端范围仍需独立授权与实时验收。

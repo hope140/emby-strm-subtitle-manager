@@ -1073,10 +1073,6 @@ func projectMedia(item domain.EmbyItem, ctx media.MediaContext, mapper *pathmap.
 
 func projectWriteCapabilities(item domain.EmbyItem, sourceID string, mapper *pathmap.Mapper, guard *pathmap.PathGuard) writeCapabilitiesDTO {
 	capabilities := writeCapabilitiesDTO{}
-	if media.IsSTRMPath(item.Path) && len(item.MediaSources) > 1 {
-		capabilities.ReasonCode = media.WarningStrmMultiSourceWriteUnsupported
-		return capabilities
-	}
 	if _, err := media.ResolveWriteTarget(item, sourceID, mapper, guard); err != nil {
 		capabilities.ReasonCode = writeCapabilityErrorCode(err)
 		return capabilities
@@ -1089,9 +1085,6 @@ func projectWriteCapabilities(item domain.EmbyItem, sourceID string, mapper *pat
 }
 
 func writeCapabilityErrorCode(err error) string {
-	if errors.Is(err, media.ErrStrmMultiSourceWriteUnsupported) {
-		return media.WarningStrmMultiSourceWriteUnsupported
-	}
 	if errors.Is(err, media.ErrMediaSourceNotFound) {
 		return "media_source_mismatch"
 	}

@@ -527,8 +527,6 @@ func mapItemError(err error) error {
 
 func mapMediaError(err error) error {
 	switch {
-	case errors.Is(err, media.ErrStrmMultiSourceWriteUnsupported):
-		return &Error{Status: 409, Code: "strm_multisource_write_unsupported", Message: "multi-source STRM writes are not supported", Cause: err}
 	case errors.Is(err, media.ErrMediaSourceSelectionRequired):
 		return &Error{Status: 409, Code: "media_source_selection_required", Message: "media source selection is required", Cause: err}
 	case errors.Is(err, media.ErrMediaSourceNotFound):

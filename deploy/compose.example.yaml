@@ -42,12 +42,33 @@ services:
         target: app_api_auth_token
         mode: 0440
     volumes:
-      # Replace the source with the host media root that matches the Emby
-      # path mapping. The container sees media only at /media and cannot write.
+      # Replace these sources in the private Compose file. The application can
+      # manage subtitle sidecars under /media and keeps recovery data outside
+      # the media mapping.
       - type: bind
         source: /replace/with/host/media/root
         target: /media
-        read_only: true
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d2-preview-cache
+        target: /var/lib/subbridge/d2-preview-cache
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d3-history
+        target: /var/lib/subbridge/d3-history
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d3-quarantine
+        target: /var/lib/subbridge/d3-quarantine
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d3-archive
+        target: /var/lib/subbridge/d3-archive
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d3-trash
+        target: /var/lib/subbridge/d3-trash
+        read_only: false
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=16m
     security_opt:

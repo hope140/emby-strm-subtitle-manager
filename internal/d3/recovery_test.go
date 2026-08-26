@@ -497,40 +497,18 @@ func sha256Operation(value string) [32]byte {
 	return sha256.Sum256([]byte(value))
 }
 
-func TestMultiSourceSTRMWritesFailClosedBeforeMediaMutation(t *testing.T) {
+func TestMultiSourceSTRMWritesUseSelectedSource(t *testing.T) {
 	service, _, _, root := newRecoveryTestService(t, map[string]string{
 		"source-a": "https://media.example/version-A.mkv?opaque=a",
 		"source-b": "https://media.example/version-B.mkv?opaque=b",
 	}, 0)
 	artifact := recoveryArtifact(t, service, "source-b", "多源目标")
-	if _, err := service.Add(context.Background(), "movie-1", AddRequest{ArtifactToken: artifact.Token, MediaSourceID: "source-b", OperationID: "add-source-b"}); !hasD3Code(err, "strm_multisource_write_unsupported") {
-		t.Fatalf("multi-source STRM Add error = %v", err)
+	response, err := service.Add(context.Background(), "movie-1", AddRequest{ArtifactToken: artifact.Token, MediaSourceID: "source-b", OperationID: "add-source-b"})
+	if err != nil || response.MediaSourceID != "source-b" {
+		t.Fatalf("multi-source STRM Add = %#v err=%v", response, err)
 	}
-	subtitleID := "sub_v1_test-multisource"
-	if _, err := service.Replace(context.Background(), "movie-1", subtitleID, ReplaceRequest{ArtifactToken: artifact.Token, MediaSourceID: "source-b", OperationID: "replace-source-b"}); !hasD3Code(err, "strm_multisource_write_unsupported") {
-		t.Fatalf("multi-source STRM Replace error = %v", err)
-	}
-	if _, err := service.Delete(context.Background(), "movie-1", subtitleID, DeleteRequest{MediaSourceID: "source-b", OperationID: "delete-source-b"}); !hasD3Code(err, "strm_multisource_write_unsupported") {
-		t.Fatalf("multi-source STRM Delete error = %v", err)
-	}
-	operationID := "delete-source-old"
-	operationHash := sha256Operation(operationID)
-	oldHash := hashBytes([]byte("old subtitle"))
-	if err := service.writeRecoveryHistory(recoveryRecord{
-		Version: 2, OperationHash: hex.EncodeToString(operationHash[:]), OperationID: operationID, Type: OperationDelete,
-		Fingerprint: "legacy-multisource", ItemID: "movie-1", MediaSourceID: "source-b", SubtitleID: subtitleID,
-		FileName: "movie.zh-CN.srt", Format: "srt", Status: "verified", CreatedAt: time.Now().UTC(),
-		RecoveryKind: "trash", RecoveryFile: "old-trash.subbridge", OriginalFileName: "movie.zh-CN.srt",
-		OriginalLocation: "item", OriginalHash: oldHash, OriginalFormat: "srt",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.Restore(context.Background(), operationID, RestoreRequest{MediaSourceID: "source-b", OperationID: "restore-source-b"}); !hasD3Code(err, "strm_multisource_write_unsupported") {
-		t.Fatalf("multi-source STRM Restore error = %v", err)
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil || len(entries) != 1 || entries[0].Name() != "movie.strm" {
-		t.Fatalf("multi-source STRM media mutation = %#v err=%v", entries, err)
+	if _, err := os.Stat(filepath.Join(root, response.FileName)); err != nil {
+		t.Fatalf("multi-source STRM sidecar missing: %v", err)
 	}
 }
 

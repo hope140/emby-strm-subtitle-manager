@@ -98,7 +98,7 @@ D3 首次写入不能把“文件存在”或“Refresh 返回 2xx”当作完�
 
 ## 20. 可恢复多 source 操作必须保存目录类别，不能保存或猜测路径
 
-单源 STRM 的 Item.Path 与 MediaSource.Path 可能完全不同，后者还可能是远程播放 URL。D3 写入目标必须由 Item.Path 映射得到，并确认映射后的 `.strm` 是现存普通文件；普通本地媒体才使用选中 source path。多源 STRM 的 Item 目录是共享 sidecar 范围，在 Emby 关联规则确认前只能只读展示，不能按 source 扫描和修改。
+STRM 的 Item.Path 与 MediaSource.Path 可能完全不同，后者还可能是远程播放 URL。D3 写入目标必须由 Item.Path 映射得到，并确认映射后的 `.strm` 是现存普通文件；普通本地媒体才使用选中 source path。多个 STRM 版本的操作必须明确选择 source，并由 Emby 绑定到该版本；Inventory 仍只扫描 Item 目录。
 
 Replace/Delete 的 history 若只在 Restore 时使用当前 source 的写入目录，会把原先位于 Item 目录的 sidecar 恢复到错误位置。Core A/B 的恢复记录只保存 `item` 或 `source` 目录类别，不保存媒体路径；类别必须直接来自最终 `WriteTarget.Location`，不能因为普通本地媒体的 Item/source 目录恰好相同就优先记录为 `item`。Restore 重新读取当前 Item/source、核对 Hash 和无覆盖目标后才恢复。当前 Item 为 STRM 时，旧 v2 `OriginalLocation=source` history 无法证明原目录，必须在认证、gate、Item/source 绑定和 STRM 分类通过后稳定拒绝，且不应先因 Item.Path 未映射、缺失、目录或 symlink 失败，不能静默解释为 Item 目录。该规则由 `internal/inventory`、`internal/d3` 的回归测试和本地 Fake Emby 流程覆盖，真实 C92、MediaStreams、字幕流和客户端验收仍需单独完成。
 
@@ -116,11 +116,11 @@ Replace、Delete、Restore 或 Add 的失败分支不能把恢复旧文件、移
 
 ## 24. STRM 的播放 source 不是写入目标
 
-单源 STRM 的写入目标必须从当前 Item.Path 重新解析，通过 PathMapper、PathGuard，并确认映射结果是现存普通 `.strm` 文件；显式 source ID 仍必须由服务端重读校验，并用于 Refresh/MediaStreams 绑定。普通本地媒体继续要求选中 MediaSource.Path 可映射且为普通文件，远程 source 不得回退到 Item.Path。多源 STRM 写入应在 Artifact 或媒体文件接触前稳定返回 `strm_multisource_write_unsupported`，其 Item sidecar 只能只读展示。重新进入真实写窗口前，应分别对单源 STRM 的 Item.Path 文件和普通媒体的 source path 做精确权限、文件类型与映射预检；本地 Fake 证据不能替代 C92 Canary 或客户端验收。
+STRM 的写入目标必须从当前 Item.Path 重新解析，通过 PathMapper、PathGuard，并确认映射结果是现存普通 `.strm` 文件；显式 source ID 仍必须由服务端重读校验，并用于 Search/Artifact、Refresh 和 MediaStreams 绑定。普通本地媒体继续要求选中 MediaSource.Path 可映射且为普通文件，远程 source 不得回退到 Item.Path。多个 STRM 版本也使用该 Item.Path 锚点，但 Emby 已实测将结果绑定到选中版本。重新进入真实写窗口前，应分别对 STRM 的 Item.Path 文件和普通媒体的 source path 做精确权限、文件类型与映射预检；本地 Fake 证据不能替代 C92 Canary 或客户端验收。
 
 ## 25. HTTP/UI 能力投影必须先于写操作入口
 
-公开媒体详情只需返回不含路径的 `write_capabilities` 和稳定原因码。多源 STRM 仍应允许 Search、Fetch、Preview、Upload，但 Add、Replace、Delete、Restore 必须在页面入口层隐藏或禁用，并显示 `strm_multisource_write_unsupported` 的中文提示。按当前 Item/source 加载 History 时，旧 `OriginalLocation=source` 记录应携带安全的 `strm_history_location_unsupported` 能力提示，不能等用户点击 Restore 后才收到通用路径错误。真实浏览器 E2E 需要同时断言可用的 D2 流程和不可用的 D3 控件。
+公开媒体详情只需返回不含路径的 `write_capabilities` 和稳定原因码。多版本 STRM 在选中 source 后允许 Search、Fetch、Preview、Upload、Add、Replace、Delete 与 Restore；历史仍按当前 Item/source 加载。旧 `OriginalLocation=source` 记录应携带安全的 `strm_history_location_unsupported` 能力提示，不能等用户点击 Restore 后才收到通用路径错误。真实浏览器 E2E 需要断言选中版本的完整 D2/D3 流程。
 
 ## 26. 清理证据应以服务器端 Inventory 为准
 

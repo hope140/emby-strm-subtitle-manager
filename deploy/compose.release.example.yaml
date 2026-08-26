@@ -38,12 +38,32 @@ services:
         target: app_api_auth_token
         mode: 0440
     volumes:
-      # Replace only in the private copy. The normal release stays closed and
-      # mounts media read-only; write overlays remain separately authorized.
+      # Replace these sources in the private copy. The release supports daily
+      # subtitle management while keeping recovery data outside media.
       - type: bind
         source: /replace/with/host/media/root
         target: /media
-        read_only: true
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d2-preview-cache
+        target: /var/lib/subbridge/d2-preview-cache
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d3-history
+        target: /var/lib/subbridge/d3-history
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d3-quarantine
+        target: /var/lib/subbridge/d3-quarantine
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d3-archive
+        target: /var/lib/subbridge/d3-archive
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d3-trash
+        target: /var/lib/subbridge/d3-trash
+        read_only: false
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=16m
     security_opt:
@@ -59,8 +79,8 @@ services:
 
 configs:
   app_config:
-    # Copy deploy/config.example.yaml to a private config.yaml and keep it
-    # closed until a separately authorized capability window.
+    # Copy deploy/config.example.yaml to a private config.yaml and replace all
+    # path and credential placeholders before the first start.
     file: ./config.yaml
 
 secrets:

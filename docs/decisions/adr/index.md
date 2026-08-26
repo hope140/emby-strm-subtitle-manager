@@ -16,6 +16,7 @@ ADR 用于记录跨模块、长期有效且代码本身无法完整解释的选�
 | [ADR-008](008-core-ab-daily-source-bound-recovery.md) | accepted | Core A/B 日常模式、显式 source 绑定与可恢复字幕操作 |
 | [ADR-009](009-strm-write-target-and-multisource-boundary.md) | accepted | STRM 写入锚点、多源共享 sidecar 只读边界与旧 history 恢复策略 |
 | [ADR-010](010-risk-based-acceptance.md) | accepted | 风险分级验收、真实证据复用与失效条件 |
+| [ADR-011](011-default-daily-subtitle-management.md) | accepted | 标准发行默认启用搜索与可恢复字幕管理 |
 
 ## 创建条件
 

@@ -48,10 +48,32 @@ services:
         gid: "10001"
         mode: 0400
     volumes:
+      # Replace these sources in the private Compose file. Keep recovery data
+      # outside the Emby media mapping.
       - type: bind
         source: /replace/with/host/media/root
         target: /media
-        read_only: true
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d2-preview-cache
+        target: /var/lib/subbridge/d2-preview-cache
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d3-history
+        target: /var/lib/subbridge/d3-history
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d3-quarantine
+        target: /var/lib/subbridge/d3-quarantine
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d3-archive
+        target: /var/lib/subbridge/d3-archive
+        read_only: false
+      - type: bind
+        source: /replace/with/dedicated/d3-trash
+        target: /var/lib/subbridge/d3-trash
+        read_only: false
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=16m
     security_opt:

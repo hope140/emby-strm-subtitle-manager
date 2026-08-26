@@ -116,7 +116,6 @@ func TestCoreABUIUsesOnlyTheBoundedSameOriginSurface(t *testing.T) {
 		"/v1/subtitle-operations",
 		"media_source_id=",
 		"write_capabilities",
-		"strm_multisource_write_unsupported",
 		"strm_history_location_unsupported",
 		"FormData",
 		"restore_target_conflict",

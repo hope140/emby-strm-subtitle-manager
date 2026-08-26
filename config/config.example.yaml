@@ -16,8 +16,17 @@ security:
   session_ttl_seconds: 28800
 
 features:
-  write_enabled: false
-  remote_search_enabled: false
+  write_enabled: true
+  remote_search_enabled: true
+
+d2:
+  cache_dir: /var/lib/subbridge/d2-preview-cache
+
+d3:
+  history_dir: /var/lib/subbridge/d3-history
+  quarantine_dir: /var/lib/subbridge/d3-quarantine
+  archive_dir: /var/lib/subbridge/d3-archive
+  trash_dir: /var/lib/subbridge/d3-trash
 
 path_mappings:
   - emby: /srv/emby/media

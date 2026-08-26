@@ -11,12 +11,13 @@ emby:
 security:
   identity_key_file: /run/secrets/app_identity_key
   api_auth_token_file: /run/secrets/app_api_auth_token
-  # The application Bearer token is read-only by default. Add subtitle:write
-  # only in an explicitly authorized write configuration.
+  # The application Bearer token may perform the same subtitle operations as
+  # an authenticated administrator. Keep this token private.
   api_auth_scopes:
     - media:read
     - subtitle:search
     - subtitle:preview
+    - subtitle:write
   # Compose must provide APP_ADMIN_USERNAME and APP_ADMIN_PASSWORD directly.
   # These credentials are intentionally not stored in YAML.
   # Set true when the browser always reaches the service through HTTPS.
@@ -24,8 +25,8 @@ security:
   session_ttl_seconds: 28800
 
 features:
-  write_enabled: false
-  remote_search_enabled: false
+  write_enabled: true
+  remote_search_enabled: true
 
 d2:
   # Stable, dedicated application storage. Keep it outside every media
@@ -38,10 +39,8 @@ d2:
     item_allowlist_file: /run/secrets/d2_canary_items
 
 d3:
-  # D3 is disabled by default. For an explicitly authorized daily write
-  # window, use the write overlay and set write_enabled=true,
-  # remote_search_enabled=true, subtitle:write and all four private
-  # directories below. Canary remains an optional narrower admission mode.
+  # Daily writes are enabled by default. Canary remains an optional narrower
+  # admission mode for one-off production verification.
   history_dir: /var/lib/subbridge/d3-history
   quarantine_dir: /var/lib/subbridge/d3-quarantine
   archive_dir: /var/lib/subbridge/d3-archive

@@ -469,7 +469,7 @@ func TestCoreABHTTPSingleSourceSTRMFullFlow(t *testing.T) {
 	}
 }
 
-func TestCoreABHTTPRejectsMultiSourceSTRMWrite(t *testing.T) {
+func TestCoreABHTTPAddsSubtitleForSelectedMultiSourceSTRM(t *testing.T) {
 	handler, _, root, _ := newCoreABHTTPServerWithMode(t, true)
 	search := coreABJSON(t, handler, "/v1/media/movie-1/subtitles/search", `{"media_source_id":"source-a","language":"zh-CN"}`)
 	if search.Code != http.StatusOK {
@@ -494,16 +494,16 @@ func TestCoreABHTTPRejectsMultiSourceSTRMWrite(t *testing.T) {
 		t.Fatalf("STRM fetch body = %s err=%v", fetched.Body.String(), err)
 	}
 	added := coreABJSON(t, handler, "/v1/media/movie-1/subtitles/add", `{"artifact_token":"`+fetchedBody.ArtifactToken+`","media_source_id":"source-a","operation_id":"add-strm-multi-0001"}`)
-	if added.Code != http.StatusConflict || !strings.Contains(added.Body.String(), `"strm_multisource_write_unsupported"`) {
+	if added.Code != http.StatusOK || !strings.Contains(added.Body.String(), `"media_source_id":"source-a"`) {
 		t.Fatalf("STRM multi-source add = %d %s", added.Code, added.Body.String())
 	}
 	entries, err := os.ReadDir(root)
-	if err != nil || len(entries) != 1 || entries[0].Name() != "movie.strm" {
-		t.Fatalf("STRM multi-source media mutation = %#v err=%v", entries, err)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("STRM multi-source entries = %#v err=%v", entries, err)
 	}
 }
 
-func TestCoreABHTTPRejectsAllMultiSourceSTRMWrites(t *testing.T) {
+func TestCoreABHTTPSelectedMultiSourceSTRMDeleteAndRestore(t *testing.T) {
 	handler, fake, root, _ := newCoreABHTTPServerWithSTRMSources(t, true, 1)
 	search := coreABJSON(t, handler, "/v1/media/movie-1/subtitles/search", `{"media_source_id":"source-a","language":"zh-CN"}`)
 	if search.Code != http.StatusOK {
@@ -542,30 +542,16 @@ func TestCoreABHTTPRejectsAllMultiSourceSTRMWrites(t *testing.T) {
 	fake.strmSources = 2
 	fake.mu.Unlock()
 
-	for name, path := range map[string]string{
-		"add":     "/v1/media/movie-1/subtitles/add",
-		"replace": "/v1/media/movie-1/subtitles/sub_v1_multisource/replace",
-		"delete":  "/v1/media/movie-1/subtitles/sub_v1_multisource/delete",
-	} {
-		var body string
-		switch name {
-		case "add", "replace":
-			body = `{"artifact_token":"` + artifact.Token + `","media_source_id":"source-a","operation_id":"multi-` + name + `-0001"}`
-		default:
-			body = `{"media_source_id":"source-a","operation_id":"multi-delete-0001"}`
-		}
-		response := coreABJSON(t, handler, path, body)
-		if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `"strm_multisource_write_unsupported"`) {
-			t.Fatalf("multi-source STRM %s = %d %s", name, response.Code, response.Body.String())
-		}
+	added := coreABJSON(t, handler, "/v1/media/movie-1/subtitles/add", `{"artifact_token":"`+artifact.Token+`","media_source_id":"source-a","operation_id":"multi-add-0001"}`)
+	if added.Code != http.StatusOK || !strings.Contains(added.Body.String(), `"media_source_id":"source-a"`) {
+		t.Fatalf("multi-source STRM add = %d %s", added.Code, added.Body.String())
 	}
 	restored := coreABJSON(t, handler, "/v1/subtitle-operations/"+seedOperation.OperationID+"/restore", `{"media_source_id":"source-a","operation_id":"multi-restore-0001"}`)
-	if restored.Code != http.StatusConflict || !strings.Contains(restored.Body.String(), `"strm_multisource_write_unsupported"`) {
+	if restored.Code != http.StatusOK || !strings.Contains(restored.Body.String(), `"media_source_id":"source-a"`) {
 		t.Fatalf("multi-source STRM restore = %d %s", restored.Code, restored.Body.String())
 	}
-	entries, err := os.ReadDir(root)
-	if err != nil || len(entries) != 1 || entries[0].Name() != "movie.strm" {
-		t.Fatalf("multi-source STRM route media mutation = %#v err=%v", entries, err)
+	if _, err := os.Stat(filepath.Join(root, "movie.zh-CN.srt")); err != nil {
+		t.Fatalf("multi-source STRM restored sidecar missing: %v", err)
 	}
 }
 

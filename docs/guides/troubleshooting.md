@@ -18,7 +18,7 @@
 
 确认 Emby Item 是受支持的 Movie 或 Episode，且 Emby 报告路径能够映射到容器只读 `/media`。普通本地媒体使用选定 MediaSource 的本地路径；STRM 使用本地 `.strm` Item.Path 作为 sidecar 锚点。远程播放 URL 不是可写本地路径。
 
-多源 STRM 的 Search、Fetch、Preview 和 Upload 校验可用，但 Add、Replace、Delete、Restore 会安全拒绝并显示 `strm_multisource_write_unsupported`。不要为绕过该限制用远程 URL 或不同 source 推导文件名。
+多版本 STRM 必须先在 SB 选择目标版本。Add、Replace、Delete、Restore 仍以 Item.Path 的本地 `.strm` 目录为写入锚点，并将操作绑定到选中 source；不要用远程 URL 推导文件名。
 
 ## 搜索或写入入口不可用
 

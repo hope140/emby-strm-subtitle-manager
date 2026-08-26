@@ -20,7 +20,6 @@ var (
 	ErrInvalidUpstreamResponse         = errors.New("Emby media source response is invalid")
 	ErrMediaStreamsUnavailable         = errors.New("media streams are unavailable")
 	ErrMappedPathUnavailable           = errors.New("mapped media path is unavailable")
-	ErrStrmMultiSourceWriteUnsupported = errors.New("STRM writes with multiple media sources are unsupported")
 )
 
 // MappingStatus describes the safe state of the local path mapping. A
@@ -49,7 +48,6 @@ const (
 	WarningPathMappingUnsafe               = WarningMediaPathUnsafe
 	WarningPathMappingUnavailable          = WarningMediaDirectoryUnavailable
 	WarningPathGuardUnsafe                 = WarningMediaPathUnsafe
-	WarningStrmMultiSourceWriteUnsupported = "strm_multisource_write_unsupported"
 )
 
 // SourceSelector applies the explicit source-selection contract. It never
@@ -162,9 +160,10 @@ type WriteTarget struct {
 	Location       WriteTargetLocation
 }
 
-// ResolveWriteTarget resolves the safe local anchor for a write. A single
-// STRM item is anchored at Item.Path because its MediaSource.Path is a remote
-// playback locator in the deployed model. Ordinary local media remains bound
+// ResolveWriteTarget resolves the safe local anchor for a write. A STRM item
+// is anchored at Item.Path because its MediaSource.Path is a remote playback
+// locator in the deployed model. The explicitly selected source remains bound
+// to the operation and Emby refresh/stream verification. Ordinary local media remains bound
 // to the selected source path, and never falls back to Item.Path when that
 // source is remote or unavailable.
 func ResolveWriteTarget(item domain.EmbyItem, sourceID string, mapper *pathmap.Mapper, guard *pathmap.PathGuard) (WriteTarget, error) {
@@ -176,9 +175,6 @@ func ResolveWriteTarget(item domain.EmbyItem, sourceID string, mapper *pathmap.M
 		return WriteTarget{}, err
 	}
 	if isSTRM(item.Path) {
-		if len(item.MediaSources) != 1 {
-			return WriteTarget{}, ErrStrmMultiSourceWriteUnsupported
-		}
 		localPath, directory, err := resolveMappedRegularFile(item.Path, mapper, guard)
 		if err != nil || !isSTRM(localPath) {
 			return WriteTarget{}, ErrMappedPathUnavailable

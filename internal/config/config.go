@@ -181,7 +181,14 @@ func LoadFile(filename string) (Config, error) {
 	}
 	cfg.D2 = cfg.D2.WithDefaults()
 	cfg.D3 = cfg.D3.WithDefaults()
-	cfg.Security.APIAuthScopes = cfg.Security.EffectiveAPIAuthScopes()
+	if len(cfg.Security.APIAuthScopes) == 0 {
+		cfg.Security.APIAuthScopes = DefaultAPIAuthScopes()
+		if cfg.Features.WriteEnabled {
+			cfg.Security.APIAuthScopes = append(cfg.Security.APIAuthScopes, APIAuthScopeSubtitleWrite)
+		}
+	} else {
+		cfg.Security.APIAuthScopes = cfg.Security.EffectiveAPIAuthScopes()
+	}
 	if err := cfg.Validate(); err != nil {
 		return cfg, err
 	}
@@ -375,15 +382,14 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// DefaultAPIAuthScopes returns the read-only scopes assigned to the single
+// DefaultAPIAuthScopes returns the read-only baseline scopes assigned to the
 // application Bearer token when a deployment omits an explicit list.
 func DefaultAPIAuthScopes() []string {
 	return append([]string(nil), defaultAPIAuthScopes...)
 }
 
-// EffectiveAPIAuthScopes returns a defensive copy of the configured scopes or
-// the safe read-only default. The write scope is accepted only by a validated
-// D3-enabled configuration.
+// EffectiveAPIAuthScopes returns a defensive copy of configured scopes or the
+// read-only baseline. LoadFile adds subtitle:write when daily writes are on.
 func (c SecurityConfig) EffectiveAPIAuthScopes() []string {
 	if len(c.APIAuthScopes) == 0 {
 		return DefaultAPIAuthScopes()

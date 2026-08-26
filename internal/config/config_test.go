@@ -602,7 +602,7 @@ func readComposeTestDocument(t *testing.T, filename string) composeTestDocument 
 	return document
 }
 
-func TestBaseComposeHasNoD2Dependencies(t *testing.T) {
+func TestBaseComposeEnablesDailySubtitleManagement(t *testing.T) {
 	for _, filename := range []string{
 		filepath.Join("..", "..", "deploy", "compose.example.yaml"),
 		filepath.Join("..", "..", "deploy", "compose.host-network.example.yaml"),
@@ -619,20 +619,23 @@ func TestBaseComposeHasNoD2Dependencies(t *testing.T) {
 			if app.Environment["APP_ADMIN_USERNAME"] != "" || app.Environment["APP_ADMIN_PASSWORD"] != "" || len(app.Environment) != 2 {
 				t.Fatalf("base Compose must expose only blank admin environment placeholders, got %#v", app.Environment)
 			}
-			mediaFound := false
+			writable := map[string]bool{}
 			for _, mount := range app.Volumes {
-				if mount.Target == "/var/lib/subbridge/d2-preview-cache" {
-					t.Fatal("base Compose must not mount the D2 cache")
-				}
-				if mount.Target == "/media" && !mount.ReadOnly {
-					t.Fatalf("media mount must remain read-only = %#v", mount)
-				}
-				if mount.Target == "/media" {
-					mediaFound = true
+				if !mount.ReadOnly {
+					writable[mount.Target] = true
 				}
 			}
-			if !mediaFound {
-				t.Fatal("base Compose must keep its media mount")
+			for _, target := range []string{
+				"/media",
+				"/var/lib/subbridge/d2-preview-cache",
+				"/var/lib/subbridge/d3-history",
+				"/var/lib/subbridge/d3-quarantine",
+				"/var/lib/subbridge/d3-archive",
+				"/var/lib/subbridge/d3-trash",
+			} {
+				if !writable[target] {
+					t.Fatalf("base Compose is missing daily writable mount %s: %#v", target, app.Volumes)
+				}
 			}
 			for _, ref := range app.Secrets {
 				if ref.Source == "d2_canary_items" || ref.Target == "d2_canary_items" {
@@ -694,13 +697,13 @@ func TestD2ComposeOverlayAddsDedicatedWritableCacheAndAllowlistSecret(t *testing
 				t.Fatal("base rootfs must remain read-only after overlay merge")
 			}
 			mergedCache := false
-			mergedMediaReadOnly := false
+			mergedMediaWritable := false
 			for _, mount := range mergedVolumes {
 				if mount.Target == "/var/lib/subbridge/d2-preview-cache" && !mount.ReadOnly {
 					mergedCache = true
 				}
-				if mount.Target == "/media" && mount.ReadOnly {
-					mergedMediaReadOnly = true
+				if mount.Target == "/media" && !mount.ReadOnly {
+					mergedMediaWritable = true
 				}
 			}
 			mergedAllowlist := false
@@ -709,8 +712,8 @@ func TestD2ComposeOverlayAddsDedicatedWritableCacheAndAllowlistSecret(t *testing
 					mergedAllowlist = true
 				}
 			}
-			if !mergedCache || !mergedMediaReadOnly || !mergedAllowlist {
-				t.Fatalf("base+overlay D2 contract missing: cache=%v media_read_only=%v allowlist=%v", mergedCache, mergedMediaReadOnly, mergedAllowlist)
+			if !mergedCache || !mergedMediaWritable || !mergedAllowlist {
+				t.Fatalf("base+overlay D2 contract missing: cache=%v media_writable=%v allowlist=%v", mergedCache, mergedMediaWritable, mergedAllowlist)
 			}
 		})
 	}

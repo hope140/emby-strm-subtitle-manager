@@ -127,9 +127,6 @@ func Build(ctx media.MediaContext, options Options) (Inventory, error) {
 	if ctx.MediaStreams == nil {
 		result.Warnings = append(result.Warnings, "media_streams_unavailable")
 	}
-	if sharedSTRMSidecar(ctx) {
-		result.Warnings = append(result.Warnings, media.WarningStrmMultiSourceWriteUnsupported)
-	}
 	if ctx.MappingStatus != media.MappingStatusMapped || ctx.LocalDirectory == "" {
 		result.Warnings = append(result.Warnings, "media_directory_unavailable")
 	}
@@ -262,11 +259,9 @@ type sidecarScope struct {
 	base      string
 }
 
-// scanContextSidecars bounds filesystem discovery to the Item path and, for
-// ordinary local media, the explicitly selected source path. A multi-source
-// STRM item has one shared Item directory; it is read-only until Emby source
-// association semantics are independently established, so its sidecars are
-// never scanned as source-specific writable objects.
+// scanContextSidecars bounds filesystem discovery to the Item path for STRM
+// and to the selected source path for ordinary local media. STRM sidecar
+// identity remains bound to the explicitly selected source.
 func scanContextSidecars(fsys FileSystem, ctx media.MediaContext, key []byte, result *Inventory) ([]sidecar, bool) {
 	scopes := make([]sidecarScope, 0, 2)
 	sharedSTRM := sharedSTRMSidecar(ctx)
@@ -287,7 +282,7 @@ func scanContextSidecars(fsys FileSystem, ctx media.MediaContext, key []byte, re
 		scopes = append(scopes, sidecarScope{directory: directory, base: base})
 	}
 	addScope(ctx.LocalDirectory, ctx.LocalPath)
-	if !sharedSTRM {
+	if !ctx.IsStrm {
 		addScope(ctx.SourceLocalDirectory, ctx.SourceLocalPath)
 	}
 	if len(scopes) == 0 {
@@ -371,14 +366,10 @@ func scanSidecars(fsys FileSystem, dir, mediaBase, itemID, sourceID string, key 
 			continue
 		}
 		canonical = canonicalPath(canonical)
-		reason := ""
-		if readOnly {
-			reason = media.WarningStrmMultiSourceWriteUnsupported
-		}
 		files = append(files, sidecar{path: full, canonical: canonical, eligible: true, readOnly: readOnly, subtitle: Subtitle{
 			ID: subtitleID(key, itemID, sourceID, string(KindSidecar), name), Kind: KindSidecar,
 			DiscoveredBy: []Discovery{DiscoveryFilesystem}, FileName: name,
-			Format: strings.ToLower(ext), IsText: true, Manageable: !readOnly, Reason: reason,
+			Format: strings.ToLower(ext), IsText: true, Manageable: !readOnly,
 		}})
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].subtitle.FileName < files[j].subtitle.FileName })
@@ -386,7 +377,10 @@ func scanSidecars(fsys FileSystem, dir, mediaBase, itemID, sourceID string, key 
 }
 
 func sharedSTRMSidecar(ctx media.MediaContext) bool {
-	return ctx.IsStrm && ctx.MediaSourceCount > 1
+	// Emby binds sidecars to the selected source even when its item projection
+	// groups multiple STRM versions. Keep inventory identity source-specific so
+	// operations target the version the administrator selected.
+	return false
 }
 
 func collectStreams(ctx media.MediaContext, options Options, files []sidecar, issues []Issue, key []byte) (streamResult, bool, error) {
@@ -447,9 +441,6 @@ func collectStreams(ctx media.MediaContext, options Options, files []sidecar, is
 		matched := mergeExternal(&sub, stream, ctx, options, files)
 		if matched != nil {
 			sub.Manageable = !matched.file.readOnly
-			if matched.file.readOnly {
-				sub.Reason = media.WarningStrmMultiSourceWriteUnsupported
-			}
 			sub.ID = subtitleID(key, ctx.ItemID, sidecarSourceID, string(KindSidecar), matched.file.subtitle.FileName)
 			sub.Kind = KindSidecar
 			sub.DiscoveredBy = []Discovery{DiscoveryEmby, DiscoveryFilesystem}
@@ -476,9 +467,6 @@ func collectStreams(ctx media.MediaContext, options Options, files []sidecar, is
 			matched.file.subtitle.ID = sub.ID
 			matched.file.subtitle.Kind = KindSidecar
 			matched.file.subtitle.Manageable = !matched.file.readOnly
-			if matched.file.readOnly {
-				matched.file.subtitle.Reason = media.WarningStrmMultiSourceWriteUnsupported
-			}
 			matched.file.subtitle.DiscoveredBy = append([]Discovery(nil), sub.DiscoveredBy...)
 			matched.file.subtitle.Indexes = append([]int(nil), indexes...)
 			result.subtitles = append(result.subtitles, matched.file.subtitle)

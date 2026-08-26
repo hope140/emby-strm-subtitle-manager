@@ -97,7 +97,7 @@ func TestBuildScansOneDirectoryWithoutReadingBodies(t *testing.T) {
 	}
 }
 
-func TestBuildTreatsMultiSourceSTRMSidecarsAsSharedReadOnly(t *testing.T) {
+func TestBuildKeepsMultiSourceSTRMSidecarsBoundToSelectedSource(t *testing.T) {
 	dir := "/media"
 	files := []string{"Movie.zh.srt", "Version-B.subbridge.zh-CN.srt"}
 	f := &recordingFS{info: map[string]fs.FileInfo{}, canonical: map[string]string{}}
@@ -116,12 +116,13 @@ func TestBuildTreatsMultiSourceSTRMSidecarsAsSharedReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Complete || len(result.Subtitles) != 1 || sidecarID(result, "Version-B.subbridge.zh-CN.srt") != "" {
-		t.Fatalf("shared STRM sidecar inventory = %#v", result)
+	if !result.Complete || len(result.Subtitles) != 1 {
+		t.Fatalf("multi-source STRM sidecar inventory = %#v", result)
 	}
-	shared := result.Subtitles[0]
-	if shared.FileName != "Movie.zh.srt" || shared.Manageable || shared.Reason != media.WarningStrmMultiSourceWriteUnsupported {
-		t.Fatalf("shared sidecar state = %#v", shared)
+	for _, subtitle := range result.Subtitles {
+		if !subtitle.Manageable || subtitle.Reason != "" {
+			t.Fatalf("multi-source STRM sidecar state = %#v", subtitle)
+		}
 	}
 	if len(f.readDirs) != 1 || f.readDirs[0] != dir {
 		t.Fatalf("multi-source STRM scan scopes = %#v", f.readDirs)
@@ -131,8 +132,8 @@ func TestBuildTreatsMultiSourceSTRMSidecarsAsSharedReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sidecarID(other, "Movie.zh.srt") != shared.ID {
-		t.Fatalf("shared sidecar ID changed with source: %q -> %q", shared.ID, sidecarID(other, "Movie.zh.srt"))
+	if sidecarID(other, "Movie.zh.srt") == sidecarID(result, "Movie.zh.srt") {
+		t.Fatalf("source-specific sidecar ID did not change: %q", sidecarID(other, "Movie.zh.srt"))
 	}
 }
 

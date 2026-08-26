@@ -12,12 +12,13 @@ emby:
 security:
   identity_key_file: /run/secrets/app_identity_key
   api_auth_token_file: /run/secrets/app_api_auth_token
-  # The application Bearer token is read-only. Write scopes are reserved and
-  # rejected while writes are disabled.
+  # The application Bearer token may perform the same subtitle operations as
+  # an authenticated administrator. Keep this token private.
   api_auth_scopes:
     - media:read
     - subtitle:search
     - subtitle:preview
+    - subtitle:write
   # Compose must provide APP_ADMIN_USERNAME and APP_ADMIN_PASSWORD directly.
   # These credentials are intentionally not stored in YAML.
   # Set true when the browser always reaches the service through HTTPS.
@@ -25,8 +26,8 @@ security:
   session_ttl_seconds: 28800
 
 features:
-  write_enabled: false
-  remote_search_enabled: false
+  write_enabled: true
+  remote_search_enabled: true
 
 d2:
   # Stable, dedicated application storage. Keep it outside every media

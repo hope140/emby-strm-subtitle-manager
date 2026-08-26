@@ -1,8 +1,6 @@
-# Core A/B daily write overlay. Combine it with exactly one base topology only
-# after a separate deployment authorization. It does not turn features on by
-# itself: config.yaml must explicitly enable remote_search_enabled,
-# write_enabled and the subtitle:write API scope. The base Compose remains
-# read-only and is the normal default.
+# Legacy compatibility overlay for deployments created before daily operation
+# became the default. New installations already include these writable mounts
+# in their base Compose file; do not merge this overlay with a new deployment.
 services:
   app:
     # The root filesystem remains read-only. These are the complete writable

@@ -652,7 +652,7 @@ func TestMediaMultipleSourcesRequireExplicitSafeSelection(t *testing.T) {
 		t.Fatalf("source selection response = %d %s", rec.Code, rec.Body.String())
 	}
 	rec = serve(handler, http.MethodGet, "/v1/media/episode-1?media_source_id=source-b")
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"media_source_id":"source-b"`) || !strings.Contains(rec.Body.String(), `"is_strm":true`) || !strings.Contains(rec.Body.String(), `"reason_code":"strm_multisource_write_unsupported"`) || strings.Contains(rec.Body.String(), "/secret") || strings.Contains(rec.Body.String(), "media.example.invalid") {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"media_source_id":"source-b"`) || !strings.Contains(rec.Body.String(), `"is_strm":true`) || !strings.Contains(rec.Body.String(), `"reason_code":"media_path_unsafe"`) || strings.Contains(rec.Body.String(), "/secret") || strings.Contains(rec.Body.String(), "media.example.invalid") {
 		t.Fatalf("selected source response = %d %s", rec.Code, rec.Body.String())
 	}
 	rec = serve(handler, http.MethodGet, "/v1/media/episode-1?media_source_id=missing")

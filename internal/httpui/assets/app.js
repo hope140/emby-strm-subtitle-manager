@@ -127,7 +127,6 @@
     emby_refresh_failed: "Emby 刷新失败，新文件已隔离。",
     emby_subtitle_not_visible: "Emby 未识别新字幕，新文件已隔离。",
     d3_history_unavailable: "操作记录暂时不可用，请稍后重试。",
-    strm_multisource_write_unsupported: "多源 STRM 只支持搜索、Fetch、预览和上传校验，添加、替换、删除与恢复暂不可用。",
     strm_history_location_unsupported: "这条历史记录来自旧的 STRM source 目录语义，当前无法安全恢复。",
     subtitle_unmanageable: "该字幕不是可安全管理的外挂字幕。",
     subtitle_inventory_incomplete: "字幕清单不完整，已拒绝写入操作。",
