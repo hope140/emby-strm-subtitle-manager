@@ -2,22 +2,22 @@
 
 ## 适用范围
 
-本文件适用于 SubBridge（SB，字幕桥）仓库中的代码、测试、文档和本地验证。当前阶段以 [总体规划](SubBridge_Master_Plan_Revised.md)和 [Gate 0 实测报告](GATE0_REPORT.md)为事实起点。
+本文件适用于 SubBridge（SB，字幕桥）仓库中的代码、测试、文档和本地验证。当前阶段以 [总体规划](docs/planning/master-plan.md)和 [Gate 0 实测报告](docs/records/acceptance/gate0-report.md)为事实起点。
 
 ## 开始任务前的读取顺序
 
 1. 阅读本文件。
-2. 阅读 [当前架构](docs/architecture.md)。
-3. 按任务关键词搜索 [维护经验](docs/lessons-learned.md)和 [ADR](docs/adr/README.md)。
+2. 阅读 [当前架构](docs/reference/architecture.md)。
+3. 按任务关键词搜索 [维护经验](docs/reference/lessons-learned.md)和 [ADR](docs/decisions/adr/index.md)。
 4. 涉及阶段范围时阅读总体规划和对应阶段检查表。
 5. 涉及本机连接、路径和恢复时读取本地 `LOCAL_OPERATIONS.md`，不得在输出中回显敏感内容。
 
 ## 文档职责
 
 - `AGENTS.md` 保存稳定的协作规则和验收门禁。
-- `docs/architecture.md` 保存当前已经实现或实测确认的架构事实。
-- `docs/lessons-learned.md` 保存隐蔽、可复用并且有证据的经验。
-- `docs/adr/` 保存跨模块、长期有效且需要解释取舍的决策。
+- `docs/reference/architecture.md` 保存当前已经实现或实测确认的架构事实。
+- `docs/reference/lessons-learned.md` 保存隐蔽、可复用并且有证据的经验。
+- `docs/decisions/adr/` 保存跨模块、长期有效且需要解释取舍的决策。
 - 阶段报告保存一次任务的完整过程和证据，不直接充当长期知识库。
 - `LOCAL_OPERATIONS.md` 保存本机拓扑、连接方法、路径映射和恢复步骤。
 
@@ -48,15 +48,15 @@
 
 Gate 0 已正式通过。下一阶段为 Phase 1 构建基线与代码路线决策。
 
-Phase 1 只允许构建、检查和文档化。完成 `BASELINE.md`、`CSF_REUSE_MATRIX.md` 和项目路线 ADR 前，不开始 MediaContext、Inventory 或 Installer 实现。
+Phase 1 只允许构建、检查和文档化。完成 `docs/planning/phase1-baseline.md`、`docs/planning/chinesesubfinder-reuse-matrix.md` 和项目路线 ADR 前，不开始 MediaContext、Inventory 或 Installer 实现。
 
-Phase 2 只做 Emby Item、MediaContext、PathMapper 与字幕清单的只读切片。真实电影、剧集和多源自动化验收通过后，可按 [ADR-005](docs/adr/005-conditional-d2-entry-without-live-multisource.md) 有条件进入单源搜索预览；真实多媒体源 Item 验收前，多源搜索必须安全拒绝且不得宣称支持，`remote_search_enabled` 继续默认关闭。
+Phase 2 只做 Emby Item、MediaContext、PathMapper 与字幕清单的只读切片。真实电影、剧集和多源自动化验收通过后，可按 [ADR-005](docs/decisions/adr/005-conditional-d2-entry-without-live-multisource.md) 有条件进入单源搜索预览；真实多媒体源 Item 验收前，多源搜索必须安全拒绝且不得宣称支持，`remote_search_enabled` 继续默认关闭。
 
 Installer 必须等只读模型和路径映射准确后再开始。部署、重启和外部发布始终需要用户明确授权。
 
 ## 验证要求
 
-- 按[风险分级验收矩阵](docs/acceptance-matrix.md)选择本次改动的最低充分检查集；不确定时上调档位。
+- 按[风险分级验收矩阵](docs/reference/acceptance-matrix.md)选择本次改动的最低充分检查集；不确定时上调档位。
 - 文档修改检查 Markdown 链接、UTF-8、代码围栏、尾随空白和 `git diff --check`；局部代码至少运行受影响测试，合并候选由 CI 覆盖全量格式、vet、测试与构建。
 - Emby API、Provider、部署、路径映射、鉴权和写入语义变更，才按矩阵触发真实实例 Canary；本地/Fake 结果不能替代被触发的真实验收。
 - 文件写入能力首次启用、外部边界变更或正式发布时，仍需核对文件 Hash、Emby MediaStreams、直连字幕流和实际客户端读取。
@@ -64,7 +64,7 @@ Installer 必须等只读模型和路径映射准确后再开始。部署、重�
 
 ## Knowledge Review
 
-Knowledge Review 的深度按[风险分级验收矩阵](docs/acceptance-matrix.md)执行。只有 C 类及以上且产生可复用长期知识时才填写完整[模板](docs/knowledge-review-template.md)；A/B 类在交付说明中记录检查范围和“无新增长期知识”即可。
+Knowledge Review 的深度按[风险分级验收矩阵](docs/reference/acceptance-matrix.md)执行。只有 C 类及以上且产生可复用长期知识时才填写完整[模板](docs/reference/knowledge-review-template.md)；A/B 类在交付说明中记录检查范围和“无新增长期知识”即可。
 
 主任务负责核验证据、搜索重复内容和决定文档分流。只有代码、测试、日志、可复现运行结果，或官方文档与当前实现的交叉证据能够进入正式知识文档。
 
