@@ -32,16 +32,16 @@ D3.1 的客户端证据包含两层：自动化控制的 Emby Web 播放器读�
 
 | 能力 | 已有部分 | 仍缺什么 |
 |---|---|---|
-| D2 真实管理 UI | 本地 Fake Emby 浏览器 E2E、真实 C92 API Search→Fetch→Preview 已通过 | 真实 C92 管理 UI 中完整点击 Search→Fetch→Preview 尚未形成独立验收报告 |
+| D2 真实管理 UI | 本地 Fake Emby 浏览器 E2E 与受控 C92 单源 STRM 管理 UI 的 Search→Fetch→Preview 已通过 | 普通本地媒体和多源 STRM 的 UI 边界仍需独立验收 |
 | 多 MediaSource | 本地实现已要求显式 source；普通本地媒体在 Fake Emby/浏览器 E2E 覆盖正向流程，多源 STRM 的 Search/Fetch/Preview 保留而 D3 写入稳定 409；C92 真实 source 对应和 D2 安全拒绝已有历史证据 | 多源 STRM 的 Core A/B D3 409 尚无新的真实 C92 路由级复核；普通本地媒体的真实 C92 正向流程和实际客户端读取也仍未执行 |
-| Add 日常使用 | 日常 gate、单源 STRM Item.Path 锚点、普通本地 source 锚点、写入 overlay 示例、目标目录隔离、scope/CSRF 和稳定错误码已完成本地实现；单源 STRM 的受控服务端闭环已在 C92 通过 | 仍需独立验收普通本地媒体、真实 Provider、完整管理 UI 提交、多源 STRM D3 409 和新的实际客户端播放 |
+| Add 日常使用 | 单源 STRM 的受控 C92 管理 UI 已完成真实 Provider Search→Fetch→Preview→Add、Upload、Replace、Delete、Restore 和实际播放器读取；日常 gate、scope/CSRF 与 closed 收尾通过 | 仍需独立验收普通本地媒体和多源 STRM D3 409；这些不能从单源 STRM 推断 |
 | V1 管理 UI | 浏览、清单、搜索预览、Add、Replace、Upload、可恢复 Delete、历史/Restore 的最小入口已完成 | Provider 状态页、完整设置/日志页、媒体库层级重构和面向发布镜像的安装体验仍未完成 |
 | 公开分发 | 公开 GitHub 仓库、Dockerfile 和 Compose 示例已存在 | 尚无正式版本标签、GHCR/其他镜像发布、升级/回滚指南和面向新用户的端到端安装验收 |
 
 ## 尚未实现
 
-- Core A/B 的剩余真实验收：普通本地 Movie/Episode 正向写入、多源 STRM D3 409、真实 Provider、完整管理 UI 的写入提交，以及单源 STRM 的新一轮实际客户端播放。2026-08-26 单源 STRM 的服务端写入、字幕流与 closed 收尾已经通过，但不替代这些范围。
-- Provider 状态页、完整设置/日志页、发布版设置说明和正式镜像发布。
+- Core A/B 的剩余独立边界验收：普通本地 Movie/Episode 正向写入与客户端读取，以及多源 STRM D3 409 和无媒体变更。单源 STRM 的真实 Provider、完整管理 UI 写入提交与实际客户端播放已经完成，但不替代这些范围。
+- Core 测试版的正式镜像、升级/回滚说明和全新环境安装验收；随后进入 Provider 状态、设置/日志和媒体层级 UI/V1。
 - 缺字幕筛选、批量任务、自动下载、评分和时间轴校正；这些仍属于 V1 之后或独立研究线。
 
 ## 核心功能优先的压缩路线
@@ -60,11 +60,11 @@ Core A 与 Core B 已在同一核心开发会话连续完成。旧 source-bound 
 
 ### Core 0.x　核心测试版
 
-沿用当前 UI 架构的必要操作入口、错误提示和最小操作记录查询已完成本地实现。Core 功能测试版仍需在真实验收后才能发布；Compose 继续作为设置来源，本阶段不开发完整设置页面，也不进行 Emby 风格的媒体库、电视剧、季、集、版本层级重构。
+单源 STRM 的真实管理 UI 和客户端闭环已经完成。正式可追溯镜像、升级/回滚说明和全新环境安装验收暂缓，不阻断下一阶段 UI/V1；Compose 仍是设置来源，不在这一阶段开发完整设置页面。
 
 ### UI/V1　界面重构与正式发布
 
-核心测试版稳定后，再统一重构媒体库层级、完整字幕信息、设置、脱敏日志、历史/恢复入口和整体视觉，并补齐正式版本号、容器镜像、安装升级文档及全新环境验收。UI 重构不再反向改变已经稳定的核心写入契约。
+下一项开发工作是只读媒体层级、字幕信息和状态展示；随后补 Provider 状态、只读设置摘要、脱敏日志和历史/恢复体验。UI 重构不反向改变已经稳定的 Item/source、写入目标和恢复契约。正式分发在 UI/V1 稳定后统一收口。详细里程碑、验收条件与非目标见 [发布收口与 UI/V1 计划](release-and-ui-v1-plan.md)。
 
 ## 当前运行边界
 
@@ -109,4 +109,4 @@ Knowledge Findings：
 
 ## 2026-08-26 Core A/B 单源 STRM C92 正式验收
 
-ADR-009 修复后的候选提交已以 app-only 方式部署到 C92。单源 STRM 使用 `Item.Path` 锚点并保持显式 source 绑定，完成受控 Upload→Preview→Add、Replace→Restore、Delete→Restore→最终 Delete，以及 Hash、Refresh、MediaStreams、官方字幕流、source-specific history 和 closed 回滚。管理 UI 已在 daily 窗口登录并核对写入入口可见，但本次未用浏览器提交上传或写入请求。真实 Provider、普通本地媒体、多源 STRM D3 409 与新的实际客户端播放仍不在通过结论内。完整证据和清理边界见 [Core A/B C92 单源 STRM 正式验收](core-ab-c92-acceptance-20260826.md)。
+ADR-009 修复后的候选提交已以 app-only 方式部署到 C92。单源 STRM 使用 `Item.Path` 锚点并保持显式 source 绑定，完成受控 Upload→Preview→Add、Replace→Restore、Delete→Restore→最终 Delete，以及 Hash、Refresh、MediaStreams、官方字幕流、source-specific history 和 closed 回滚。随后用户在同一受控窗口完成真实管理 UI 的 Provider Search→Fetch→Preview、Upload、Add、Replace、Delete、Restore 和实际播放器字幕显示；ASS/UI 兼容修复复测后再次恢复 closed。普通本地媒体和多源 STRM D3 409 仍不在通过结论内。完整证据和清理边界见 [Core A/B C92 单源 STRM 正式验收](core-ab-c92-acceptance-20260826.md) 与 [ASS/UI 修复 C92 验收](core-ab-ass-ui-fix-c92-acceptance-20260826.md)。

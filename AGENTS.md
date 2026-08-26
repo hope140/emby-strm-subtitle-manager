@@ -56,19 +56,19 @@ Installer 必须等只读模型和路径映射准确后再开始。部署、重�
 
 ## 验证要求
 
-- 文档修改检查 Markdown 链接、UTF-8、代码围栏、尾随空白和 `git diff --check`。
-- 代码修改运行最相关的单元测试、静态检查和构建。
-- Emby API 行为使用 Fake Emby 集成测试后，还要在允许的真实实例上验证。
-- 文件写入验收需要核对文件 Hash、Emby MediaStreams、直连字幕流和实际客户端读取。
-- 代理或客户端行为只能由对应路径的真实请求证明。
+- 按[风险分级验收矩阵](docs/acceptance-matrix.md)选择本次改动的最低充分检查集；不确定时上调档位。
+- 文档修改检查 Markdown 链接、UTF-8、代码围栏、尾随空白和 `git diff --check`；局部代码至少运行受影响测试，合并候选由 CI 覆盖全量格式、vet、测试与构建。
+- Emby API、Provider、部署、路径映射、鉴权和写入语义变更，才按矩阵触发真实实例 Canary；本地/Fake 结果不能替代被触发的真实验收。
+- 文件写入能力首次启用、外部边界变更或正式发布时，仍需核对文件 Hash、Emby MediaStreams、直连字幕流和实际客户端读取。
+- 代理或客户端行为只能由对应路径的真实请求证明，但纯本地改动不自动使既有真实证据失效。
 
 ## Knowledge Review
 
-实质性代码、Bug、架构或兼容性任务结束时，使用 [Knowledge Review 模板](docs/knowledge-review-template.md)。
+Knowledge Review 的深度按[风险分级验收矩阵](docs/acceptance-matrix.md)执行。只有 C 类及以上且产生可复用长期知识时才填写完整[模板](docs/knowledge-review-template.md)；A/B 类在交付说明中记录检查范围和“无新增长期知识”即可。
 
 主任务负责核验证据、搜索重复内容和决定文档分流。只有代码、测试、日志、可复现运行结果，或官方文档与当前实现的交叉证据能够进入正式知识文档。
 
-没有新增知识时也要说明检查范围和无新增的原因。Knowledge Review 不是自动钩子，也不代替测试和验收。
+没有新增知识时说明检查范围和无新增的原因。Knowledge Review 不是自动钩子，也不代替测试和验收，更不重复矩阵已经覆盖的证据。
 
 ## 本地操作文档
 

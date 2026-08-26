@@ -545,29 +545,11 @@ No concurrent manual operation
 
 ## 12. 测试和验收
 
-### 单元测试
+日常开发、合并候选、真实 Canary 与正式发布采用[风险分级验收矩阵](docs/acceptance-matrix.md)，不把完整真实闭环附加到每一个局部改动。CI 持续覆盖格式、静态检查、全量测试与构建；真实证据按能力复用，并在外部边界变更时失效。
 
-- MediaContext 与多媒体源选择
-- PathMapper 最长前缀和大小写规则
-- 字幕语言归一化
-- Embedded 与 Sidecar 状态合并
-- Naming、Validator 和 Parser
-- 路径逃逸、链接逃逸和非法扩展名
-- Add、Replace、Delete 的幂等性
-- Item 锁与并发冲突
+单元与 Fake Emby 集成测试至少覆盖 MediaContext/source 选择、PathMapper、字幕状态合并、Validator、路径逃逸、幂等/锁、候选过期、Provider 局部失败、STRM 网络边界、Refresh/回滚和缓存边界。具体选择由矩阵的 A–C 档决定。
 
-### 集成测试
-
-- Fake Emby 搜索、Fetch、Refresh 和轮询
-- 候选 Token 过期与重放
-- Provider 超时和部分失败
-- STRM 不可达 URL 监测
-- 写入失败和 Refresh 失败回滚
-- 同路径旧缓存与新路径缓存测试
-
-### 真实验收
-
-每次发布至少选择一部电影和一集剧集，完成下面的闭环。
+首次启用写入能力、影响 Emby/Provider/部署/鉴权/路径或客户端边界的变更，以及正式发布，必须按矩阵 D/E 档完成对应的真实验收。对外开放写入能力或正式版本时，至少选择一部电影和一集剧集，并在适用时覆盖 STRM，完成下面的闭环。
 
 ```text
 搜索
@@ -585,7 +567,7 @@ Emby 识别
 历史记录可回滚
 ```
 
-静态测试、构建和 Fake Emby 集成都不能替代真实客户端验收。
+静态测试、构建和 Fake Emby 集成都不能替代被 D/E 档触发的真实客户端验收；纯本地改动不因此重复执行既有、未失效的真实闭环。
 
 ## 13. 错误与审计
 

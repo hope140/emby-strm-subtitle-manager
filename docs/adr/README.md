@@ -15,6 +15,7 @@ ADR 用于记录跨模块、长期有效且代码本身无法完整解释的选�
 | [ADR-007](007-subbridge-brand-and-legacy-deployment-identifiers.md) | accepted | SubBridge 新仓库/module/安装标识与 C92 旧部署标识的兼容边界 |
 | [ADR-008](008-core-ab-daily-source-bound-recovery.md) | accepted | Core A/B 日常模式、显式 source 绑定与可恢复字幕操作 |
 | [ADR-009](009-strm-write-target-and-multisource-boundary.md) | accepted | STRM 写入锚点、多源共享 sidecar 只读边界与旧 history 恢复策略 |
+| [ADR-010](010-risk-based-acceptance.md) | accepted | 风险分级验收、真实证据复用与失效条件 |
 
 ## 创建条件
 
