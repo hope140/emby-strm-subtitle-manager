@@ -4,11 +4,11 @@ SubBridge（SB，字幕桥）为 Emby 与 STRM 媒体库提供中文字幕浏览
 
 项目品牌、GitHub 仓库、Go module、构建产物和面向新安装的 Docker/Compose 示例统一使用 SubBridge；既有 C92 容器、镜像、目录、FRP proxy 和历史验收记录中的 `emby-strm-subtitle-manager` 继续作为兼容与追溯标识，不因品牌改名原地迁移。详细边界见 [ADR-007](docs/adr/007-subbridge-brand-and-legacy-deployment-identifiers.md)。
 
-当前优先完成字幕管理核心能力。现有 UI 只作为功能测试和最小操作入口，不在核心功能完成前进行媒体库层级、设置页、日志页或整体视觉重构；压缩后的顺序见 [当前状态与后续路线图](docs/current-status-and-roadmap.md)。
+当前优先完成字幕管理核心能力和 V1 管理 UI。UI 已实现媒体库→剧集→季→集→版本的惰性浏览，并提供脱敏运行摘要、当前搜索候选汇总和当前媒体源的历史筛选。它不提供配置页、日志页或全局 Provider 健康度；压缩后的顺序见 [发布收口与 UI/V1 计划](docs/release-and-ui-v1-plan.md)。
 
 ## 当前状态
 
-当前统一的完成度、缺口和建议顺序见 [当前状态与后续路线图](docs/current-status-and-roadmap.md)。简要结论是：D1、D2 单源后端、D2.5 和 D3.1 专用单源 Add 已完成真实验收；Core A/B 已在本地完成日常 Add、正向多 source、Replace、Upload、可恢复 Delete 与 Restore 的源码、Fake Emby 和最小浏览器 E2E。Core A/B C92 综合部署已按授权尝试，但因真实 source-bound 样本门禁阻断并恢复 closed，不能宣称真实综合验收通过。
+当前统一的完成度、缺口和建议顺序见 [当前状态与后续路线图](docs/current-status-and-roadmap.md)。简要结论是：D1、D2 单源后端、D2.5 和 D3.1 专用单源 Add 已完成真实验收；Core A/B 的单源 STRM 修复后闭环已完成 C92 受控验收并恢复 closed。普通本地媒体、多源 STRM 写入和正式镜像发布仍有独立门禁，不能从单源 STRM 结论推断。
 
 [Gate 0 实测](GATE0_REPORT.md)已经正式通过。真实环境已经验证 Emby API Key 搜索与 Fetch、STRM 网络边界、外部字幕写入、Emby 直连读取和受限范围内的缓存行为。
 
@@ -20,7 +20,7 @@ D1 只读代码切片、Linux 全包自动化验证、C92 部署和 FRP 公网 H
 
 同一 Go 服务内嵌的最小管理 UI 保留既有媒体库、Movie/Episode 分页、媒体详情和字幕清单布局。Core A/B 只补当前 source、搜索预览、Add、Upload、Replace、可恢复 Delete、History/Restore 入口，不提供完整设置、日志或媒体库层级重构。发布版 UI 使用私有 Compose environment 配置的管理员用户名和密码登录，服务端签发短期 HttpOnly 会话；密码不进入页面存储，面板不提供改密或注销。CLI、定时任务和 CI 继续使用独立 Bearer Token。使用方式和公网 HTTP/HTTPS 边界见 [D1.5 最小只读 Web UI](docs/d1.5-readonly-ui.md)，管理员认证实现见 [D2.5 管理员认证](docs/d2.5-admin-auth.md)，部署前检查见 [D1.5 部署前预检](docs/d1.5-deployment-preflight.md)。
 
-D3 专用样本 Add 已完成本地实现和 C92 真实闭环验收，包含管理员会话 CSRF、独立 `subtitle:write` scope、D3 allowlist、Artifact 绑定、原子非覆盖版本文件、Emby Refresh/轮询、history/quarantine、字幕流回读，以及 Emby Web 和手机端实际客户端读取。Core A/B 在本地扩展为统一 Item gate、显式多 source、日常 Add、Upload、Replace、可恢复 Delete 和 Restore，复用相同安全边界；本轮已完成精确提交的 C92 app-only 构建和 daily 启动预检，但在真实 source-bound 样本门禁处阻断于媒体操作之前，随后恢复 closed/只读。详见 [ADR-008](docs/adr/008-core-ab-daily-source-bound-recovery.md)、[Core A/B 实现评审](docs/core-ab-implementation-review.md)、[Core A/B C92 综合部署验收](docs/core-ab-c92-acceptance.md)、[D3 专用样本 Add 契约](docs/d3-dedicated-add-contract.md) 与 [D3 C92 Canary 验收](docs/d3-c92-canary-acceptance-20260825.md)。
+D3 专用样本 Add 已完成本地实现和 C92 真实闭环验收，包含管理员会话 CSRF、独立 `subtitle:write` scope、D3 allowlist、Artifact 绑定、原子非覆盖版本文件、Emby Refresh/轮询、history/quarantine、字幕流回读，以及 Emby Web 和手机端实际客户端读取。Core A/B 已统一 Item gate、显式 source、日常 Add、Upload、Replace、可恢复 Delete 和 Restore，单源 STRM 验收使用 `Item.Path` sidecar 锚点，多源 STRM 写入保持 fail closed。修复后的受控 C92 单源 STRM 窗口已完成 Upload、Provider Search、Fetch、Preview、Add、Replace、Delete、Restore 和实际客户端读取，随后恢复 closed/只读。普通本地媒体和多源 STRM 仍需独立验收。详见 [ADR-009](docs/adr/009-strm-write-target-and-multisource-boundary.md)、[Core A/B 实现评审](docs/core-ab-implementation-review.md) 和 [Core A/B C92 单源 STRM 正式验收](docs/core-ab-c92-acceptance-20260826.md)。
 
 当前服务还提供 `/` 与 `/assets/{asset}` 的内嵌 UI、D1 的 GET API/运维路由、默认关闭的 D2 Search、Fetch、Preview、Upload 路由，以及默认关闭的 D3 Add、Replace、Delete、History、Restore 路由。UI 只在服务端 health 明确报告相应开关启用时显示当前明确 source 的入口；D3 还要求统一 Item gate、已绑定 Artifact（对 Add/Replace）、私有目录和写入条件。`/livez` 与只返回极小状态的 `/readyz` 公开；`/v1/auth/login` 使用 Compose environment 中的管理员凭据登录，其余 `/v1/*` 接受短期管理员会话或按路由检查 scope 的独立 Bearer，Bearer 不接受 query 参数。`/readyz` 会实际探测 Emby，不能只根据进程存活返回就绪。应用凭据、`security.identity_key_file`、`security.api_auth_token_file` 和管理员 environment 分离，管理员密码不能复用 Emby API Key。真实 C92 单源 Provider API Canary 已通过；Core A/B 本地证据和 C92 阻断边界见 [Core A/B 实现评审](docs/core-ab-implementation-review.md) 与 [Core A/B C92 综合部署验收](docs/core-ab-c92-acceptance.md)。
 
@@ -43,6 +43,9 @@ Compose 的 `IMAGE_TAG`、`BUILD_VERSION`、`BUILD_COMMIT`、`BUILD_TIME` 和 `B
 | [D2 搜索预览契约](docs/d2-search-preview-contract.md) | D2 Search、Fetch、Preview 契约、安全边界和实现测试矩阵 |
 | [D2.5 管理员认证](docs/d2.5-admin-auth.md) | Compose environment 管理员登录、HttpOnly 会话、Bearer 自动化分离和剩余门禁 |
 | [D2-B2 UI 评审](docs/d2-b2-readonly-ui-review.md) | D2 UI、浏览器存储边界和本地 Fake Emby E2E 证据 |
+| [安装指南](docs/install.md) | 全新环境的默认 closed 安装和首次检查 |
+| [升级与回滚](docs/upgrade-rollback.md) | 不可变镜像引用、升级、回滚与保留边界 |
+| [故障排查](docs/troubleshooting.md) | 启动、认证、路径、STRM 与功能开关的安全排查方向 |
 | [文档索引](docs/README.md) | 文档分层和读取顺序 |
 | [当前架构](docs/architecture.md) | 当前已经验证的系统边界与数据流 |
 | [维护经验](docs/lessons-learned.md) | 经过代码、日志或真实运行证明的高复用结论 |

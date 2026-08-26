@@ -10,6 +10,9 @@
 |---|---|---|
 | [当前状态与后续路线图](current-status-and-roadmap.md) | 当前完成度、剩余缺口、推进优先级和运行边界 | 一次性执行命令、凭据和实时部署状态 |
 | [发布收口与 UI/V1 计划](release-and-ui-v1-plan.md) | Core 测试版发布收口、UI/V1 里程碑、独立边界验收和非目标 | 运行中的部署状态、凭据和一次性命令 |
+| [安装指南](install.md) | 全新环境的只读安装、首次登录与 closed 验证 | 真实凭据、媒体路径和开启写入 |
+| [升级与回滚](upgrade-rollback.md) | 不可变镜像、升级/回滚顺序和保留约束 | 任意媒体清理、无授权写入 |
+| [故障排查](troubleshooting.md) | 启动、认证、路径、STRM 和开关的安全排查 | 密码、Token、Cookie、媒体绝对路径 |
 | [风险分级验收矩阵](acceptance-matrix.md) | 日常开发、合并候选、Canary 与正式发布的最低充分验证和证据复用规则 | 实际运行状态、凭据和一次性操作记录 |
 | [Core A/B 连续实施计划](core-ab-implementation-plan.md) | 日常 Add、多源、Replace、Upload、Delete、Restore 的实现范围、测试和审核方式 | C92 实际部署、凭据和 UI 重构 |
 | [Core A/B 实现评审](core-ab-implementation-review.md) | 本地实现、测试证据、Knowledge Review 和真实验收边界 | C92 实际部署、凭据和真实客户端结论 |

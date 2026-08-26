@@ -54,6 +54,7 @@ const (
 type EmbyReader interface {
 	ListLibraries(context.Context) ([]domain.Library, error)
 	ListItems(context.Context, string, int, int) (domain.ItemPage, error)
+	ListBrowseNodes(context.Context, domain.BrowseQuery) (domain.BrowsePage, error)
 	GetItem(context.Context, string) (domain.EmbyItem, error)
 }
 
@@ -220,8 +221,14 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleLibraries(w, r)
 	case "/v1/emby/items":
 		s.handleItems(w, r)
+	case "/v1/emby/browse":
+		s.handleBrowse(w, r)
 	default:
 		if strings.HasPrefix(r.URL.Path, "/v1/media/") {
+			if isMediaSourcesPath(r.URL.Path) {
+				s.handleMediaSources(w, r)
+				return
+			}
 			s.handleMedia(w, r)
 			return
 		}
@@ -503,6 +510,24 @@ func (s *Server) handleItems(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, page)
 }
 
+func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
+	query, err := parseBrowseQuery(r)
+	if err != nil {
+		s.writeError(w, r, http.StatusBadRequest, "invalid_query", err.Error())
+		return
+	}
+	if s.emby == nil {
+		s.writeError(w, r, http.StatusServiceUnavailable, "emby_unavailable", "Emby is unavailable")
+		return
+	}
+	page, err := s.emby.ListBrowseNodes(r.Context(), query)
+	if err != nil {
+		s.writeEmbyError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
 type mediaRequest struct {
 	itemID    string
 	subtitles bool
@@ -558,6 +583,32 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"media": public, "inventory": inventoryResult})
+}
+
+func (s *Server) handleMediaSources(w http.ResponseWriter, r *http.Request) {
+	itemID, err := parseMediaSourcesRequest(r)
+	if err != nil {
+		s.writeError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if s.emby == nil {
+		s.writeError(w, r, http.StatusServiceUnavailable, "emby_unavailable", "Emby is unavailable")
+		return
+	}
+	item, err := s.emby.GetItem(r.Context(), itemID)
+	if err != nil {
+		s.writeEmbyError(w, r, err)
+		return
+	}
+	options, err := projectSourceOptions(item)
+	if err != nil {
+		s.writeError(w, r, http.StatusBadGateway, "emby_invalid_response", "Emby media response was invalid")
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		ItemID        string            `json:"item_id"`
+		SourceOptions []sourceOptionDTO `json:"media_sources"`
+	}{ItemID: itemID, SourceOptions: options})
 }
 
 func (s *Server) handleD2(w http.ResponseWriter, r *http.Request, operation string) {
@@ -944,6 +995,30 @@ func parseMediaRequest(r *http.Request) (mediaRequest, error) {
 	return mediaRequest{itemID: itemID, subtitles: subtitles, sourceID: query.Get("media_source_id")}, nil
 }
 
+func isMediaSourcesPath(path string) bool {
+	const prefix = "/v1/media/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	return len(parts) == 2 && parts[1] == "sources"
+}
+
+func parseMediaSourcesRequest(r *http.Request) (string, error) {
+	if !isMediaSourcesPath(r.URL.Path) {
+		return "", errors.New("invalid media path")
+	}
+	if !noQuery(r) {
+		return "", errors.New("query parameters are not allowed")
+	}
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/v1/media/"), "/")
+	itemID := parts[0]
+	if !validID(itemID) || strings.ContainsAny(itemID, `/\\`) {
+		return "", errors.New("invalid item id")
+	}
+	return itemID, nil
+}
+
 // MediaDTO is the only public projection of MediaContext. It intentionally
 // contains neither the Emby-reported path nor stream paths.
 type MediaDTO struct {
@@ -1030,10 +1105,22 @@ type sourceOptionDTO struct {
 	Default   bool   `json:"is_default"`
 }
 
-func (s *Server) writeSourceSelectionRequired(w http.ResponseWriter, r *http.Request, item domain.EmbyItem) {
+func projectSourceOptions(item domain.EmbyItem) ([]sourceOptionDTO, error) {
 	options := make([]sourceOptionDTO, 0, len(item.MediaSources))
 	for _, source := range item.MediaSources {
+		if !validID(source.ID) {
+			return nil, errors.New("invalid media source")
+		}
 		options = append(options, sourceOptionDTO{ID: source.ID, Name: source.Name, Container: source.Container, Default: source.IsDefault != nil && *source.IsDefault})
+	}
+	return options, nil
+}
+
+func (s *Server) writeSourceSelectionRequired(w http.ResponseWriter, r *http.Request, item domain.EmbyItem) {
+	options, err := projectSourceOptions(item)
+	if err != nil {
+		s.writeError(w, r, http.StatusBadGateway, "emby_invalid_response", "Emby media response was invalid")
+		return
 	}
 	requestID, _ := r.Context().Value(requestIDKey{}).(string)
 	writeJSON(w, http.StatusConflict, struct {
@@ -1083,6 +1170,54 @@ func parseItemsQuery(r *http.Request) (itemsQuery, error) {
 		limit = parsed
 	}
 	return itemsQuery{libraryID: libraryID, startIndex: startIndex, limit: limit}, nil
+}
+
+func parseBrowseQuery(r *http.Request) (domain.BrowseQuery, error) {
+	q, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		return domain.BrowseQuery{}, errors.New("invalid query")
+	}
+	for key, values := range q {
+		switch key {
+		case "library_id", "level", "parent_id", "start_index", "limit":
+		default:
+			return domain.BrowseQuery{}, errors.New("unknown query parameter")
+		}
+		if len(values) != 1 || values[0] == "" {
+			return domain.BrowseQuery{}, errors.New("duplicate or empty query parameter")
+		}
+	}
+	browse := domain.BrowseQuery{LibraryID: q.Get("library_id"), ParentID: q.Get("parent_id"), Level: domain.BrowseLevel(q.Get("level")), StartIndex: defaultStartIndex, Limit: defaultLimit}
+	if !validID(browse.LibraryID) {
+		return domain.BrowseQuery{}, errors.New("invalid library_id")
+	}
+	switch browse.Level {
+	case domain.BrowseLevelRoot:
+		if browse.ParentID != "" {
+			return domain.BrowseQuery{}, errors.New("parent_id is not allowed for root")
+		}
+	case domain.BrowseLevelSeries, domain.BrowseLevelSeason:
+		if !validID(browse.ParentID) {
+			return domain.BrowseQuery{}, errors.New("invalid parent_id")
+		}
+	default:
+		return domain.BrowseQuery{}, errors.New("invalid level")
+	}
+	if raw := q.Get("start_index"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			return domain.BrowseQuery{}, errors.New("invalid start_index")
+		}
+		browse.StartIndex = parsed
+	}
+	if raw := q.Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > maxHTTPItemsLimit {
+			return domain.BrowseQuery{}, errors.New("invalid limit")
+		}
+		browse.Limit = parsed
+	}
+	return browse, nil
 }
 
 func validID(value string) bool {
@@ -1212,7 +1347,7 @@ func newRequestID() string {
 
 func routeLabel(path string) string {
 	switch path {
-	case "/", "/livez", "/readyz", "/v1/health", "/v1/auth/login", "/v1/emby/libraries", "/v1/emby/items", "/v1/subtitle-operations":
+	case "/", "/livez", "/readyz", "/v1/health", "/v1/auth/login", "/v1/emby/libraries", "/v1/emby/items", "/v1/emby/browse", "/v1/subtitle-operations":
 		return path
 	}
 	if strings.HasPrefix(path, "/assets/") {
@@ -1225,6 +1360,9 @@ func routeLabel(path string) string {
 		}
 		if len(parts) == 2 && parts[1] == "subtitles" {
 			return "/v1/media/{itemId}/subtitles"
+		}
+		if len(parts) == 2 && parts[1] == "sources" {
+			return "/v1/media/{itemId}/sources"
 		}
 		if len(parts) == 3 && parts[1] == "subtitles" {
 			switch parts[2] {

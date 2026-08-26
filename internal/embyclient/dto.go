@@ -118,6 +118,14 @@ func (d itemDTO) toSummary() domain.ItemSummary {
 	}
 }
 
+func (d itemDTO) toBrowseNode() domain.BrowseNode {
+	return domain.BrowseNode{
+		ID: stringValue(d.ID), Name: stringValue(d.Name), Type: stringValue(d.Type),
+		ParentID: stringValue(d.ParentID), SeriesID: stringValue(d.SeriesID), SeriesName: stringValue(d.SeriesName),
+		ParentIndexNumber: d.ParentIndexNumber, IndexNumber: d.IndexNumber, ProductionYear: d.ProductionYear,
+	}
+}
+
 func (d itemDTO) toDomain() domain.EmbyItem {
 	item := domain.EmbyItem{ItemSummary: d.toSummary(), Path: stringValue(d.Path)}
 	if d.ProviderIDs != nil {

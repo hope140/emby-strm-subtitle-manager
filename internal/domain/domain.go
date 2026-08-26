@@ -36,6 +36,51 @@ type ItemPage struct {
 	HasMore          bool          `json:"has_more"`
 }
 
+// BrowseLevel is the small, fixed hierarchy exposed by the read-only V1
+// browser. It is deliberately not an arbitrary Emby query surface.
+type BrowseLevel string
+
+const (
+	BrowseLevelRoot   BrowseLevel = "root"
+	BrowseLevelSeries BrowseLevel = "series"
+	BrowseLevelSeason BrowseLevel = "season"
+)
+
+// BrowseQuery identifies one bounded branch of the media browser. LibraryID
+// remains present at every level so callers retain library context even though
+// Emby only needs it as the root ParentId.
+type BrowseQuery struct {
+	LibraryID  string
+	ParentID   string
+	Level      BrowseLevel
+	StartIndex int
+	Limit      int
+}
+
+// BrowseNode is the safe metadata required to render a Movie, Series, Season
+// or Episode node. It intentionally contains no Emby paths, stream data or
+// provider identifiers.
+type BrowseNode struct {
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	Type              string `json:"type"`
+	ParentID          string `json:"parent_id,omitempty"`
+	SeriesID          string `json:"series_id,omitempty"`
+	SeriesName        string `json:"series_name,omitempty"`
+	ParentIndexNumber *int   `json:"parent_index_number,omitempty"`
+	IndexNumber       *int   `json:"index_number,omitempty"`
+	ProductionYear    *int   `json:"production_year,omitempty"`
+}
+
+// BrowsePage is a bounded page returned for one fixed browse level.
+type BrowsePage struct {
+	Items            []BrowseNode `json:"items"`
+	TotalRecordCount int          `json:"total_record_count"`
+	StartIndex       int          `json:"start_index"`
+	Limit            int          `json:"limit"`
+	HasMore          bool         `json:"has_more"`
+}
+
 // MediaSource is an internal Emby fact retained for MediaContext selection.
 // It has no URL field; Path is an Emby-reported filesystem fact and must be
 // mapped and filtered before it can be used by another layer.

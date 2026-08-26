@@ -1,0 +1,72 @@
+name: subbridge
+
+# Image-only release topology. Copy this file and the matching config example
+# into a private deployment directory, then replace the placeholders there.
+# IMAGE_REF must be a full registry/repository@sha256:digest reference. Do not
+# add a build section to a released deployment: the digest is its identity and
+# its rollback reference.
+services:
+  app:
+    image: "${IMAGE_REF:?Set IMAGE_REF to registry/repository@sha256:digest in the private Compose file}"
+    pull_policy: always
+    command:
+      - -config
+      - /etc/subbridge/config.yaml
+    environment:
+      # Set direct values only in the private copy. Do not use a public .env
+      # example or commit either credential.
+      APP_ADMIN_USERNAME: ""
+      APP_ADMIN_PASSWORD: ""
+    user: "10001:10001"
+    read_only: true
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18080:8080"
+    configs:
+      - source: app_config
+        target: /etc/subbridge/config.yaml
+        mode: 0444
+    secrets:
+      - source: emby_api_key
+        target: emby_api_key
+        mode: 0440
+      - source: app_identity_key
+        target: app_identity_key
+        mode: 0440
+      - source: app_api_auth_token
+        target: app_api_auth_token
+        mode: 0440
+    volumes:
+      # Replace only in the private copy. The normal release stays closed and
+      # mounts media read-only; write overlays remain separately authorized.
+      - type: bind
+        source: /replace/with/host/media/root
+        target: /media
+        read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
+configs:
+  app_config:
+    # Copy deploy/config.example.yaml to a private config.yaml and keep it
+    # closed until a separately authorized capability window.
+    file: ./config.yaml
+
+secrets:
+  emby_api_key:
+    file: ./secrets/emby_api_key
+  app_identity_key:
+    file: ./secrets/app_identity_key
+  app_api_auth_token:
+    file: ./secrets/app_api_auth_token

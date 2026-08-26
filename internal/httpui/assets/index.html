@@ -40,23 +40,27 @@
         <select id="library" disabled>
           <option value="">请先登录</option>
         </select>
-        <button id="load-items" type="button" disabled>加载</button>
-        <span id="app-status" class="muted" role="status"></span>
+         <button id="load-items" type="button" disabled>加载</button>
+         <button id="refresh-health" class="secondary" type="button" disabled>刷新状态</button>
+         <span id="health-summary" class="muted" role="status"></span>
+         <span id="app-status" class="muted" role="status"></span>
       </div>
 
       <div class="content-grid">
         <section class="panel">
           <div class="section-heading">
             <div>
-              <h2>Movie / Episode</h2>
-              <p class="muted">沿用服务端混合分页，每页只请求一次列表。</p>
+              <h2>媒体浏览</h2>
+              <p class="muted">按媒体库、剧集、季、集和版本逐层加载，不预取媒体路径或版本详情。</p>
             </div>
             <div class="pager">
+              <button id="browse-back" class="secondary" type="button" disabled>返回上级</button>
               <button id="previous-page" class="secondary" type="button" disabled>上一页</button>
               <span id="page-status" class="muted">未加载</span>
               <button id="next-page" class="secondary" type="button" disabled>下一页</button>
             </div>
           </div>
+          <nav id="browse-path" class="browse-path" aria-label="媒体位置">媒体库</nav>
           <div id="items" class="item-list empty-state">请选择媒体库。</div>
         </section>
 
@@ -89,7 +93,8 @@
                 <h4>候选</h4>
                 <span id="d2-result-status" class="muted" role="status"></span>
               </div>
-              <div id="d2-candidates" class="candidate-list"></div>
+               <div id="d2-provider-summary" class="provider-summary muted" role="status"></div>
+               <div id="d2-candidates" class="candidate-list"></div>
             </div>
             <section id="d2-preview" class="preview-panel hidden" aria-labelledby="d2-preview-heading">
               <div class="section-heading compact-heading">
@@ -122,7 +127,24 @@
                   <h4 id="d3-history-heading">操作历史</h4>
                   <p class="muted">仅展示当前媒体的安全操作摘要；删除和替换可在不覆盖现有文件的前提下恢复。</p>
                 </div>
-                <button id="d3-history-reload" class="secondary" type="button">刷新</button>
+                 <div class="history-filters" aria-label="操作历史筛选">
+                   <label for="d3-history-type">类型</label>
+                   <select id="d3-history-type">
+                     <option value="">全部</option>
+                     <option value="add">添加</option>
+                     <option value="upload">上传校验</option>
+                     <option value="replace">替换</option>
+                     <option value="delete">移入回收区</option>
+                     <option value="restore">恢复</option>
+                   </select>
+                   <label for="d3-history-status-filter">状态</label>
+                   <select id="d3-history-status-filter">
+                     <option value="">全部</option>
+                     <option value="verified">已核验</option>
+                     <option value="checked">已校验</option>
+                   </select>
+                   <button id="d3-history-reload" class="secondary" type="button">刷新</button>
+                 </div>
               </div>
               <p id="d3-history-status" class="muted" role="status"></p>
               <div id="d3-history-list" class="history-list"></div>

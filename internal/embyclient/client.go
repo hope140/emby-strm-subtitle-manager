@@ -217,6 +217,88 @@ func (c *Client) ListItems(ctx context.Context, libraryID string, startIndex, li
 	}, nil
 }
 
+// ListBrowseNodes returns one direct, bounded branch of the V1 media browser.
+// The level fixes both the Emby item types and query shape; callers cannot
+// inject arbitrary IncludeItemTypes, fields or recursive traversal options.
+func (c *Client) ListBrowseNodes(ctx context.Context, browse domain.BrowseQuery) (domain.BrowsePage, error) {
+	browse.LibraryID, _ = normalizeID(browse.LibraryID)
+	if browse.LibraryID == "" || browse.StartIndex < 0 || browse.Limit < 1 || browse.Limit > maxListLimit {
+		return domain.BrowsePage{}, &Error{Kind: ErrInvalidInput}
+	}
+	parentID := browse.ParentID
+	includeTypes := ""
+	sortBy := "SortName"
+	switch browse.Level {
+	case domain.BrowseLevelRoot:
+		if parentID != "" {
+			return domain.BrowsePage{}, &Error{Kind: ErrInvalidInput}
+		}
+		parentID = browse.LibraryID
+		includeTypes = "Movie,Series"
+	case domain.BrowseLevelSeries:
+		var err error
+		parentID, err = normalizeID(parentID)
+		if err != nil {
+			return domain.BrowsePage{}, &Error{Kind: ErrInvalidInput}
+		}
+		includeTypes = "Season,Episode"
+		sortBy = "IndexNumber,SortName"
+	case domain.BrowseLevelSeason:
+		var err error
+		parentID, err = normalizeID(parentID)
+		if err != nil {
+			return domain.BrowsePage{}, &Error{Kind: ErrInvalidInput}
+		}
+		includeTypes = "Episode"
+		sortBy = "IndexNumber,SortName"
+	default:
+		return domain.BrowsePage{}, &Error{Kind: ErrInvalidInput}
+	}
+	query := url.Values{}
+	query.Set("EnableImages", "false")
+	query.Set("EnableUserData", "false")
+	query.Set("GroupItemsIntoCollections", "false")
+	query.Set("IncludeItemTypes", includeTypes)
+	query.Set("Limit", strconv.Itoa(browse.Limit))
+	query.Set("ParentId", parentID)
+	query.Set("Recursive", "false")
+	query.Set("SortBy", sortBy)
+	query.Set("SortOrder", "Ascending")
+	query.Set("StartIndex", strconv.Itoa(browse.StartIndex))
+	var raw itemsResponseDTO
+	if err := c.getJSON(ctx, "/Items", query, &raw); err != nil {
+		return domain.BrowsePage{}, err
+	}
+	if raw.Items == nil || raw.TotalRecordCount == nil || *raw.TotalRecordCount < 0 {
+		return domain.BrowsePage{}, &Error{Kind: ErrInvalidResponse}
+	}
+	items := make([]domain.BrowseNode, 0, len(*raw.Items))
+	for _, item := range *raw.Items {
+		if !validBrowseNodeShape(item, browse.Level) {
+			return domain.BrowsePage{}, &Error{Kind: ErrInvalidResponse}
+		}
+		items = append(items, item.toBrowseNode())
+	}
+	return domain.BrowsePage{Items: items, TotalRecordCount: *raw.TotalRecordCount, StartIndex: browse.StartIndex, Limit: browse.Limit,
+		HasMore: len(items) == browse.Limit && browse.StartIndex+len(items) < *raw.TotalRecordCount}, nil
+}
+
+func validBrowseNodeShape(item itemDTO, level domain.BrowseLevel) bool {
+	if !nonEmpty(item.ID) || !nonEmpty(item.Name) || !nonEmpty(item.Type) {
+		return false
+	}
+	switch level {
+	case domain.BrowseLevelRoot:
+		return *item.Type == "Movie" || *item.Type == "Series"
+	case domain.BrowseLevelSeries:
+		return *item.Type == "Season" || *item.Type == "Episode"
+	case domain.BrowseLevelSeason:
+		return *item.Type == "Episode"
+	default:
+		return false
+	}
+}
+
 // GetItem fetches one detailed item using the Items endpoint. It intentionally
 // does not use /Items/{id}, PlaybackInfo, Refresh, or any search endpoint.
 func (c *Client) GetItem(ctx context.Context, itemID string) (domain.EmbyItem, error) {

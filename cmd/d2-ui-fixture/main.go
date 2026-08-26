@@ -56,6 +56,31 @@ func (f fixtureEmby) ListItems(context.Context, string, int, int) (domain.ItemPa
 	}, nil
 }
 
+func (f fixtureEmby) ListBrowseNodes(_ context.Context, query domain.BrowseQuery) (domain.BrowsePage, error) {
+	if query.Level != domain.BrowseLevelRoot {
+		return domain.BrowsePage{Items: []domain.BrowseNode{}, TotalRecordCount: 0, StartIndex: query.StartIndex, Limit: query.Limit}, nil
+	}
+	items := []domain.BrowseNode{{
+		ID: f.item.ID, Name: f.item.Name, Type: f.item.Type,
+	}}
+	start := query.StartIndex
+	if start < 0 {
+		start = 0
+	}
+	limit := query.Limit
+	if limit < 1 {
+		limit = len(items)
+	}
+	if start >= len(items) {
+		return domain.BrowsePage{Items: []domain.BrowseNode{}, TotalRecordCount: len(items), StartIndex: start, Limit: limit}, nil
+	}
+	end := start + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	return domain.BrowsePage{Items: items[start:end], TotalRecordCount: len(items), StartIndex: start, Limit: limit, HasMore: end < len(items)}, nil
+}
+
 func (f fixtureEmby) GetItem(context.Context, string) (domain.EmbyItem, error) {
 	return f.item, nil
 }

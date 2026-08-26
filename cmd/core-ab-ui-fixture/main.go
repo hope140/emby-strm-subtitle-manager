@@ -37,6 +37,9 @@ import (
 const (
 	fixtureItemID            = "core-ab-ui-fixture"
 	multiSourceFixtureItemID = "core-ab-ui-multisource"
+	seriesFixtureID          = "core-ab-ui-series"
+	seasonFixtureID          = "core-ab-ui-season"
+	episodeFixtureItemID     = "core-ab-ui-episode"
 )
 
 type fixtureEmby struct {
@@ -53,6 +56,38 @@ func (f *fixtureEmby) ListItems(context.Context, string, int, int) (domain.ItemP
 		{ID: fixtureItemID, Name: "Core A/B UI Fixture Movie", Type: "Movie"},
 		{ID: multiSourceFixtureItemID, Name: "Core A/B UI Multi-source STRM Movie", Type: "Movie"},
 	}, TotalRecordCount: 2, StartIndex: 0, Limit: 50}, nil
+}
+
+func (f *fixtureEmby) ListBrowseNodes(_ context.Context, query domain.BrowseQuery) (domain.BrowsePage, error) {
+	items := []domain.BrowseNode{}
+	switch query.Level {
+	case domain.BrowseLevelRoot:
+		items = []domain.BrowseNode{{ID: fixtureItemID, Name: "Core A/B UI Fixture Movie", Type: "Movie"}, {ID: multiSourceFixtureItemID, Name: "Core A/B UI Multi-source STRM Movie", Type: "Movie"}, {ID: seriesFixtureID, Name: "Core A/B UI Fixture Series", Type: "Series"}}
+	case domain.BrowseLevelSeries:
+		if query.ParentID == seriesFixtureID {
+			items = []domain.BrowseNode{{ID: seasonFixtureID, Name: "Season 1", Type: "Season", IndexNumber: intPointer(1)}}
+		}
+	case domain.BrowseLevelSeason:
+		if query.ParentID == seasonFixtureID {
+			items = []domain.BrowseNode{{ID: episodeFixtureItemID, Name: "Episode 1", Type: "Episode", SeriesID: seriesFixtureID, SeriesName: "Core A/B UI Fixture Series", ParentIndexNumber: intPointer(1), IndexNumber: intPointer(1)}}
+		}
+	}
+	start := query.StartIndex
+	if start < 0 {
+		start = 0
+	}
+	limit := query.Limit
+	if limit < 1 {
+		limit = len(items)
+	}
+	if start >= len(items) {
+		return domain.BrowsePage{Items: []domain.BrowseNode{}, TotalRecordCount: len(items), StartIndex: start, Limit: limit}, nil
+	}
+	end := start + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	return domain.BrowsePage{Items: items[start:end], TotalRecordCount: len(items), StartIndex: start, Limit: limit, HasMore: end < len(items)}, nil
 }
 
 func (f *fixtureEmby) GetItem(_ context.Context, itemID string) (domain.EmbyItem, error) {
@@ -78,6 +113,13 @@ func (f *fixtureEmby) GetItem(_ context.Context, itemID string) (domain.EmbyItem
 				{ID: "multi-source-a", Name: "多源 A", Path: "https://fixture.example/multi-a", Container: "strm", IsDefault: &defaultSource, MediaStreams: &streams},
 				{ID: "multi-source-b", Name: "多源 B", Path: "https://fixture.example/multi-b", Container: "strm", MediaStreams: &streams},
 			},
+		}, nil
+	case episodeFixtureItemID:
+		streams := f.subtitleStreams("Episode")
+		return domain.EmbyItem{
+			ItemSummary:  domain.ItemSummary{ID: episodeFixtureItemID, Name: "Episode 1", Type: "Episode", SeriesID: seriesFixtureID, SeriesName: "Core A/B UI Fixture Series", ParentIndexNumber: intPointer(1), IndexNumber: intPointer(1), ProductionYear: intPointer(2026)},
+			Path:         "/fixture/media/Episode.strm",
+			MediaSources: []domain.MediaSource{{ID: "episode-source-a", Name: "单源 STRM", Path: "https://fixture.example/episode", Container: "strm", IsDefault: &defaultSource, MediaStreams: &streams}},
 		}, nil
 	default:
 		return domain.EmbyItem{}, errors.New("fixture item not found")
@@ -141,6 +183,9 @@ func main() {
 	}
 	if err := os.WriteFile(filepath.Join(mediaRoot, "Multi.strm"), []byte("https://fixture.example/multi"), 0o600); err != nil {
 		log.Fatal("create fixture multi-source media")
+	}
+	if err := os.WriteFile(filepath.Join(mediaRoot, "Episode.strm"), []byte("https://fixture.example/episode"), 0o600); err != nil {
+		log.Fatal("create fixture episode media")
 	}
 	if err := os.WriteFile(filepath.Join(mediaRoot, "Fixture.zh-CN.srt"), []byte("1\n00:00:01,000 --> 00:00:02,000\n已有字幕\n"), 0o644); err != nil {
 		log.Fatal("create fixture subtitle")

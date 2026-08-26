@@ -8,6 +8,20 @@ async (page) => {
     await page.locator("#app-status").getByText(expression, { exact: false }).waitFor({ state: "visible" });
   }
 
+  if (phase === "core-ab-m1-browse") {
+    await page.locator("#health-summary").getByText("Emby 就绪", { exact: false }).waitFor({ state: "visible" });
+    await page.locator("#refresh-health").click();
+    await waitAppStatus("运行状态已刷新");
+    await page.locator("#browse-path").getByText("媒体库", { exact: true }).waitFor({ state: "visible" });
+    await page.getByRole("button", { name: /Core A\/B UI Fixture Series/ }).click();
+    await page.getByRole("button", { name: /Season 1/ }).click();
+    await page.getByRole("button", { name: /Episode 1/ }).click();
+    await page.locator("#detail").getByRole("heading", { name: "Episode 1" }).waitFor({ state: "visible" });
+    await page.locator("#browse-path").getByText("Core A/B UI Fixture Series", { exact: true }).waitFor({ state: "visible" });
+    await page.locator("#browse-path").getByText("Season 1", { exact: true }).waitFor({ state: "visible" });
+    return;
+  }
+
   if (phase === "core-ab-multisource-unsupported") {
     await page.getByRole("button", { name: /Core A\/B UI Multi-source STRM Movie/ }).click();
     await page.getByRole("button", { name: /多源 A/ }).waitFor({ state: "visible" });
@@ -17,6 +31,7 @@ async (page) => {
     await page.locator("#d2-search").click();
     const candidate = page.locator("#d2-candidates .candidate-card").first();
     await candidate.waitFor({ state: "visible" });
+    await page.locator("#d2-provider-summary").getByText("Provider 候选概览", { exact: false }).waitFor({ state: "visible" });
     await candidate.getByRole("button", { name: "获取预览" }).click();
     await page.locator("#d2-cues").getByText("远程预览字幕", { exact: true }).waitFor({ state: "visible" });
     if (await page.locator("#d3-add").isVisible()) throw new Error("multi-source STRM Add control was visible");
@@ -41,6 +56,10 @@ async (page) => {
     await page.locator("#d3-add-button").click();
     await waitAppStatus("字幕已添加");
     await page.locator(".subtitle").filter({ hasText: "Fixture.subbridge.zh-CN.srt" }).waitFor({ state: "visible" });
+    await page.locator("#d3-history").waitFor({ state: "visible" });
+    await page.locator("#d3-history-type").selectOption("add");
+    await page.locator("#d3-history-list .history-item").filter({ hasText: "添加" }).first().waitFor({ state: "visible" });
+    await page.locator("#d3-history-type").selectOption("");
     return;
   }
 

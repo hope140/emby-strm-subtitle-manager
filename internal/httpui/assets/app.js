@@ -6,6 +6,12 @@
   let currentLimit = 50;
   let listRequestID = 0;
   let detailRequestID = 0;
+  const browse = {
+    level: "root",
+    parentID: "",
+    mode: "nodes",
+    crumbs: [{ level: "root", parentID: "", label: "媒体库" }]
+  };
   const knownMultiSourceItems = new Set();
   const d2 = {
     remoteSearchEnabled: false,
@@ -44,9 +50,13 @@
     appPanel: document.getElementById("app-panel"),
     library: document.getElementById("library"),
     loadItems: document.getElementById("load-items"),
+    refreshHealth: document.getElementById("refresh-health"),
+    healthSummary: document.getElementById("health-summary"),
     appStatus: document.getElementById("app-status"),
     items: document.getElementById("items"),
     detail: document.getElementById("detail"),
+    browseBack: document.getElementById("browse-back"),
+    browsePath: document.getElementById("browse-path"),
     previousPage: document.getElementById("previous-page"),
     nextPage: document.getElementById("next-page"),
     pageStatus: document.getElementById("page-status"),
@@ -61,6 +71,7 @@
     d3WriteStatus: document.getElementById("d3-write-status"),
     d2Results: document.getElementById("d2-results"),
     d2ResultStatus: document.getElementById("d2-result-status"),
+    d2ProviderSummary: document.getElementById("d2-provider-summary"),
     d2Candidates: document.getElementById("d2-candidates"),
     d2Preview: document.getElementById("d2-preview"),
     d2ArtifactMeta: document.getElementById("d2-artifact-meta"),
@@ -75,6 +86,8 @@
     d3AddStatus: document.getElementById("d3-add-status"),
     d3History: document.getElementById("d3-history"),
     d3HistoryReload: document.getElementById("d3-history-reload"),
+    d3HistoryType: document.getElementById("d3-history-type"),
+    d3HistoryStatusFilter: document.getElementById("d3-history-status-filter"),
     d3HistoryStatus: document.getElementById("d3-history-status"),
     d3HistoryList: document.getElementById("d3-history-list")
   };
@@ -225,7 +238,7 @@
     d3.uploadBusy = false;
     d3.operationBusy = false;
     fillLibraries([]);
-    resetPage();
+    resetBrowse();
     resetD2ForItem("", false);
     clear(elements.items);
     setText(elements.items, "请选择媒体库。");
@@ -233,6 +246,8 @@
     clear(elements.detail);
     setText(elements.detail, "选择一个 Movie 或 Episode 查看详情。");
     elements.detail.className = "empty-state";
+    elements.refreshHealth.disabled = true;
+    clearText(elements.healthSummary);
     clearText(elements.appStatus);
   }
 
@@ -314,6 +329,50 @@
     setText(elements.pageStatus, "未加载");
   }
 
+  function resetBrowse() {
+    browse.level = "root";
+    browse.parentID = "";
+    browse.mode = "nodes";
+    browse.crumbs = [{ level: "root", parentID: "", label: "媒体库" }];
+    resetPage();
+    renderBrowsePath();
+  }
+
+  function renderBrowsePath() {
+    clear(elements.browsePath);
+    browse.crumbs.forEach((crumb, index) => {
+      if (index > 0) addText(elements.browsePath, "›", "muted");
+      if (index === browse.crumbs.length - 1) {
+        addText(elements.browsePath, crumb.label, "current");
+        return;
+      }
+      const button = document.createElement("button");
+      button.type = "button";
+      setText(button, crumb.label);
+      button.addEventListener("click", () => {
+        browse.crumbs = browse.crumbs.slice(0, index + 1);
+        applyBrowseCrumb();
+      });
+      elements.browsePath.appendChild(button);
+    });
+    elements.browseBack.disabled = browse.mode === "nodes" && browse.crumbs.length <= 1;
+  }
+
+  function applyBrowseCrumb() {
+    const current = browse.crumbs[browse.crumbs.length - 1];
+    browse.level = current.level;
+    browse.parentID = current.parentID;
+    browse.mode = "nodes";
+    resetPage();
+    renderBrowsePath();
+    loadItems();
+  }
+
+  function enterBrowse(level, parentID, label) {
+    browse.crumbs.push({ level, parentID, label });
+    applyBrowseCrumb();
+  }
+
   function fillLibraries(libraries) {
     clear(elements.library);
     libraries.forEach((library) => {
@@ -328,6 +387,16 @@
     if (selectedLibrary) elements.library.value = selectedLibrary;
   }
 
+  function browseTypeLabel(type) {
+    switch (type) {
+      case "Movie": return "电影";
+      case "Series": return "剧集";
+      case "Season": return "季";
+      case "Episode": return "集";
+      default: return "媒体";
+    }
+  }
+
   function renderItems(page) {
     clear(elements.items);
     if (!page.items || page.items.length === 0) {
@@ -339,15 +408,26 @@
         const button = document.createElement("button");
         button.type = "button";
         button.className = "item";
-        button.addEventListener("click", () => loadDetail(item.id));
-        addText(button, item.type || "未知类型", "type-badge");
+        switch (item.type) {
+          case "Series":
+            button.addEventListener("click", () => enterBrowse("series", item.id, item.name || "未命名剧集"));
+            break;
+          case "Season":
+            button.addEventListener("click", () => enterBrowse("season", item.id, item.name || "未命名季"));
+            break;
+          default:
+            button.addEventListener("click", () => loadSources(item));
+            break;
+        }
+        addText(button, browseTypeLabel(item.type), "type-badge");
         addText(button, item.name || "未命名媒体", "item-title");
         const facts = document.createElement("span");
         facts.className = "muted";
-        const episode = item.type === "Episode" && item.parent_index_number != null && item.index_number != null
-          ? " · S" + item.parent_index_number + "E" + item.index_number
-          : "";
-        setText(facts, (item.series_name || "") + episode + (item.production_year ? " · " + item.production_year : ""));
+        const values = [];
+        if (item.type === "Episode" && item.parent_index_number != null && item.index_number != null) values.push("S" + item.parent_index_number + "E" + item.index_number);
+        else if (item.type === "Season" && item.index_number != null) values.push("第 " + item.index_number + " 季");
+        if (item.production_year) values.push(String(item.production_year));
+        setText(facts, values.join(" · "));
         button.appendChild(facts);
         elements.items.appendChild(button);
       });
@@ -364,13 +444,16 @@
   async function loadItems() {
     if (!selectedLibrary) return;
     const requestID = ++listRequestID;
+    browse.mode = "nodes";
+    renderBrowsePath();
     elements.loadItems.disabled = true;
     elements.previousPage.disabled = true;
     elements.nextPage.disabled = true;
     setText(elements.appStatus, "加载媒体列表…");
     try {
-      const params = new URLSearchParams({ library_id: selectedLibrary, start_index: String(startIndex), limit: String(currentLimit) });
-      const page = await apiGet("/v1/emby/items?" + params.toString());
+      const params = new URLSearchParams({ library_id: selectedLibrary, level: browse.level, start_index: String(startIndex), limit: String(currentLimit) });
+      if (browse.parentID) params.set("parent_id", browse.parentID);
+      const page = await apiGet("/v1/emby/browse?" + params.toString());
       if (requestID !== listRequestID) return;
       renderItems(page);
       setText(elements.appStatus, "列表已加载");
@@ -382,6 +465,41 @@
       clearText(elements.appStatus);
     } finally {
       if (requestID === listRequestID) elements.loadItems.disabled = false;
+    }
+  }
+
+  async function loadSources(item) {
+    if (!item || !item.id) return;
+    const requestID = ++listRequestID;
+    browse.mode = "sources";
+    renderBrowsePath();
+    clear(elements.items);
+    elements.items.className = "item-list empty-state";
+    setText(elements.items, "加载版本…");
+    elements.previousPage.disabled = true;
+    elements.nextPage.disabled = true;
+    try {
+      const response = await apiGet("/v1/media/" + encodeURIComponent(item.id) + "/sources");
+      if (requestID !== listRequestID) return;
+      const sources = Array.isArray(response.media_sources) ? response.media_sources : [];
+      clear(elements.items);
+      if (sources.length === 0) {
+        elements.items.className = "item-list empty-state";
+        setText(elements.items, "当前媒体没有可选择的版本。");
+        return;
+      }
+      elements.items.className = "item-list";
+      const heading = document.createElement("p");
+      heading.className = "muted";
+      setText(heading, sources.length === 1 ? "当前媒体只有一个版本，已自动打开详情。" : "请选择一个明确版本后再查看字幕和执行操作。");
+      elements.items.appendChild(heading);
+      sources.forEach((source) => elements.items.appendChild(sourceButton(source, (sourceID) => loadDetail(item.id, sourceID))));
+      if (sources.length === 1 && sources[0] && sources[0].media_source_id) loadDetail(item.id, sources[0].media_source_id);
+    } catch (error) {
+      if (requestID !== listRequestID) return;
+      clear(elements.items);
+      elements.items.className = "item-list empty-state";
+      setError(elements.items, error);
     }
   }
 
@@ -559,11 +677,36 @@
     return card;
   }
 
+  function renderProviderSummary() {
+    clear(elements.d2ProviderSummary);
+    if (!d2.candidates.length) return;
+    const groups = new Map();
+    d2.candidates.forEach((candidate) => {
+      const provider = candidate.provider || "未知 Provider";
+      const group = groups.get(provider) || { total: 0, ready: 0, fetching: 0, fetched: 0, failed: 0, expired: 0 };
+      group.total += 1;
+      if (Object.prototype.hasOwnProperty.call(group, candidate.state)) group[candidate.state] += 1;
+      groups.set(provider, group);
+    });
+    const summaries = [];
+    groups.forEach((group, provider) => {
+      const states = [];
+      if (group.ready) states.push("可用 " + group.ready);
+      if (group.fetching) states.push("获取中 " + group.fetching);
+      if (group.fetched) states.push("已获取 " + group.fetched);
+      if (group.failed) states.push("失败 " + group.failed);
+      if (group.expired) states.push("过期 " + group.expired);
+      summaries.push(provider + "：" + group.total + " 个（" + states.join("，") + "）");
+    });
+    setText(elements.d2ProviderSummary, "Provider 候选概览：" + summaries.join("；"));
+  }
+
   function renderCandidates() {
     clear(elements.d2Candidates);
     d2.candidates.forEach((candidate) => elements.d2Candidates.appendChild(candidateCard(candidate)));
     const count = d2.candidates.length;
     setText(elements.d2ResultStatus, count ? "显示 " + count + " 个候选" : "没有候选");
+    renderProviderSummary();
   }
 
   function clearPreview() {
@@ -858,8 +1001,19 @@
       setText(elements.d3HistoryStatus, "当前媒体还没有可展示的操作记录。");
       return;
     }
-    setText(elements.d3HistoryStatus, "显示 " + d3.history.length + " 条操作记录。");
-    d3.history.forEach((operation) => {
+    const typeFilter = elements.d3HistoryType.value;
+    const statusFilter = elements.d3HistoryStatusFilter.value;
+    const history = d3.history.filter((operation) => {
+      if (typeFilter && operation.type !== typeFilter) return false;
+      if (statusFilter && operation.status !== statusFilter) return false;
+      return true;
+    });
+    setText(elements.d3HistoryStatus, "显示 " + history.length + " / " + d3.history.length + " 条操作记录。");
+    if (history.length === 0) {
+      setText(elements.d3HistoryList, "没有符合筛选条件的操作记录。");
+      return;
+    }
+    history.forEach((operation) => {
       const card = document.createElement("article");
       card.className = "history-item";
       addText(card, operationLabel(operation.type), "type-badge");
@@ -1099,14 +1253,58 @@
     addDetailRow(grid, "媒体源", media.media_source_name || (mediaSourceID || media.media_source_id ? "已选择" : "未选择"));
     addDetailRow(grid, "映射状态", media.mapping_status);
     elements.detail.appendChild(grid);
+    renderWriteCapabilitySummary(elements.detail, media);
     addStatus(elements.detail, "媒体上下文完整性", media.inventory_complete ? "完整" : "不完整", media.inventory_complete === true);
     addMessages(elements.detail, "Warnings", media.warnings, "warning-list");
+  }
+
+  function renderWriteCapabilitySummary(parent, media) {
+    const section = document.createElement("section");
+    section.className = "capability-summary";
+    const heading = document.createElement("h4");
+    setText(heading, "字幕操作能力");
+    section.appendChild(heading);
+    const hint = document.createElement("p");
+    hint.className = "muted";
+    setText(hint, d3.writeEnabled ? "写入窗口已启用；实际操作仍会由服务端重新核验。" : "写入窗口当前关闭；此处仅显示当前媒体的安全能力。" );
+    section.appendChild(hint);
+    const list = document.createElement("ul");
+    list.className = "capability-list";
+    const capabilities = media && media.write_capabilities ? media.write_capabilities : emptyWriteCapabilities();
+    for (const entry of [["添加", capabilities.add], ["替换", capabilities.replace], ["移入回收区", capabilities.delete], ["恢复", capabilities.restore]]) {
+      const item = document.createElement("li");
+      addText(item, entry[0] + "：");
+      addText(item, entry[1] === true ? "可用" : "不可用", entry[1] === true ? "success" : "");
+      list.appendChild(item);
+    }
+    section.appendChild(list);
+    const reason = typeof capabilities.reason_code === "string" ? capabilities.reason_code : "";
+    if (reason && safeMessages[reason]) addMessages(section, "限制说明", [safeMessages[reason]], "warning-list");
+    parent.appendChild(section);
   }
 
   function setRemoteSearchFeature(health) {
     const features = health && health.features ? health.features : {};
     d2.remoteSearchEnabled = features.remote_search_enabled === true;
     d3.writeEnabled = features.write_enabled === true;
+    const embyStatus = health && health.emby_status ? health.emby_status : "unknown";
+    const embyLabel = embyStatus === "ready" ? "Emby 就绪" : embyStatus === "unknown" ? "Emby 状态未知" : "Emby " + embyStatus;
+    const searchLabel = d2.remoteSearchEnabled ? "远程搜索已开启" : "远程搜索已关闭";
+    const writeLabel = d3.writeEnabled ? "写入已开启" : "写入已关闭";
+    setText(elements.healthSummary, embyLabel + " · " + searchLabel + " · " + writeLabel);
+  }
+
+  async function refreshHealth() {
+    elements.refreshHealth.disabled = true;
+    try {
+      const health = await apiGet("/v1/health");
+      setRemoteSearchFeature(health);
+      setText(elements.appStatus, "运行状态已刷新。");
+    } catch (error) {
+      setError(elements.appStatus, error);
+    } finally {
+      elements.refreshHealth.disabled = false;
+    }
   }
 
   async function login(event) {
@@ -1124,9 +1322,10 @@
       d3.csrfToken = loginResponse && typeof loginResponse.csrf_token === "string" ? loginResponse.csrf_token : "";
       const health = await apiGet("/v1/health");
       setRemoteSearchFeature(health);
+      elements.refreshHealth.disabled = false;
       const libraries = await apiGet("/v1/emby/libraries");
       fillLibraries(Array.isArray(libraries) ? libraries : []);
-      resetPage();
+      resetBrowse();
       elements.loginPanel.classList.add("hidden");
       elements.appPanel.classList.remove("hidden");
       if (selectedLibrary) await loadItems();
@@ -1143,10 +1342,25 @@
     clear(elements.detail);
     elements.detail.className = "empty-state";
     setText(elements.detail, "选择一个 Movie 或 Episode 查看详情。");
-    resetPage();
+    resetBrowse();
     loadItems();
   });
   elements.loadItems.addEventListener("click", () => loadItems());
+  elements.refreshHealth.addEventListener("click", refreshHealth);
+  elements.d3HistoryType.addEventListener("change", renderD3History);
+  elements.d3HistoryStatusFilter.addEventListener("change", renderD3History);
+  elements.browseBack.addEventListener("click", () => {
+    if (browse.mode === "sources") {
+      browse.mode = "nodes";
+      renderBrowsePath();
+      loadItems();
+      return;
+    }
+    if (browse.crumbs.length > 1) {
+      browse.crumbs.pop();
+      applyBrowseCrumb();
+    }
+  });
   elements.previousPage.addEventListener("click", () => {
     startIndex = Math.max(0, startIndex - currentLimit);
     loadItems();

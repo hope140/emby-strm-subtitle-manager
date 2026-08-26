@@ -30,9 +30,11 @@ import (
 type fakeEmby struct {
 	libraries []domain.Library
 	page      domain.ItemPage
+	browse    domain.BrowsePage
 	listErr   error
 	itemErr   error
 	item      domain.EmbyItem
+	browseQ   domain.BrowseQuery
 	listCalls atomic.Int32
 	itemCalls atomic.Int32
 	block     <-chan struct{}
@@ -62,6 +64,12 @@ func (f *fakeEmby) ListLibraries(ctx context.Context) ([]domain.Library, error) 
 func (f *fakeEmby) ListItems(context.Context, string, int, int) (domain.ItemPage, error) {
 	f.itemCalls.Add(1)
 	return f.page, f.itemErr
+}
+
+func (f *fakeEmby) ListBrowseNodes(_ context.Context, query domain.BrowseQuery) (domain.BrowsePage, error) {
+	f.itemCalls.Add(1)
+	f.browseQ = query
+	return f.browse, f.itemErr
 }
 
 func (f *fakeEmby) GetItem(context.Context, string) (domain.EmbyItem, error) {
@@ -162,6 +170,45 @@ func TestItemsQueryValidation(t *testing.T) {
 	}
 	if fake.itemCalls.Load() != 0 {
 		t.Fatal("invalid query reached Emby")
+	}
+}
+
+func TestBrowseAndMediaSourcesAreSafeReadOnlyProjections(t *testing.T) {
+	defaultSource := true
+	fake := &fakeEmby{
+		browse: domain.BrowsePage{Items: []domain.BrowseNode{{ID: "series-1", Name: "Series", Type: "Series"}}, TotalRecordCount: 1, Limit: 50},
+		item:   domain.EmbyItem{ItemSummary: domain.ItemSummary{ID: "episode-1", Name: "Episode", Type: "Episode"}, Path: `C:\\private\\episode.strm`, ProviderIDs: map[string]string{"Imdb": "private-provider-id"}, MediaSources: []domain.MediaSource{{ID: "source-1", Name: "Version", Container: "mkv", Path: "https://private.example.invalid/episode?token=secret", IsDefault: &defaultSource}}},
+	}
+	handler := testServer(t, fake, new(bytes.Buffer))
+	rec := serve(handler, http.MethodGet, "/v1/emby/browse?library_id=lib-1&level=root&limit=50")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"series-1"`) {
+		t.Fatalf("browse response = %d %s", rec.Code, rec.Body.String())
+	}
+	if fake.browseQ.LibraryID != "lib-1" || fake.browseQ.Level != domain.BrowseLevelRoot || fake.browseQ.ParentID != "" || fake.browseQ.Limit != 50 {
+		t.Fatalf("browse query = %#v", fake.browseQ)
+	}
+	for _, path := range []string{
+		"/v1/emby/browse?library_id=lib-1&level=root&parent_id=unexpected",
+		"/v1/emby/browse?library_id=lib-1&level=series",
+		"/v1/emby/browse?library_id=lib-1&level=season&parent_id=season-1&unknown=x",
+		"/v1/emby/browse?library_id=lib-1&level=invalid",
+	} {
+		rec := serve(handler, http.MethodGet, path)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s status = %d, want 400", path, rec.Code)
+		}
+	}
+	rec = serve(handler, http.MethodGet, "/v1/media/episode-1/sources")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"media_source_id":"source-1"`) {
+		t.Fatalf("sources response = %d %s", rec.Code, rec.Body.String())
+	}
+	for _, forbidden := range []string{"C:\\private", "private.example.invalid", "private-provider-id", "secret"} {
+		if strings.Contains(rec.Body.String(), forbidden) {
+			t.Fatalf("sources response leaked %q: %s", forbidden, rec.Body.String())
+		}
+	}
+	if rec := serve(handler, http.MethodGet, "/v1/media/episode-1/sources?media_source_id=source-1"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("sources query status = %d, want 400", rec.Code)
 	}
 }
 

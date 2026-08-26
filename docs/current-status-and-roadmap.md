@@ -35,7 +35,7 @@ D3.1 的客户端证据包含两层：自动化控制的 Emby Web 播放器读�
 | D2 真实管理 UI | 本地 Fake Emby 浏览器 E2E 与受控 C92 单源 STRM 管理 UI 的 Search→Fetch→Preview 已通过 | 普通本地媒体和多源 STRM 的 UI 边界仍需独立验收 |
 | 多 MediaSource | 本地实现已要求显式 source；普通本地媒体在 Fake Emby/浏览器 E2E 覆盖正向流程，多源 STRM 的 Search/Fetch/Preview 保留而 D3 写入稳定 409；C92 真实 source 对应和 D2 安全拒绝已有历史证据 | 多源 STRM 的 Core A/B D3 409 尚无新的真实 C92 路由级复核；普通本地媒体的真实 C92 正向流程和实际客户端读取也仍未执行 |
 | Add 日常使用 | 单源 STRM 的受控 C92 管理 UI 已完成真实 Provider Search→Fetch→Preview→Add、Upload、Replace、Delete、Restore 和实际播放器读取；日常 gate、scope/CSRF 与 closed 收尾通过 | 仍需独立验收普通本地媒体和多源 STRM D3 409；这些不能从单源 STRM 推断 |
-| V1 管理 UI | 浏览、清单、搜索预览、Add、Replace、Upload、可恢复 Delete、历史/Restore 的最小入口已完成 | Provider 状态页、完整设置/日志页、媒体库层级重构和面向发布镜像的安装体验仍未完成 |
+| V1 管理 UI | 浏览、清单、搜索预览、Add、Replace、Upload、可恢复 Delete、历史/Restore 的最小入口已完成；M1 已在本地实现只读媒体库→剧集→季→集→版本惰性导航和安全操作能力摘要；M2 已在本地增加脱敏运行摘要、当前搜索 Provider 候选汇总与当前媒体源历史筛选 | 完整设置/日志页不在 V1 范围；仍缺正式 UI 视觉收口和面向发布镜像的安装体验 |
 | 公开分发 | 公开 GitHub 仓库、Dockerfile 和 Compose 示例已存在 | 尚无正式版本标签、GHCR/其他镜像发布、升级/回滚指南和面向新用户的端到端安装验收 |
 
 ## 尚未实现

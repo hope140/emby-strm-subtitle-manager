@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/hope140/subbridge/internal/domain"
 )
 
 const testToken = "test-token-never-log"
@@ -116,6 +118,55 @@ func TestRefreshItemUsesBoundedPostEndpoint(t *testing.T) {
 	}
 	if err := client.RefreshItem(context.Background(), "../unsafe"); err == nil {
 		t.Fatal("RefreshItem accepted an unsafe item ID")
+	}
+}
+
+func TestListBrowseNodesUsesFixedLevelQueries(t *testing.T) {
+	tests := []struct {
+		name  string
+		query domain.BrowseQuery
+		want  url.Values
+		item  map[string]any
+	}{
+		{
+			name: "root", query: domain.BrowseQuery{LibraryID: "lib-1", Level: domain.BrowseLevelRoot, Limit: 25},
+			want: url.Values{"EnableImages": {"false"}, "EnableUserData": {"false"}, "GroupItemsIntoCollections": {"false"}, "IncludeItemTypes": {"Movie,Series"}, "Limit": {"25"}, "ParentId": {"lib-1"}, "Recursive": {"false"}, "SortBy": {"SortName"}, "SortOrder": {"Ascending"}, "StartIndex": {"0"}},
+			item: map[string]any{"Id": "series-1", "Name": "Series", "Type": "Series"},
+		},
+		{
+			name: "series", query: domain.BrowseQuery{LibraryID: "lib-1", ParentID: "series-1", Level: domain.BrowseLevelSeries, StartIndex: 25, Limit: 25},
+			want: url.Values{"EnableImages": {"false"}, "EnableUserData": {"false"}, "GroupItemsIntoCollections": {"false"}, "IncludeItemTypes": {"Season,Episode"}, "Limit": {"25"}, "ParentId": {"series-1"}, "Recursive": {"false"}, "SortBy": {"IndexNumber,SortName"}, "SortOrder": {"Ascending"}, "StartIndex": {"25"}},
+			item: map[string]any{"Id": "season-1", "Name": "Season 1", "Type": "Season"},
+		},
+		{
+			name: "season", query: domain.BrowseQuery{LibraryID: "lib-1", ParentID: "season-1", Level: domain.BrowseLevelSeason, Limit: 25},
+			want: url.Values{"EnableImages": {"false"}, "EnableUserData": {"false"}, "GroupItemsIntoCollections": {"false"}, "IncludeItemTypes": {"Episode"}, "Limit": {"25"}, "ParentId": {"season-1"}, "Recursive": {"false"}, "SortBy": {"IndexNumber,SortName"}, "SortOrder": {"Ascending"}, "StartIndex": {"0"}},
+			item: map[string]any{"Id": "episode-1", "Name": "Episode", "Type": "Episode"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/Items" || r.URL.Query().Encode() != test.want.Encode() {
+					t.Fatalf("request = %s?%s, want %s", r.URL.Path, r.URL.Query().Encode(), test.want.Encode())
+				}
+				writeJSON(t, w, map[string]any{"Items": []map[string]any{test.item}, "TotalRecordCount": 1})
+			}))
+			page, err := client.ListBrowseNodes(context.Background(), test.query)
+			if err != nil || len(page.Items) != 1 || page.Items[0].ID == "" || page.Items[0].Type != test.item["Type"] {
+				t.Fatalf("browse page = %#v, err=%v", page, err)
+			}
+		})
+	}
+	client, _ := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("invalid browse query made request") }))
+	for _, query := range []domain.BrowseQuery{
+		{LibraryID: "lib-1", Level: domain.BrowseLevelRoot, ParentID: "unexpected", Limit: 1},
+		{LibraryID: "lib-1", Level: domain.BrowseLevelSeries, Limit: 1},
+		{LibraryID: "lib-1", Level: domain.BrowseLevel("invalid"), Limit: 1},
+	} {
+		if _, err := client.ListBrowseNodes(context.Background(), query); err == nil {
+			t.Fatalf("ListBrowseNodes accepted %#v", query)
+		}
 	}
 }
 

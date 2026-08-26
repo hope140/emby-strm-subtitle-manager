@@ -48,6 +48,10 @@ func (f *coreABFakeEmby) ListItems(context.Context, string, int, int) (domain.It
 	return domain.ItemPage{Items: []domain.ItemSummary{{ID: "movie-1", Name: "Fixture Movie", Type: "Movie"}}, TotalRecordCount: 1, Limit: 50}, nil
 }
 
+func (f *coreABFakeEmby) ListBrowseNodes(context.Context, domain.BrowseQuery) (domain.BrowsePage, error) {
+	return domain.BrowsePage{}, nil
+}
+
 func (f *coreABFakeEmby) GetItem(_ context.Context, itemID string) (domain.EmbyItem, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
