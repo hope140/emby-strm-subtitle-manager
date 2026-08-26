@@ -36,12 +36,12 @@ D3.1 的客户端证据包含两层：自动化控制的 Emby Web 播放器读�
 | 多 MediaSource | 本地实现已要求显式 source；普通本地媒体在 Fake Emby/浏览器 E2E 覆盖正向流程，多源 STRM 的 Search/Fetch/Preview 保留而 D3 写入稳定 409；C92 真实 source 对应和 D2 安全拒绝已有历史证据 | 多源 STRM 的 Core A/B D3 409 尚无新的真实 C92 路由级复核；普通本地媒体的真实 C92 正向流程和实际客户端读取也仍未执行 |
 | Add 日常使用 | 单源 STRM 的受控 C92 管理 UI 已完成真实 Provider Search→Fetch→Preview→Add、Upload、Replace、Delete、Restore 和实际播放器读取；日常 gate、scope/CSRF 与 closed 收尾通过 | 仍需独立验收普通本地媒体和多源 STRM D3 409；这些不能从单源 STRM 推断 |
 | V1 管理 UI | 浏览、清单、搜索预览、Add、Replace、Upload、可恢复 Delete、历史/Restore 的最小入口已完成；M1 已实现只读媒体库→剧集→季→集→版本惰性导航和安全操作能力摘要；M2 已增加脱敏运行摘要、当前搜索 Provider 候选汇总与当前媒体源历史筛选 | 完整设置/日志页不在 V1 范围；仍缺正式 UI 视觉收口 |
-| 公开分发 | `v0.4.0` GitHub Release、公开 GHCR 不可变镜像、OIDC keyless 签名、SBOM/provenance、安装/升级/回滚/排障指南已完成；C92 已完成默认 closed app-only 部署 | 全新环境的安装、升级与回滚演练仍未执行 |
+| 公开分发 | `v0.4.0` GitHub Release、公开 GHCR 不可变镜像、OIDC keyless 签名、SBOM/provenance、安装/升级/回滚/排障指南已完成；C92 已完成默认 closed app-only 部署及隔离临时实例的安装、同版本重建/恢复演练 | 新主机、跨版本升级/回滚与凭据初始化/轮换演练仍未执行 |
 
 ## 尚未实现
 
 - Core A/B 的剩余独立边界验收：普通本地 Movie/Episode 正向写入与客户端读取，以及多源 STRM D3 409 和无媒体变更。单源 STRM 的真实 Provider、完整管理 UI 写入提交与实际客户端播放已经完成，但不替代这些范围。
-- 全新环境的默认 closed 安装、升级与回滚演练；它不代替已有 C92 受控写入验收。
+- 新主机的默认 closed 安装，以及跨版本升级/回滚和凭据初始化/轮换演练；它们不代替已有 C92 受控写入验收。
 - 缺字幕筛选、批量任务、自动下载、评分和时间轴校正；这些仍属于 V1 之后或独立研究线。
 
 ## 核心功能优先的压缩路线
@@ -60,7 +60,7 @@ Core A 与 Core B 已在同一核心开发会话连续完成。旧 source-bound 
 
 ### Core 0.x　核心测试版
 
-单源 STRM 的真实管理 UI 和客户端闭环已经完成。正式可追溯镜像、升级/回滚说明和全新环境安装验收暂缓，不阻断下一阶段 UI/V1；Compose 仍是设置来源，不在这一阶段开发完整设置页面。
+单源 STRM 的真实管理 UI 和客户端闭环已经完成。正式可追溯镜像、升级/回滚说明和隔离临时实例的默认 closed 安装演练已经完成；新主机与跨版本演练留待具备对应版本和环境时执行，不阻断下一阶段 UI/V1；Compose 仍是设置来源，不在这一阶段开发完整设置页面。
 
 ### UI/V1　界面重构与正式发布
 
