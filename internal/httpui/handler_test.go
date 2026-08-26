@@ -165,6 +165,22 @@ func TestD2UIHealthFeatureGateUsesContractFieldAndDefaultsOff(t *testing.T) {
 	}
 }
 
+func TestD2UIResetsSearchControlWhenDetailInvalidatesPendingSearch(t *testing.T) {
+	app, err := assets.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	appText := string(app)
+	start := strings.Index(appText, "function resetD2ForItem(")
+	if start < 0 {
+		t.Fatal("resetD2ForItem is missing")
+	}
+	end := strings.Index(appText[start:], "function renderD2Gate(")
+	if end < 0 || !strings.Contains(appText[start:start+end], "elements.d2Search.disabled = false;") {
+		t.Fatal("resetD2ForItem does not re-enable a search control left disabled by a stale request")
+	}
+}
+
 func request(handler http.Handler, method, target string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(method, target, nil))

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"math"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -278,7 +279,6 @@ func parseASS(content string) ([]Cue, error) {
 	inEvents := false
 	seenEvents := false
 	cues := make([]Cue, 0)
-	var previousStart int64 = -1
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
@@ -321,7 +321,7 @@ func parseASS(content string) ([]Cue, error) {
 		}
 		start, okStart := parseASSTime(strings.TrimSpace(values[startIndex]))
 		end, okEnd := parseASSTime(strings.TrimSpace(values[endIndex]))
-		if !okStart || !okEnd || end < start || (previousStart >= 0 && start < previousStart) {
+		if !okStart || !okEnd || end < start {
 			return nil, ErrInvalidStructure
 		}
 		text, err := plainASS(strings.TrimSpace(values[textIndex]))
@@ -335,10 +335,17 @@ func parseASS(content string) ([]Cue, error) {
 			return nil, ErrInvalidStructure
 		}
 		cues = append(cues, Cue{Index: len(cues) + 1, StartMS: start, EndMS: end, Text: text})
-		previousStart = start
 	}
 	if !seenEvents || len(cues) == 0 {
 		return nil, ErrInvalidStructure
+	}
+	// ASS permits Dialogue records in any order. Keep Canonical unchanged for
+	// write operations, while ordering the parsed view for useful pagination.
+	sort.SliceStable(cues, func(i, j int) bool {
+		return cues[i].StartMS < cues[j].StartMS
+	})
+	for i := range cues {
+		cues[i].Index = i + 1
 	}
 	return cues, nil
 }

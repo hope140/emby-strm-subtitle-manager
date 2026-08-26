@@ -595,6 +595,9 @@
     d2.multipleSources = multipleSources;
     d2.candidates = [];
     d2.searchRequestID += 1;
+    // A pending search from the previous detail is now stale. Its finally
+    // handler will not re-enable this button, so reset it explicitly.
+    elements.d2Search.disabled = false;
     clear(elements.d2Candidates);
     clearText(elements.d2ResultStatus);
     setVisible(elements.d2Results, false);

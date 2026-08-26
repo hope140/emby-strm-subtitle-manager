@@ -1,6 +1,6 @@
 # SubBridge 当前状态与后续路线图
 
-状态日期：2026-08-25
+状态日期：2026-08-26
 用途：给主任务和新会话提供统一的“已完成、部分完成、待做”入口。部署版本和服务状态仍须实时核对，不能只根据本文件推断。
 
 ## 状态口径
@@ -9,7 +9,7 @@
 - **部分完成**：底层能力或安全拒绝已经完成，但正向产品流程、真实客户端或分发体验仍有缺口。
 - **待做**：尚无可交付实现，主计划中的描述仍只是目标。
 
-历史报告中的“D3 已完成”只指 [ADR-003](adr/003-phase2-milestones-and-deployment.md) 定义的**专用单源 Add Canary**。Core A/B 已在本地源码、Fake Emby 和最小浏览器 E2E 中实现日常受控模式、普通本地媒体多 source、Replace、Upload、可恢复 Delete 和 Restore；单源 STRM 现按 Item.Path 写入，多源 STRM 写入 fail closed。2026-08-25 的精确 C92 app-only 综合部署尝试仍使用 source-bound 旧目标规则，在真实 source-bound 前置门禁处阻断于媒体操作之前，随后恢复 closed/只读；它仍不代表修复后的真实 C92 综合验收通过。
+历史报告中的“D3 已完成”只指 [ADR-003](adr/003-phase2-milestones-and-deployment.md) 定义的**专用单源 Add Canary**。Core A/B 已在本地源码、Fake Emby 和最小浏览器 E2E 中实现日常受控模式、普通本地媒体多 source、Replace、Upload、可恢复 Delete 和 Restore；单源 STRM 现按 Item.Path 写入，多源 STRM 写入 fail closed。2026-08-25 的精确 C92 app-only 尝试仍使用 source-bound 旧目标规则，在媒体操作前阻断并恢复 closed/只读；随后修复后候选已通过 C92 **单源 STRM 服务端闭环**验收。后者只覆盖受控 Upload/Add/Replace/Delete/Restore、MediaStreams、官方字幕流和 closed 收尾，不代表普通本地媒体、多源 STRM、真实 Provider、完整 UI 提交或新的客户端播放通过。
 
 ## 已完成
 
@@ -24,6 +24,7 @@
 | 多源识别与安全拒绝 | Emby 4.9.x `AlternateMediaSources` 读取、source 对应核对和 D2 多源 `409` fail-closed 已完成 | [多源真实 API Canary](d2-multisource-c92-canary-acceptance-20260825.md) |
 | D3.1 专用单源 Add | Artifact 绑定、Item 锁、幂等、原子非覆盖写入、Refresh/轮询、history/quarantine、Hash、字幕流和真实客户端读取已完成 | [D3 Add 契约](d3-dedicated-add-contract.md)、[D3 C92 Canary](d3-c92-canary-acceptance-20260825.md) |
 | Core A/B 本地实现 | 日常 gate、普通本地媒体显式多 source Search→Fetch→Preview→Add、单源 STRM Item.Path 写入、Upload→PreviewArtifact、Replace、可恢复 Delete、History/Restore 与最小 UI 已完成；多源 STRM 写入稳定拒绝 | [Core A/B 实现评审](core-ab-implementation-review.md)、[ADR-008](adr/008-core-ab-daily-source-bound-recovery.md)、[ADR-009](adr/009-strm-write-target-and-multisource-boundary.md) |
+| Core A/B 单源 STRM C92 服务端闭环 | 受控 Upload→Preview→Add、Replace→Restore、Delete→Restore→最终 Delete、Hash、Refresh、MediaStreams、官方字幕流、source-specific history 和 closed 回滚已完成 | [C92 单源 STRM 正式验收](core-ab-c92-acceptance-20260826.md) |
 
 D3.1 的客户端证据包含两层：自动化控制的 Emby Web 播放器读取，以及环境负责人在手机端进行的独立实际播放确认。手机端结果由用户在 2026-08-25 明确确认；未保存账号、媒体名称、Item ID、截图或客户端私有数据。
 
@@ -32,14 +33,14 @@ D3.1 的客户端证据包含两层：自动化控制的 Emby Web 播放器读�
 | 能力 | 已有部分 | 仍缺什么 |
 |---|---|---|
 | D2 真实管理 UI | 本地 Fake Emby 浏览器 E2E、真实 C92 API Search→Fetch→Preview 已通过 | 真实 C92 管理 UI 中完整点击 Search→Fetch→Preview 尚未形成独立验收报告 |
-| 多 MediaSource | 本地实现已要求显式 source；普通本地媒体在 Fake Emby/浏览器 E2E 覆盖正向流程，多源 STRM 的 Search/Fetch/Preview 保留而 D3 写入稳定 409；C92 真实 source 对应和安全拒绝已有历史证据 | 本轮对 7,321 个 Movie/Episode 做 source path 有界预检（37 页，最多 7,400 个槽位），未找到可映射的本地 source，因此修复后的单源 STRM 写入、多源 STRM 安全拒绝和真实客户端读取仍未执行 |
-| Add 日常使用 | 日常 gate、单源 STRM Item.Path 锚点、普通本地 source 锚点、写入 overlay 示例、目标目录隔离、scope/CSRF 和稳定错误码已完成本地实现 | C92 旧综合尝试在 source-bound 门禁处阻断；修复后的 C92 单源 STRM、普通本地媒体和多源 STRM 409 仍需独立授权与实时验收 |
+| 多 MediaSource | 本地实现已要求显式 source；普通本地媒体在 Fake Emby/浏览器 E2E 覆盖正向流程，多源 STRM 的 Search/Fetch/Preview 保留而 D3 写入稳定 409；C92 真实 source 对应和 D2 安全拒绝已有历史证据 | 多源 STRM 的 Core A/B D3 409 尚无新的真实 C92 路由级复核；普通本地媒体的真实 C92 正向流程和实际客户端读取也仍未执行 |
+| Add 日常使用 | 日常 gate、单源 STRM Item.Path 锚点、普通本地 source 锚点、写入 overlay 示例、目标目录隔离、scope/CSRF 和稳定错误码已完成本地实现；单源 STRM 的受控服务端闭环已在 C92 通过 | 仍需独立验收普通本地媒体、真实 Provider、完整管理 UI 提交、多源 STRM D3 409 和新的实际客户端播放 |
 | V1 管理 UI | 浏览、清单、搜索预览、Add、Replace、Upload、可恢复 Delete、历史/Restore 的最小入口已完成 | Provider 状态页、完整设置/日志页、媒体库层级重构和面向发布镜像的安装体验仍未完成 |
 | 公开分发 | 公开 GitHub 仓库、Dockerfile 和 Compose 示例已存在 | 尚无正式版本标签、GHCR/其他镜像发布、升级/回滚指南和面向新用户的端到端安装验收 |
 
 ## 尚未实现
 
-- Core A/B 的真实 C92 综合验收：旧 source-bound 规则下已完成精确提交的 app-only 构建、daily 启动预检和恢复；因 7,321 个有界 Movie/Episode Item（37 页，最多 7,400 个槽位）没有可映射的选中 MediaSource.Path，阻断在媒体操作前。修复后的 Movie、Episode、单源 STRM、普通本地媒体、多源 STRM 409、字幕流和实际客户端读取仍未验收。
+- Core A/B 的剩余真实验收：普通本地 Movie/Episode 正向写入、多源 STRM D3 409、真实 Provider、完整管理 UI 的写入提交，以及单源 STRM 的新一轮实际客户端播放。2026-08-26 单源 STRM 的服务端写入、字幕流与 closed 收尾已经通过，但不替代这些范围。
 - Provider 状态页、完整设置/日志页、发布版设置说明和正式镜像发布。
 - 缺字幕筛选、批量任务、自动下载、评分和时间轴校正；这些仍属于 V1 之后或独立研究线。
 
@@ -55,7 +56,7 @@ Core A/B 的接口、模块、恢复语义、自动化矩阵和执行边界已�
 
 在同一个开发任务中实现 Replace、Upload 和可恢复 Delete，共用现有 Item 锁、Artifact、Validator、原子写入、Refresh、Hash、history 和 quarantine。Replace 必须先验证新版本再归档旧字幕；Upload 忽略不可信文件名；Delete 默认移动到媒体库外回收目录，不执行即时永久删除。
 
-Core A 与 Core B 已在同一核心开发会话连续完成。本轮旧 source-bound 规则已按独立授权构建并短时部署精确提交，但在真实样本门禁处停止，未逐项执行媒体操作；当前 STRM 锚点修复只完成本地代码、Fake Emby 和测试验证，下一步必须重新构建并实时预检，再进行 Movie、Episode、单源 STRM、普通本地媒体、多源 STRM 409、字幕流和客户端综合 C92 验收。
+Core A 与 Core B 已在同一核心开发会话连续完成。旧 source-bound 规则曾在 C92 样本门禁处停止；STRM 锚点修复后已重新构建并通过单源 STRM 的受控服务器端验收。下一步只针对未覆盖范围进行独立预检和验收，不重新把已通过的单源 STRM API 闭环描述为待做。
 
 ### Core 0.x　核心测试版
 
@@ -67,7 +68,7 @@ Core A 与 Core B 已在同一核心开发会话连续完成。本轮旧 source-
 
 ## 当前运行边界
 
-本轮 C92 验收结束时，应用已恢复 `write_enabled=false`、`remote_search_enabled=false` 和 `/media:ro`，容器 healthy、restart=0。D2/D3 的重新启用、容器重建、媒体目录权限修改和真实写入仍需要独立授权、实时预检以及可映射的选中 source。SH、FRP 和 OpenResty 不属于上述开发里程碑的默认修改范围。
+本轮 C92 验收结束时，应用已恢复 `write_enabled=false`、`remote_search_enabled=false` 和 `/media:ro`，容器 healthy、restart=0。D2/D3 的重新启用、容器重建、媒体目录权限修改和任何新的真实写入仍需要独立授权与实时预检。SH、FRP 和 OpenResty 不属于上述开发里程碑的默认修改范围。
 
 ## 暂不作为阻断项
 
@@ -104,4 +105,8 @@ Knowledge Findings：
 
 ## 2026-08-25 Core A/B C92 尝试结果
 
-精确提交 `947d847bb8ee620fc0362081fdff981069472081` 已完成源码归档、OCI 构建、版本化 Compose/config、daily 启动和 app-only 回滚。daily 窗口健康运行时，真实 C92 有界查询覆盖 7,321 个 Movie/Episode Item（37 页，最多 7,400 个槽位），但没有找到选中 `MediaSource.Path` 位于应用 `/media` 映射下的本地 source。该次尝试按当时 ADR-008 的 source-bound 规则拒绝以 Item.Path 替代 source path，因此没有产生任何媒体写操作，C92 已恢复 closed/只读。当前 ADR-009 修复尚未部署或连接 C92；完整历史证据见 [Core A/B C92 综合部署验收](core-ab-c92-acceptance.md)。
+精确提交 `947d847bb8ee620fc0362081fdff981069472081` 已完成源码归档、OCI 构建、版本化 Compose/config、daily 启动和 app-only 回滚。daily 窗口健康运行时，真实 C92 有界查询覆盖 7,321 个 Movie/Episode Item（37 页，最多 7,400 个槽位），但没有找到选中 `MediaSource.Path` 位于应用 `/media` 映射下的本地 source。该次尝试按当时 ADR-008 的 source-bound 规则拒绝以 Item.Path 替代 source path，因此没有产生任何媒体写操作，C92 已恢复 closed/只读。该次报告作出时 ADR-009 修复尚未部署或连接 C92；后续状态见下一节。完整历史证据见 [Core A/B C92 综合部署验收](core-ab-c92-acceptance.md)。
+
+## 2026-08-26 Core A/B 单源 STRM C92 正式验收
+
+ADR-009 修复后的候选提交已以 app-only 方式部署到 C92。单源 STRM 使用 `Item.Path` 锚点并保持显式 source 绑定，完成受控 Upload→Preview→Add、Replace→Restore、Delete→Restore→最终 Delete，以及 Hash、Refresh、MediaStreams、官方字幕流、source-specific history 和 closed 回滚。管理 UI 已在 daily 窗口登录并核对写入入口可见，但本次未用浏览器提交上传或写入请求。真实 Provider、普通本地媒体、多源 STRM D3 409 与新的实际客户端播放仍不在通过结论内。完整证据和清理边界见 [Core A/B C92 单源 STRM 正式验收](core-ab-c92-acceptance-20260826.md)。

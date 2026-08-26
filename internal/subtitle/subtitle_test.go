@@ -46,6 +46,24 @@ Format: Layer, Start, End, Style, Text
 	}
 }
 
+func TestValidateAndParseASSAcceptsOutOfOrderDialogueAndSortsPreviewCues(t *testing.T) {
+	content := `[Script Info]
+[Events]
+Format: Layer, Start, End, Style, Text
+Dialogue: 0,0:00:03.00,0:00:04.00,Default,later
+Dialogue: 0,0:00:01.00,0:00:02.00,Default,earlier`
+	document, err := ValidateAndParse([]byte(content), "ass", DefaultMaxBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(document.Canonical) != content {
+		t.Fatalf("canonical ASS was modified: %q", document.Canonical)
+	}
+	if len(document.Cues) != 2 || document.Cues[0].Index != 1 || document.Cues[0].StartMS != 1000 || document.Cues[0].Text != "earlier" || document.Cues[1].Index != 2 || document.Cues[1].StartMS != 3000 || document.Cues[1].Text != "later" {
+		t.Fatalf("preview cues = %#v", document.Cues)
+	}
+}
+
 func TestValidateRejectsUnsafeInvalidAndOversizedContent(t *testing.T) {
 	valid := []byte("1\n00:00:01,000 --> 00:00:02,000\ntext\n")
 	for name, raw := range map[string][]byte{

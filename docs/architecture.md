@@ -1,6 +1,6 @@
 # SubBridge 当前架构
 
-本文只描述截至 2026 年 8 月 26 日已经由当前源码、自动化检查或真实运行确认的内容；完成度和后续优先级统一见 [当前状态与后续路线图](current-status-and-roadmap.md)。D1 的只读切片与 C92 部署、D2 单源后端真实 API Canary、D2.5 管理员认证和 D3.1 专用单源 Add 已通过相应验收。Core A/B 已在本地完成日常 gate、普通本地媒体正向多 source Search→Fetch→Preview→Add、单源 STRM Item.Path 写入、Upload、Replace、可恢复 Delete、History 与 Restore，并通过单元、Fake Emby 与最小浏览器 E2E；多源 STRM 写入保持安全拒绝。2026-08-25 以精确提交 `947d847bb8ee620fc0362081fdff981069472081` 做 C92 app-only 综合部署尝试时，在真实 source-bound 前置门禁处阻断于媒体操作之前，随后恢复 closed/只读；当前不能宣称真实 C92 综合验收通过。
+本文只描述截至 2026 年 8 月 26 日已经由当前源码、自动化检查或真实运行确认的内容；完成度和后续优先级统一见 [当前状态与后续路线图](current-status-and-roadmap.md)。D1 的只读切片与 C92 部署、D2 单源后端真实 API Canary、D2.5 管理员认证和 D3.1 专用单源 Add 已通过相应验收。Core A/B 已在本地完成日常 gate、普通本地媒体正向多 source Search→Fetch→Preview→Add、单源 STRM Item.Path 写入、Upload、Replace、可恢复 Delete、History 与 Restore，并通过单元、Fake Emby 与最小浏览器 E2E；多源 STRM 写入保持安全拒绝。2026-08-25 的旧 source-bound C92 尝试在媒体操作前阻断并恢复 closed/只读；随后候选提交 `5deaf519f69ba1226840836516c07124965a4afc` 已在 C92 通过受控的**单源 STRM 服务端闭环**验收。该结论不扩展为普通本地媒体、多源 STRM、真实 Provider 或本次新的客户端播放验收，细节见 [2026-08-26 Core A/B C92 单源 STRM 正式验收](core-ab-c92-acceptance-20260826.md)。
 
 当前品牌、GitHub 仓库、Go module、构建二进制和新安装 Compose 示例统一使用 `SubBridge`/`subbridge`。已经验收的 C92 Compose project、镜像、容器、目录和 FRP proxy 保留旧技术标识，直到后续获得有功能收益的部署授权；历史报告不追溯改写当时的资源名称。
 
@@ -32,7 +32,7 @@ UI：  GET /
 
 MediaContext 对单源自动选择，对多源要求显式 `media_source_id`，不会猜测列表第一项。STRM 的 Inventory 和 PathMapper 始终使用 Emby Item.Path；非 STRM 的 D3 写入以显式选中的本地 MediaSource.Path 为锚点，D1 只读模型在 source path 缺失时保留受限 fallback，远程 source path 只作为内部播放定位事实，不参与本地映射、目录检查、写入、响应或日志。单源 STRM 的 D3 Add、Replace、Delete、Restore 通过 `Item.Path` 映射到现存普通 `.strm` 文件，并以该文件的目录和 basename 写入；普通本地媒体继续使用所选 source path，远程 source 不回退到 Item.Path。多源 STRM 写入稳定返回 `409 strm_multisource_write_unsupported`；Inventory 只扫描共享 Item 目录，将 sidecar 标记为不可管理，不把它们按 source 目录写入。STRM 的 IsStrm 判断只看 Item.Path。PathMapper 支持 POSIX、Windows drive 和 UNC 形式，采用规范化、最长前缀匹配及目录 containment 检查；路径不安全、未映射、缺失或非普通文件时返回降级状态和稳定 warning。公开 MediaDTO 只返回不含路径的 `write_capabilities`；多源 STRM 的 D3 控件按能力隐藏或禁用，旧 source history 的 Restore 能力按当前 Item/source 返回稳定原因。Inventory 只读取文件元数据；D3 resolver 在锁内有界读取并校验目标字幕，绝不读取 STRM 内容或媒体正文。
 
-本地 `scripts/verify.ps1` 和 Linux 全包测试均已通过且无 skip；C92 的 Docker Compose schema/build、启动安全边界、`/readyz`、Bearer 认证和版本标签，以及 FRP 公网 HTTPS、单代理加密和公网应用端口防火墙边界另有部署证据。C92 真实版本组样本已补齐，客户端已固定请求 `AlternateMediaSources` 并通过本地回归测试；真实 API/source 对应和 D2 多源安全拒绝 Canary 已完成，但浏览器 UI source 点击和多源正向支持仍未完成，因此不能支撑真实多源搜索的支持声明；该缺口不阻断单源 D2。D3 C92 专用样本 Add 的 Docker、宿主目录权限、Hash、Refresh、字幕流、客户端读取和 closed 回滚另见 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)。Core A/B C92 综合部署尝试、source-bound 阻断和恢复后的 closed 状态见 [Core A/B C92 综合部署验收](core-ab-c92-acceptance.md)。
+本地 `scripts/verify.ps1` 和 Linux 全包测试均已通过且无 skip；C92 的 Docker Compose schema/build、启动安全边界、`/readyz`、Bearer 认证和版本标签，以及 FRP 公网 HTTPS、单代理加密和公网应用端口防火墙边界另有部署证据。C92 真实版本组样本已补齐，客户端已固定请求 `AlternateMediaSources` 并通过本地回归测试；真实 API/source 对应和 D2 多源安全拒绝 Canary 已完成，但浏览器 UI source 点击和多源正向支持仍未完成，因此不能支撑真实多源搜索的支持声明；该缺口不阻断单源 D2。D3 C92 专用样本 Add 的 Docker、宿主目录权限、Hash、Refresh、字幕流、客户端读取和 closed 回滚另见 [D3 C92 Canary 验收](d3-c92-canary-acceptance-20260825.md)。Core A/B 的旧 source-bound 阻断见 [2026-08-25 综合部署验收](core-ab-c92-acceptance.md)；修复后单源 STRM 的 Upload/Add/Replace/Delete/Restore、MediaStreams、官方字幕流和 closed 回滚见 [2026-08-26 单源 STRM 正式验收](core-ab-c92-acceptance-20260826.md)。
 
 ## 当前系统边界
 
@@ -110,7 +110,7 @@ Core A/B 的当前实现由 [ADR-008](adr/008-core-ab-daily-source-bound-recover
 
 Replace 仅在新版本可见后才归档旧版本，后续失败时恢复旧版本并隔离新版本。单源 STRM 的新版本目标来自 Item.Path，普通本地媒体的目标来自选中 source path；Replace/Delete history 的 `OriginalLocation` 直接来自最终写入目标的显式类别，不通过相同目录反推。多源 STRM 的四类 D3 写操作在 Artifact/媒体写入前返回稳定 409。Delete 仅转移到媒体外 trash；Restore 在认证、gate、Item/source 结构与绑定校验后重新解析当前 Item/source，旧 STRM `source` history 在坏锚点检查前返回 `strm_history_location_unsupported`。每次补偿都会重新核对文件 Hash 和 Emby MediaStreams；补偿任一步无法验证时返回稳定 `subtitle_rollback_failed`，保留 archive/trash/quarantine 并明确需要人工恢复。Upload 只生成 PreviewArtifact，不直接落盘或写持久 history。History 使用默认值及最大值均受限的 `limit` 查询。私有 history 不保存媒体路径或上传原文件名。默认 `remote_search_enabled=false`、`write_enabled=false` 仍保持关闭，日常模式与 Canary 都需要独立写入 overlay 和目录权限预检。
 
-该实现通过本地单元、Fake Emby 和浏览器 E2E 验证；真实 C92 综合部署已按授权尝试，但因有界样本没有可映射的选中 MediaSource.Path，在媒体操作前 fail closed。它仍未替代真实 C92 的多 source、文件系统权限、MediaStreams、字幕流和客户端综合验收。
+该实现通过本地单元、Fake Emby 和浏览器 E2E 验证；修复后的真实 C92 单源 STRM 受控窗口已完成 Upload/Add/Replace/Delete/Restore、精确目录权限、Refresh、MediaStreams、官方字幕流和 closed 回滚。它仍未替代普通本地媒体、多源 STRM、真实 Provider、真实管理 UI 写入提交或本次新的客户端播放验收。
 
 V1 通过 Emby Bridge 使用 Meiam Provider。Native Thunder 和 Native ASSRT 暂缓，详见 [ADR-001](adr/001-v1-uses-emby-remote-subtitle-bridge.md)。
 
@@ -120,7 +120,7 @@ D2-B1 在独立 `d2` Service 中实现 Search、Fetch、Preview 的后端闭环�
 
 Remote Subtitle Bridge 只通过服务端 API Key 调用固定的两个 GET 接口。候选原始 ID 不进入 HTTP 响应、日志或 Artifact；Fetch 先做有界字幕校验和 canonical UTF-8 解析，再写入显式配置的专用稳定短期缓存。启用 D2 时 cache_dir 缺失、为根目录、与媒体映射双向 overlap 或通过 symlink/reparse point 到达其他位置都会 fail closed；启动同一缓存目录会回收旧 Artifact。Candidate/Artifact 绑定认证上下文、Item、source、语言和 allowlist generation，过期状态遵循一次 410、清理后 404 的无 tombstone 语义；成功 Fetch 重放复用 Artifact，Preview 只额外重读一次 Item，不重新 Fetch Provider。
 
-D2 HTTP API 接受有效管理员会话或现有 Bearer 自动化凭据，JSON 请求体上限为 8 KiB，并提供固定错误码、并发/频率限流和脱敏请求日志。D2 不注册 Emby Remote Subtitle Save；Emby Refresh 和媒体写入只存在于独立、默认关闭的 D3 服务。内嵌 UI 只在 health 明确报告开关启用时显示当前已选 source 的候选、Fetch、预览与最小写入入口。管理员密码和 Bearer 不进入 JavaScript 存储，Candidate Token、Artifact Token 和 CSRF Token 仅留在页面内存，页面刷新即回到登录界面。D2-B1 后端证据见 [D2-B1 后端实现评审](d2-b1-backend-implementation-review.md)，本地浏览器证据见 [D2-B2 UI 评审](d2-b2-readonly-ui-review.md)，Core A/B 新证据见 [Core A/B 实现评审](core-ab-implementation-review.md)。真实 C92 单源 Provider API Canary 已通过；当前仍缺真实管理 UI、多 source 正向、文件写入和客户端综合验收。
+D2 HTTP API 接受有效管理员会话或现有 Bearer 自动化凭据，JSON 请求体上限为 8 KiB，并提供固定错误码、并发/频率限流和脱敏请求日志。D2 不注册 Emby Remote Subtitle Save；Emby Refresh 和媒体写入只存在于独立、默认关闭的 D3 服务。内嵌 UI 只在 health 明确报告开关启用时显示当前已选 source 的候选、Fetch、预览与最小写入入口。管理员密码和 Bearer 不进入 JavaScript 存储，Candidate Token、Artifact Token 和 CSRF Token 仅留在页面内存，页面刷新即回到登录界面。D2-B1 后端证据见 [D2-B1 后端实现评审](d2-b1-backend-implementation-review.md)，本地浏览器证据见 [D2-B2 UI 评审](d2-b2-readonly-ui-review.md)，Core A/B 本地与真实单源 STRM 证据分别见 [Core A/B 实现评审](core-ab-implementation-review.md) 和 [C92 单源 STRM 正式验收](core-ab-c92-acceptance-20260826.md)。真实 C92 单源 Provider API Canary 已通过；当前仍缺真实管理 UI 的完整提交、多 source 正向、普通本地媒体写入和新一轮客户端综合验收。
 
 项目路线决策已经完成；上游完整构建基线仍有环境阻断和未验证项，但因为项目不采用 CSF 整仓运行时，这些缺口不再阻塞方案 B。ADR-002 已接受，选择新建轻量 Go 后端，选择性复用 ASS/SRT Parser 核心、语言与命名处理经验、相关测试思路、Emby HTTP 调用经验和少量无状态前端组件。
 

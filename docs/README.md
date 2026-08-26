@@ -2,7 +2,7 @@
 
 这套文档把当前事实、长期决策、维护经验和本机信息分开保存。开发前按需要读取，任务结束后通过 Knowledge Review 决定是否更新。
 
-当前统一状态见 [当前状态与后续路线图](current-status-and-roadmap.md)。截至 2026-08-25，D1、D2 单源后端、D2.5 和 D3.1 专用单源 Add 已完成相应自动化与真实验收，D3.1 又补充了手机端实际客户端读取确认。Core A/B 已完成本地源码、Fake Emby 和最小浏览器 E2E 的多 source、日常 Add、Replace、Upload、Delete 和 Restore；真实 C92 综合部署已按授权尝试，但在 source-bound 样本门禁处阻断并恢复 closed，正式镜像发布和 V1 产品收口仍未完成。历史阶段报告继续保存当时的范围和证据，不再各自充当“当前进度”的正式来源。
+当前统一状态见 [当前状态与后续路线图](current-status-and-roadmap.md)。截至 2026-08-26，D1、D2 单源后端、D2.5 和 D3.1 专用单源 Add 已完成相应自动化与真实验收，D3.1 又补充了手机端实际客户端读取确认。Core A/B 已完成本地源码、Fake Emby 和最小浏览器 E2E 的多 source、日常 Add、Replace、Upload、Delete 和 Restore；修复后的单源 STRM 服务端闭环已在 C92 通过独立验收并恢复 closed。普通本地媒体、多源 STRM、真实 Provider、完整管理 UI 提交和本次新的客户端播放仍未验收，正式镜像发布和 V1 产品收口仍未完成。历史阶段报告继续保存当时的范围和证据，不再各自充当“当前进度”的正式来源。
 
 ## 正式文档
 
@@ -12,6 +12,8 @@
 | [Core A/B 连续实施计划](core-ab-implementation-plan.md) | 日常 Add、多源、Replace、Upload、Delete、Restore 的实现范围、测试和审核方式 | C92 实际部署、凭据和 UI 重构 |
 | [Core A/B 实现评审](core-ab-implementation-review.md) | 本地实现、测试证据、Knowledge Review 和真实验收边界 | C92 实际部署、凭据和真实客户端结论 |
 | [Core A/B C92 综合部署验收](core-ab-c92-acceptance.md) | 精确提交的 C92 app-only 部署、source-bound 阻断、恢复状态和 Knowledge Review | Item/source 标识、凭据、私有路径和未执行的写入结论 |
+| [Core A/B C92 单源 STRM 正式验收](core-ab-c92-acceptance-20260826.md) | 修复后候选的单源 STRM Upload/Add/Replace/Delete/Restore、MediaStreams、官方字幕流和 closed 回滚 | 普通本地媒体、多源 STRM、真实 Provider、UI 写入提交和新客户端播放 |
+| [Core A/B C92 综合验收现场清单](core-ab-c92-combined-acceptance-checklist.md) | 单源 STRM、普通本地媒体、多源 STRM 的单窗口门禁、执行顺序、证据与 closed 收尾 | 凭据、样本标识、私有路径和实际部署命令 |
 | [当前架构](architecture.md) | 已实现或实测确认的组件、数据流和边界 | 未来愿景和未验证设计 |
 | [维护经验](lessons-learned.md) | 隐蔽、高复用、有证据的规则 | 一次性排错流水账 |
 | [ADR](adr/README.md) | 长期架构选择、原因和代价 | 局部实现细节 |

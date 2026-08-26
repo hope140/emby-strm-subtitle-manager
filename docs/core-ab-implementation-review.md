@@ -1,6 +1,6 @@
 # Core A/B 实现评审
 
-- 状态　本地实现、自动化与最小浏览器 E2E 已完成；真实 C92 综合验收未执行
+- 状态　本地实现、自动化与最小浏览器 E2E 已完成；单源 STRM 的真实 C92 服务端闭环已通过，其他真实综合范围仍未执行
 - 日期　2026-08-26
 - 公共基线　`main` 的 `947d847bb8ee620fc0362081fdff981069472081`
 - Core A/B 计划起点　`b675758d6e876e1e79e5bfcb74d5d7bbb226f830`（仅指实施计划文档起点，不是当前 `main` 基线）
@@ -47,7 +47,7 @@ Core B 已完成 Upload→PreviewArtifact→Add/Replace、Replace、可恢复 De
 
 - 代码　`internal/preview`、`internal/d2`、`internal/d3`、`internal/media`、`internal/inventory`、`internal/httpapi`、`internal/httpui`、`cmd/server` 和 `deploy`。
 - 测试　`internal/media`、`internal/d3`（含 `TestHistoryListForSourceFiltersBeforeLimit`）、`internal/httpapi`、`internal/httpui` 定向回归、Fake Emby HTTP 集成、全包 Go、race、vet、build、`scripts/verify.ps1` 和真实 `scripts/core-ab-ui-e2e.ps1` 均通过；Node 语法、Markdown/敏感信息和差异检查也已完成。
-- 实际运行、日志或可复现结果　本地 loopback Fake Emby 与真实 Playwright 浏览器 E2E 已运行；没有访问 C92/SH/Emby，没有部署、重启或真实客户端验收。
+- 实际运行、日志或可复现结果　本地 loopback Fake Emby 与真实 Playwright 浏览器 E2E 已运行。本评审完成后，候选提交另经授权在 C92 完成单源 STRM 的 Upload/Add/Replace/Delete/Restore、MediaStreams、官方字幕流和 closed 回滚；详见 [C92 单源 STRM 正式验收](core-ab-c92-acceptance-20260826.md)。该运行不包含真实 Provider、普通本地媒体、多源 STRM 正向或新的实际客户端验收。
 
 ### 去重检查
 
@@ -64,6 +64,6 @@ Core B 已完成 Upload→PreviewArtifact→Add/Replace、Replace、可恢复 De
 
 ### 未验证范围与残余风险
 
-- 未部署或连接 C92、SH 或 Emby；真实 Movie、Episode、单源、多 source、字幕流和实际客户端综合验收仍需独立授权后完成。
+- 单源 STRM 的 C92 服务端闭环已单独验收；真实 Movie、Episode、普通本地媒体、多源 STRM、真实 Provider、完整管理 UI 点击提交和新的实际客户端综合验收仍需独立授权后完成。
 - 本机 MSYS2 GCC 位于 `C:\msys64\ucrt64\bin`；仅在测试进程中把该目录临时加入 `PATH` 后，`go test -race ./...` 已通过，未修改系统环境变量。OpenResty/nginx 二进制未安装，因此本轮只完成模板的标签与脱敏静态检查；真实入口配置解析仍需在独立部署授权中执行。
 - archive/trash 的保留期清理、批量、自动下载、定时扫描、评分和永久删除均未实现。

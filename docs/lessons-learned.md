@@ -121,3 +121,7 @@ Replace、Delete、Restore 或 Add 的失败分支不能把恢复旧文件、移
 ## 25. HTTP/UI 能力投影必须先于写操作入口
 
 公开媒体详情只需返回不含路径的 `write_capabilities` 和稳定原因码。多源 STRM 仍应允许 Search、Fetch、Preview、Upload，但 Add、Replace、Delete、Restore 必须在页面入口层隐藏或禁用，并显示 `strm_multisource_write_unsupported` 的中文提示。按当前 Item/source 加载 History 时，旧 `OriginalLocation=source` 记录应携带安全的 `strm_history_location_unsupported` 能力提示，不能等用户点击 Restore 后才收到通用路径错误。真实浏览器 E2E 需要同时断言可用的 D2 流程和不可用的 D3 控件。
+
+## 26. 清理证据应以服务器端 Inventory 为准
+
+真实写窗口中，UI 的历史记录或媒体流展示可能仍保留此前动作的表示，不能单独证明 sidecar 仍存在或已删除。最终 Delete/Restore 验收应重新读取服务器端 Inventory，再恢复默认关闭、`/media:ro` 和健康状态；只有二者共同成立，才能把测试生成物清理和 closed 收尾记为通过。该原则不把 UI 表现臆测为缓存缺陷，也不替代实际文件、Hash、Refresh 或 MediaStreams 核验。
