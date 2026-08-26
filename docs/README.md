@@ -10,6 +10,7 @@
 |---|---|---|
 | [当前状态与后续路线图](current-status-and-roadmap.md) | 当前完成度、剩余缺口、推进优先级和运行边界 | 一次性执行命令、凭据和实时部署状态 |
 | [发布收口与 UI/V1 计划](release-and-ui-v1-plan.md) | Core 测试版发布收口、UI/V1 里程碑、独立边界验收和非目标 | 运行中的部署状态、凭据和一次性命令 |
+| [v0.4.0 C92 默认 closed 部署验收](v0.4.0-c92-closed-deployment-acceptance.md) | 发布镜像的 app-only 部署、只读边界和公网验证 | 密码、Token、媒体标识和任何写入结论 |
 | [安装指南](install.md) | 全新环境的只读安装、首次登录与 closed 验证 | 真实凭据、媒体路径和开启写入 |
 | [升级与回滚](upgrade-rollback.md) | 不可变镜像、升级/回滚顺序和保留约束 | 任意媒体清理、无授权写入 |
 | [故障排查](troubleshooting.md) | 启动、认证、路径、STRM 和开关的安全排查 | 密码、Token、Cookie、媒体绝对路径 |

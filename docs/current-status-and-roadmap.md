@@ -35,13 +35,13 @@ D3.1 的客户端证据包含两层：自动化控制的 Emby Web 播放器读�
 | D2 真实管理 UI | 本地 Fake Emby 浏览器 E2E 与受控 C92 单源 STRM 管理 UI 的 Search→Fetch→Preview 已通过 | 普通本地媒体和多源 STRM 的 UI 边界仍需独立验收 |
 | 多 MediaSource | 本地实现已要求显式 source；普通本地媒体在 Fake Emby/浏览器 E2E 覆盖正向流程，多源 STRM 的 Search/Fetch/Preview 保留而 D3 写入稳定 409；C92 真实 source 对应和 D2 安全拒绝已有历史证据 | 多源 STRM 的 Core A/B D3 409 尚无新的真实 C92 路由级复核；普通本地媒体的真实 C92 正向流程和实际客户端读取也仍未执行 |
 | Add 日常使用 | 单源 STRM 的受控 C92 管理 UI 已完成真实 Provider Search→Fetch→Preview→Add、Upload、Replace、Delete、Restore 和实际播放器读取；日常 gate、scope/CSRF 与 closed 收尾通过 | 仍需独立验收普通本地媒体和多源 STRM D3 409；这些不能从单源 STRM 推断 |
-| V1 管理 UI | 浏览、清单、搜索预览、Add、Replace、Upload、可恢复 Delete、历史/Restore 的最小入口已完成；M1 已在本地实现只读媒体库→剧集→季→集→版本惰性导航和安全操作能力摘要；M2 已在本地增加脱敏运行摘要、当前搜索 Provider 候选汇总与当前媒体源历史筛选 | 完整设置/日志页不在 V1 范围；仍缺正式 UI 视觉收口和面向发布镜像的安装体验 |
-| 公开分发 | 公开 GitHub 仓库、Dockerfile 和 Compose 示例已存在 | 尚无正式版本标签、GHCR/其他镜像发布、升级/回滚指南和面向新用户的端到端安装验收 |
+| V1 管理 UI | 浏览、清单、搜索预览、Add、Replace、Upload、可恢复 Delete、历史/Restore 的最小入口已完成；M1 已实现只读媒体库→剧集→季→集→版本惰性导航和安全操作能力摘要；M2 已增加脱敏运行摘要、当前搜索 Provider 候选汇总与当前媒体源历史筛选 | 完整设置/日志页不在 V1 范围；仍缺正式 UI 视觉收口 |
+| 公开分发 | `v0.4.0` GitHub Release、公开 GHCR 不可变镜像、OIDC keyless 签名、SBOM/provenance、安装/升级/回滚/排障指南已完成；C92 已完成默认 closed app-only 部署 | 全新环境的安装、升级与回滚演练仍未执行 |
 
 ## 尚未实现
 
 - Core A/B 的剩余独立边界验收：普通本地 Movie/Episode 正向写入与客户端读取，以及多源 STRM D3 409 和无媒体变更。单源 STRM 的真实 Provider、完整管理 UI 写入提交与实际客户端播放已经完成，但不替代这些范围。
-- Core 测试版的正式镜像、升级/回滚说明和全新环境安装验收；随后进入 Provider 状态、设置/日志和媒体层级 UI/V1。
+- 全新环境的默认 closed 安装、升级与回滚演练；它不代替已有 C92 受控写入验收。
 - 缺字幕筛选、批量任务、自动下载、评分和时间轴校正；这些仍属于 V1 之后或独立研究线。
 
 ## 核心功能优先的压缩路线
@@ -68,7 +68,7 @@ Core A 与 Core B 已在同一核心开发会话连续完成。旧 source-bound 
 
 ## 当前运行边界
 
-本轮 C92 验收结束时，应用已恢复 `write_enabled=false`、`remote_search_enabled=false` 和 `/media:ro`，容器 healthy、restart=0。D2/D3 的重新启用、容器重建、媒体目录权限修改和任何新的真实写入仍需要独立授权与实时预检。SH、FRP 和 OpenResty 不属于上述开发里程碑的默认修改范围。
+截至 2026-08-26 的 `v0.4.0` C92 app-only 默认 closed 部署后，应用运行 `write_enabled=false`、`remote_search_enabled=false` 和 `/media:ro`，容器 healthy、restart=0。验收记录见 [v0.4.0 C92 默认 closed 部署验收](v0.4.0-c92-closed-deployment-acceptance.md)。D2/D3 的重新启用、媒体目录权限修改和任何新的真实写入仍需要独立授权与实时预检。SH、FRP 和 OpenResty 不属于上述开发里程碑的默认修改范围。
 
 ## 暂不作为阻断项
 
