@@ -44,7 +44,7 @@
 
 ## M0 门禁
 
-M0 只验证 Plugin 架构：插件加载、数据目录、Item/MediaSource/MediaStreams、后台任务、公开 Plugin API 的 Search/Fetch，以及明确授权单 Source 普通媒体的写入、Refresh 与新字幕流可见性。
+M0 只验证 Plugin 架构：插件加载、数据目录、Item/MediaSource/MediaStreams、后台任务、公开 Plugin API 的 Search/Fetch，以及明确授权单 Source STRM 或本地媒体的写入、Refresh 与新字幕流可见性。
 
 M0 前不扫描全库、不批量写媒体、不做自动化，也不迁移旧代码。部署、重启、连接 Emby、Provider 请求与媒体写入必须取得用户对目标实例和样本的明确授权。
 

@@ -15,7 +15,7 @@ SubSteward 是 Emby 的字幕自动补全、质量检查与优化插件。它以
 
 | 阶段 | 范围 |
 |---|---|
-| M0 | Plugin 架构、公开 API 与一次明确授权的单 Source 普通媒体闭环。 |
+| M0 | Plugin 架构、公开 API 与一次明确授权的单 Source STRM 或本地媒体闭环。 |
 | M1 | 人工 Search → Fetch → Preview → Validate → Install → Refresh（管理员 API 已在 C92 单 Source STRM 通过，候选 ID 只保留服务端内存）。 |
 | M2 | 字幕质量、语言、双语、特效和偏好排序。 |
 | M3 | 仅对授权媒体库的单 Source 缺字幕做保守自动补缺。 |
