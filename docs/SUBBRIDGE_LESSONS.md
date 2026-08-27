@@ -1,6 +1,6 @@
 # 从 SubBridge 保留的经验
 
-这里只保留 SubSteward 仍直接使用的事实；完整旧实现和记录留在 `main` 与稳定基线 `3acdf27047338f81438fa611aed314533e170371`。
+这里只保留 SubSteward 仍直接使用的事实；完整旧实现和记录留在 `legacy/subbridge` 与稳定基线 `3acdf27047338f81438fa611aed314533e170371`。
 
 ## Emby 与 STRM
 

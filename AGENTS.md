@@ -20,7 +20,7 @@
 - `docs/ARCHITECTURE.md` 保存当前 Plugin Spike 的实现与实测状态。
 - `LOCAL_OPERATIONS.md` 保存本机拓扑、连接与恢复信息，保持未跟踪且不复制到产品文档。
 
-不要把 SubBridge 的部署、Canary、Go 服务计划、评审或恢复文档整套复制到本分支；完整旧历史保留在稳定基线 `3acdf27047338f81438fa611aed314533e170371` 与 `main`。
+不要把 SubBridge 的部署、Canary、Go 服务计划、评审或恢复文档整套复制到本分支；完整旧历史保留在稳定基线 `3acdf27047338f81438fa611aed314533e170371` 与远端回退分支 `legacy/subbridge`。
 
 ## 当前已接受的项目决策
 

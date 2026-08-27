@@ -14,6 +14,7 @@ M1 人工字幕管理闭环已在 C92 的“千与千寻”单 Source STRM 上�
 
 ## 文档
 
+- [文档索引](docs/index.md)
 - [产品说明](docs/PRODUCT.md)
 - [SubBridge 经验](docs/SUBBRIDGE_LESSONS.md)
 - [架构说明](docs/ARCHITECTURE.md)
