@@ -53,6 +53,22 @@ namespace SubSteward.Plugin.M1
                 result.Reasons.Add("subtitle encoding required replacement characters");
             }
 
+            result.HasNulCharacter = TextHasNulCharacters(text);
+            result.HasIllegalControlCharacter = !result.HasNulCharacter && TextHasIllegalControlCharacters(text);
+            result.HasReplacementCharacter = lossy || TextHasReplacementCharacters(text);
+
+            if (result.HasNulCharacter)
+            {
+                result.Health = "WARNING";
+                result.Reasons.Add("subtitle contains a NUL control character");
+            }
+
+            if (result.HasIllegalControlCharacter)
+            {
+                result.Health = "WARNING";
+                result.Reasons.Add("subtitle contains an unexpected control character");
+            }
+
             if (result.Format == "srt")
             {
                 ValidateSrt(text, result);
@@ -158,6 +174,15 @@ namespace SubSteward.Plugin.M1
                 {
                     index = parsedIndex;
                     position++;
+                    if (parsedIndex != cueNumber && !result.HasSrtNumberingIssue)
+                    {
+                        result.HasSrtNumberingIssue = true;
+                        if (!string.Equals(result.Health, "FAIL", StringComparison.Ordinal))
+                        {
+                            result.Health = "WARNING";
+                            result.Reasons.Add("SRT cue numbering is inconsistent");
+                        }
+                    }
                 }
 
                 if (position >= lines.Length)
@@ -214,11 +239,6 @@ namespace SubSteward.Plugin.M1
                 result.Health = "FAIL";
                 result.Reasons.Add("SRT contains no cues");
             }
-            else if (result.Cues.Exists(cue => cue.Text.IndexOf('\ufffd') >= 0))
-            {
-                result.Health = "WARNING";
-                result.Reasons.Add("SRT contains a replacement character");
-            }
         }
 
         private static void ValidateAss(string text, M1ValidationResult result)
@@ -226,6 +246,7 @@ namespace SubSteward.Plugin.M1
             var hasEvents = false;
             var startIndex = 1;
             var endIndex = 2;
+            var styleIndex = 3;
             var textIndex = 9;
             var fieldCount = 10;
             var lines = text.Split(new[] { '\n' }, StringSplitOptions.None);
@@ -243,6 +264,7 @@ namespace SubSteward.Plugin.M1
                     var formatFields = line.Substring("Format:".Length).Split(',');
                     var parsedStartIndex = FindAssField(formatFields, "Start");
                     var parsedEndIndex = FindAssField(formatFields, "End");
+                    var parsedStyleIndex = FindAssField(formatFields, "Style");
                     var parsedTextIndex = FindAssField(formatFields, "Text");
                     if (parsedStartIndex < 0 || parsedEndIndex < 0 || parsedTextIndex < 0)
                     {
@@ -253,6 +275,7 @@ namespace SubSteward.Plugin.M1
 
                     startIndex = parsedStartIndex;
                     endIndex = parsedEndIndex;
+                    styleIndex = parsedStyleIndex;
                     textIndex = parsedTextIndex;
                     fieldCount = formatFields.Length;
                     continue;
@@ -285,8 +308,19 @@ namespace SubSteward.Plugin.M1
                     Index = result.Cues.Count + 1,
                     StartMilliseconds = start,
                     EndMilliseconds = end,
-                    Text = fields[textIndex]
+                    Text = fields[textIndex],
+                    StyleName = styleIndex >= 0 && styleIndex < fields.Length ? fields[styleIndex].Trim() : null
                 });
+
+                if (!result.HasAssOverrideTagIssue && !OverrideTagsAreBalanced(fields[textIndex]))
+                {
+                    result.HasAssOverrideTagIssue = true;
+                    if (!string.Equals(result.Health, "FAIL", StringComparison.Ordinal))
+                    {
+                        result.Health = "WARNING";
+                        result.Reasons.Add("ASS dialogue has an unbalanced override tag");
+                    }
+                }
             }
 
             if (!hasEvents || result.Cues.Count == 0)
@@ -294,11 +328,63 @@ namespace SubSteward.Plugin.M1
                 result.Health = "FAIL";
                 result.Reasons.Add(!hasEvents ? "ASS is missing an Events section" : "ASS contains no dialogue cues");
             }
-            else if (result.Cues.Exists(cue => cue.Text.IndexOf('\ufffd') >= 0))
+        }
+
+        private static bool TextHasNulCharacters(string text)
+        {
+            return text.IndexOf('\0') >= 0;
+        }
+
+        private static bool TextHasReplacementCharacters(string text)
+        {
+            return text.IndexOf('\ufffd') >= 0;
+        }
+
+        private static bool TextHasIllegalControlCharacters(string text)
+        {
+            foreach (var character in text)
             {
-                result.Health = "WARNING";
-                result.Reasons.Add("ASS contains a replacement character");
+                if (character != '\n' && character != '\t' && char.IsControl(character))
+                {
+                    return true;
+                }
             }
+
+            return false;
+        }
+
+        private static bool OverrideTagsAreBalanced(string text)
+        {
+            foreach (var line in text.Split('\n'))
+            {
+                var depth = 0;
+                for (var index = 0; index < line.Length; index++)
+                {
+                    if (line[index] == '\\')
+                    {
+                        index++;
+                    }
+                    else if (line[index] == '{')
+                    {
+                        depth++;
+                    }
+                    else if (line[index] == '}')
+                    {
+                        depth--;
+                        if (depth < 0)
+                        {
+                            return false;
+                        }
+                    }
+                }
+
+                if (depth != 0)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static int FindAssField(string[] fields, string expectedName)

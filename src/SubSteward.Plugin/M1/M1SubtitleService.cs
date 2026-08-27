@@ -15,6 +15,7 @@ using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Providers;
 using MediaBrowser.Model.Services;
+using SubSteward.Plugin.M2;
 
 namespace SubSteward.Plugin.M1
 {
@@ -77,6 +78,8 @@ namespace SubSteward.Plugin.M1
         public bool IsStrm { get; set; }
 
         public List<M1SourceResponse> MediaSources { get; } = new List<M1SourceResponse>();
+
+        public M2ActionReport Action { get; set; }
     }
 
     public sealed class M1SourceResponse
@@ -90,6 +93,8 @@ namespace SubSteward.Plugin.M1
         public bool IsRemote { get; set; }
 
         public int SubtitleStreamCount { get; set; }
+
+        public M2PresenceReport Presence { get; set; }
     }
 
     public sealed class M1CandidateResponse
@@ -101,6 +106,10 @@ namespace SubSteward.Plugin.M1
         public string Name { get; set; }
 
         public string Language { get; set; }
+
+        public string LanguageLabel { get; set; }
+
+        public string RequestedLanguageVariant { get; set; }
 
         public string Format { get; set; }
 
@@ -119,6 +128,10 @@ namespace SubSteward.Plugin.M1
 
         public string Language { get; set; }
 
+        public string LanguageLabel { get; set; }
+
+        public string RequestedLanguageVariant { get; set; }
+
         public List<M1CandidateResponse> Candidates { get; } = new List<M1CandidateResponse>();
     }
 
@@ -132,6 +145,10 @@ namespace SubSteward.Plugin.M1
 
         public string Language { get; set; }
 
+        public string LanguageLabel { get; set; }
+
+        public string RequestedLanguageVariant { get; set; }
+
         public string Format { get; set; }
 
         public string Encoding { get; set; }
@@ -143,6 +160,12 @@ namespace SubSteward.Plugin.M1
         public bool HashMatch { get; set; }
 
         public List<string> Reasons { get; } = new List<string>();
+
+        public M2QualityReport Quality { get; set; }
+
+        public M2PreferenceReport Preference { get; set; }
+
+        public M2ActionReport Action { get; set; }
 
         public List<M1Cue> Cues { get; } = new List<M1Cue>();
     }
@@ -164,12 +187,15 @@ namespace SubSteward.Plugin.M1
 
     public sealed class M1SubtitleService : BaseApiService
     {
-        private const string DefaultLanguage = "zho";
         private const int MaxCandidates = 20;
         private const int MaxPreviewCues = 200;
 
         private static readonly M1TokenStore Store = new M1TokenStore();
         private static readonly M1SubtitleValidator Validator = new M1SubtitleValidator();
+        private static readonly M2QualityAnalyzer QualityAnalyzer = new M2QualityAnalyzer();
+        private static readonly M2PreferenceAnalyzer PreferenceAnalyzer = new M2PreferenceAnalyzer();
+        private static readonly M2PresenceAnalyzer PresenceAnalyzer = new M2PresenceAnalyzer();
+        private static readonly M2ActionAdvisor ActionAdvisor = new M2ActionAdvisor();
 
         private readonly ILibraryManager libraryManager;
         private readonly ISubtitleManager subtitleManager;
@@ -216,7 +242,8 @@ namespace SubSteward.Plugin.M1
         {
             var item = ResolveItem(request.ItemId);
             var source = ResolveSource(item, request.MediaSourceId);
-            var language = NormalizeLanguage(request.Language);
+            var requestedLanguage = M2Options.ParseTargetLanguage(request.Language);
+            var language = requestedLanguage.Code;
             var candidates = (await subtitleManager.SearchSubtitles(item, language, false, false, false, Request.CancellationToken).ConfigureAwait(false) ?? Array.Empty<RemoteSubtitleInfo>())
                 .OrderByDescending(candidate => candidate.IsHashMatch.GetValueOrDefault())
                 .ThenByDescending(candidate => CandidateMatchesItem(candidate.Name, item))
@@ -225,7 +252,9 @@ namespace SubSteward.Plugin.M1
             {
                 ItemId = item.Id.ToString("N"),
                 MediaSourceId = source.Id,
-                Language = language
+                Language = language,
+                LanguageLabel = requestedLanguage.Label,
+                RequestedLanguageVariant = requestedLanguage.Variant
             };
 
             foreach (var candidate in candidates)
@@ -239,10 +268,12 @@ namespace SubSteward.Plugin.M1
                 var hashMatch = candidate.IsHashMatch.GetValueOrDefault();
                 response.Candidates.Add(new M1CandidateResponse
                 {
-                    Token = Store.AddCandidate(item.Id, source.Id, language, candidate.Id, titleMatch, hashMatch),
+                    Token = Store.AddCandidate(item.Id, source.Id, language, candidate.Id, titleMatch, hashMatch, requestedLanguage.Variant),
                     Provider = candidate.ProviderName,
                     Name = candidate.Name,
                     Language = candidate.Language ?? language,
+                    LanguageLabel = M2Language.Parse(candidate.Language ?? language, requestedLanguage.Code).Label,
+                    RequestedLanguageVariant = requestedLanguage.Variant,
                     Format = candidate.Format,
                     Author = candidate.Author,
                     IsHashMatch = candidate.IsHashMatch,
@@ -295,8 +326,8 @@ namespace SubSteward.Plugin.M1
                 throw new InvalidOperationException("Fetched subtitle metadata says Chinese, but its content contains no Chinese characters.");
             }
 
-            var artifactToken = Store.AddArtifact(item.Id, source.Id, candidate.Language, content, validation, candidate.TitleMatch, candidate.HashMatch);
-            return ToArtifactResponse(artifactToken, item.Id, source.Id, candidate.Language, validation, candidate.TitleMatch, candidate.HashMatch);
+            var artifactToken = Store.AddArtifact(item.Id, source.Id, candidate.Language, content, validation, candidate.TitleMatch, candidate.HashMatch, candidate.RequestedLanguageVariant);
+            return ToArtifactResponse(artifactToken, item.Id, source.Id, candidate.Language, validation, candidate.TitleMatch, candidate.HashMatch, candidate.RequestedLanguageVariant);
         }
 
         public object Get(M1PreviewSubtitleRequest request)
@@ -307,7 +338,7 @@ namespace SubSteward.Plugin.M1
                 throw new ArgumentException("Artifact token is expired or invalid.");
             }
 
-            return ToArtifactResponse(artifact.Token, artifact.ItemId, artifact.MediaSourceId, artifact.Language, artifact.Validation, artifact.TitleMatch, artifact.HashMatch);
+            return ToArtifactResponse(artifact.Token, artifact.ItemId, artifact.MediaSourceId, artifact.Language, artifact.Validation, artifact.TitleMatch, artifact.HashMatch, artifact.RequestedLanguageVariant);
         }
 
         public async Task<object> Post(M1InstallSubtitleRequest request)
@@ -391,7 +422,27 @@ namespace SubSteward.Plugin.M1
 
         private static string NormalizeLanguage(string language)
         {
-            return string.IsNullOrWhiteSpace(language) ? DefaultLanguage : language.Trim();
+            return M2Options.ParseTargetLanguage(language).Code;
+        }
+
+        private static string GetTargetLanguage()
+        {
+            var configuration = Plugin.Instance?.Configuration;
+            return M2Options.NormalizeTargetLanguage(configuration?.TargetLanguage);
+        }
+
+        private static string GetSecondaryLanguage()
+        {
+            var configuration = Plugin.Instance?.Configuration;
+            return M2Options.NormalizeSecondaryLanguage(configuration?.SecondaryLanguage);
+        }
+
+        private static M2PreferenceOptions GetPreferenceOptions()
+        {
+            var configuration = Plugin.Instance?.Configuration;
+            return M2Options.ParsePreferenceOptions(
+                configuration?.PreferBilingual ?? false,
+                configuration?.FormatOrder);
         }
 
         private static bool IsChineseLanguage(string language)
@@ -425,20 +476,44 @@ namespace SubSteward.Plugin.M1
 
             foreach (var source in item.GetMediaSources(false, false, new LibraryOptions()))
             {
+                var subtitleStreams = source.MediaStreams == null
+                    ? new List<M2SubtitleStreamSnapshot>()
+                    : source.MediaStreams
+                        .Where(stream => stream.Type.ToString() == "Subtitle")
+                        .Select(stream => new M2SubtitleStreamSnapshot
+                        {
+                            IsExternal = stream.IsExternal,
+                            Language = stream.Language,
+                            Title = string.IsNullOrWhiteSpace(stream.DisplayTitle) ? stream.Title : stream.DisplayTitle,
+                            Path = stream.IsExternal ? stream.Path : null
+                        })
+                        .ToList();
+
                 response.MediaSources.Add(new M1SourceResponse
                 {
                     Id = source.Id,
                     Name = source.Name,
                     Container = source.Container,
                     IsRemote = source.IsRemote,
-                    SubtitleStreamCount = source.MediaStreams == null ? 0 : source.MediaStreams.Count(stream => stream.Type.ToString() == "Subtitle")
+                    SubtitleStreamCount = source.MediaStreams == null ? 0 : source.MediaStreams.Count(stream => stream.Type.ToString() == "Subtitle"),
+                    Presence = PresenceAnalyzer.Analyze(subtitleStreams, GetTargetLanguage(), GetSecondaryLanguage())
                 });
             }
+
+            // Presence does not include health. Keep a present target manual until
+            // a health result is supplied instead of silently treating presence as PASS.
+            response.Action = ActionAdvisor.Advise(new M2ActionInput
+            {
+                SourceCount = response.MediaSources.Count,
+                TargetLanguagePresent = response.MediaSources.Count == 1 && response.MediaSources[0].Presence != null
+                    ? (bool?)response.MediaSources[0].Presence.TargetLanguagePresent
+                    : null
+            });
 
             return response;
         }
 
-        private static M1ArtifactResponse ToArtifactResponse(string token, Guid itemId, string sourceId, string language, M1ValidationResult validation, bool titleMatch, bool hashMatch)
+        private static M1ArtifactResponse ToArtifactResponse(string token, Guid itemId, string sourceId, string language, M1ValidationResult validation, bool titleMatch, bool hashMatch, string requestedLanguageVariant)
         {
             var response = new M1ArtifactResponse
             {
@@ -446,6 +521,8 @@ namespace SubSteward.Plugin.M1
                 ItemId = itemId.ToString("N"),
                 MediaSourceId = sourceId,
                 Language = language,
+                LanguageLabel = M2Options.ParseTargetLanguage(language).Label,
+                RequestedLanguageVariant = requestedLanguageVariant,
                 Format = validation.Format,
                 Encoding = validation.Encoding,
                 Health = validation.Health,
@@ -453,6 +530,30 @@ namespace SubSteward.Plugin.M1
                 HashMatch = hashMatch
             };
             response.Reasons.AddRange(validation.Reasons);
+            var secondaryLanguage = GetSecondaryLanguage();
+            var preferenceOptions = GetPreferenceOptions();
+            response.Quality = QualityAnalyzer.Analyze(validation, language, secondaryLanguage);
+            response.Preference = PreferenceAnalyzer.Evaluate(
+                validation,
+                language,
+                secondaryLanguage,
+                token,
+                titleMatch,
+                hashMatch,
+                preferenceOptions);
+            response.Action = ActionAdvisor.Advise(new M2ActionInput
+            {
+                SourceCount = 1,
+                TargetLanguagePresent = null,
+                CandidateAvailable = true,
+                CandidateHealth = response.Quality.Health,
+                PreferenceSuitability = response.Preference.Suitability,
+                TitleMatch = titleMatch,
+                HashMatch = hashMatch,
+                PreferBilingual = preferenceOptions.PreferBilingual,
+                BilingualDetected = response.Quality.BilingualDetected,
+                BilingualConfidence = response.Quality.BilingualConfidence
+            });
             response.Cues.AddRange(validation.Cues.Take(MaxPreviewCues));
             return response;
         }
@@ -521,7 +622,17 @@ namespace SubSteward.Plugin.M1
             }
 
             var extension = artifact.Validation.Format == "ass" || artifact.Validation.Format == "ssa" ? artifact.Validation.Format : "srt";
-            var stem = baseName + "." + artifact.Language;
+            var requestedVariant = M2Language.Parse(artifact.RequestedLanguageVariant, artifact.Language).Variant;
+            var languageTag = M2Options.ResolveSubtitleLanguageTag(requestedVariant, artifact.Language);
+            var contentTypeLabel = M2SidecarLabel.Build(artifact.Validation, requestedVariant);
+
+            var stem = baseName;
+            if (!string.IsNullOrWhiteSpace(contentTypeLabel))
+            {
+                stem += "." + contentTypeLabel;
+            }
+
+            stem += "." + languageTag;
             for (var version = 0; version < 100; version++)
             {
                 var suffix = version == 0 ? string.Empty : ".v" + version;

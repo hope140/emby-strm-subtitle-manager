@@ -35,3 +35,6 @@ temp/
 /tests/SubSteward.Tests/bin/
 /tests/SubSteward.Tests/obj/
 /TestResults/
+
+# Local reference-only test data.
+.scratch/

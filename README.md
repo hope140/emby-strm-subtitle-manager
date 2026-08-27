@@ -10,7 +10,7 @@ SubSteward 是 Emby 的字幕自动补全、质量检查与优化插件。它围
 
 ## 当前状态
 
-M1 人工字幕管理闭环已在 C92 的“千与千寻”单 Source STRM 上通过：Search、Fetch、Preview、Validate、Install、Refresh 与官方字幕流读取均成功。下一步是 M2 质量与偏好分析；MultiSource STRM 仍拒绝自动写入。
+M1 人工字幕管理闭环已在 C92 的“千与千寻”单 Source STRM 上通过：Search、Fetch、Preview、Validate、Install、Refresh、官方字幕流读取和实际客户端播放验收均成功。M2 核心分析与保守 Action 建议已接入：Item 详情提供可配置目标/第二语言的 Presence 与整体 Action；Preview 附带语言、双语、ASS 特效强度、Preference 和 Action 摘要。MultiSource STRM 仍拒绝自动写入，Repair/Upgrade 也未自动开放。
 
 ## 文档
 

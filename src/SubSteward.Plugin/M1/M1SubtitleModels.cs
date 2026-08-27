@@ -12,6 +12,8 @@ namespace SubSteward.Plugin.M1
         public int EndMilliseconds { get; set; }
 
         public string Text { get; set; }
+
+        public string StyleName { get; set; }
     }
 
     public sealed class M1ValidationResult
@@ -21,6 +23,16 @@ namespace SubSteward.Plugin.M1
         public string Encoding { get; set; }
 
         public string Health { get; set; }
+
+        public bool HasReplacementCharacter { get; set; }
+
+        public bool HasNulCharacter { get; set; }
+
+        public bool HasIllegalControlCharacter { get; set; }
+
+        public bool HasSrtNumberingIssue { get; set; }
+
+        public bool HasAssOverrideTagIssue { get; set; }
 
         public List<string> Reasons { get; } = new List<string>();
 
@@ -44,6 +56,8 @@ namespace SubSteward.Plugin.M1
 
         public string Language { get; set; }
 
+        public string RequestedLanguageVariant { get; set; }
+
         public string RawId { get; set; }
 
         public bool TitleMatch { get; set; }
@@ -62,6 +76,8 @@ namespace SubSteward.Plugin.M1
         public string MediaSourceId { get; set; }
 
         public string Language { get; set; }
+
+        public string RequestedLanguageVariant { get; set; }
 
         public byte[] Content { get; set; }
 

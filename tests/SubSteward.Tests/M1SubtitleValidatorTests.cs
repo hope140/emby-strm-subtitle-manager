@@ -63,4 +63,33 @@ public sealed class M1SubtitleValidatorTests
         Assert.Equal("PASS", result.Health);
         Assert.False(result.HasHanCharacters);
     }
+
+    [Fact]
+    public void InconsistentSrtNumbering_IsWarning()
+    {
+        var result = new M1SubtitleValidator().Validate(Encoding.UTF8.GetBytes("3\n00:00:01,000 --> 00:00:02,000\n你好\n"), "srt");
+
+        Assert.Equal("WARNING", result.Health);
+        Assert.True(result.HasSrtNumberingIssue);
+    }
+
+    [Fact]
+    public void NulCharacter_IsWarning()
+    {
+        var result = new M1SubtitleValidator().Validate(Encoding.UTF8.GetBytes("1\n00:00:01,000 --> 00:00:02,000\n坏字幕\0\n"), "srt");
+
+        Assert.Equal("WARNING", result.Health);
+        Assert.True(result.HasNulCharacter);
+    }
+
+    [Fact]
+    public void RepeatedAssOverrideIssues_AreReportedOnlyOnce()
+    {
+        const string ass = "[Events]\nFormat: Layer, Start, End, Style, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Default,{\\i1你好\nDialogue: 0,0:00:03.00,0:00:04.00,Default,{\\i1再来\n";
+        var result = new M1SubtitleValidator().Validate(Encoding.UTF8.GetBytes(ass), "ass");
+
+        Assert.Equal("WARNING", result.Health);
+        Assert.True(result.HasAssOverrideTagIssue);
+        Assert.Equal(1, System.Linq.Enumerable.Count(result.Reasons, reason => reason == "ASS dialogue has an unbalanced override tag"));
+    }
 }

@@ -13,7 +13,7 @@ namespace SubSteward.Plugin.M1
         private readonly Dictionary<string, M1CandidateRecord> candidates = new Dictionary<string, M1CandidateRecord>(StringComparer.Ordinal);
         private readonly Dictionary<string, M1ArtifactRecord> artifacts = new Dictionary<string, M1ArtifactRecord>(StringComparer.Ordinal);
 
-        public string AddCandidate(Guid itemId, string mediaSourceId, string language, string rawId, bool titleMatch, bool hashMatch)
+        public string AddCandidate(Guid itemId, string mediaSourceId, string language, string rawId, bool titleMatch, bool hashMatch, string requestedLanguageVariant = null)
         {
             var token = Guid.NewGuid().ToString("N");
             lock (sync)
@@ -25,6 +25,7 @@ namespace SubSteward.Plugin.M1
                     ItemId = itemId,
                     MediaSourceId = mediaSourceId,
                     Language = language,
+                    RequestedLanguageVariant = requestedLanguageVariant,
                     RawId = rawId,
                     TitleMatch = titleMatch,
                     HashMatch = hashMatch,
@@ -44,7 +45,7 @@ namespace SubSteward.Plugin.M1
             }
         }
 
-        public string AddArtifact(Guid itemId, string mediaSourceId, string language, byte[] content, M1ValidationResult validation, bool titleMatch, bool hashMatch)
+        public string AddArtifact(Guid itemId, string mediaSourceId, string language, byte[] content, M1ValidationResult validation, bool titleMatch, bool hashMatch, string requestedLanguageVariant = null)
         {
             var token = Guid.NewGuid().ToString("N");
             lock (sync)
@@ -56,6 +57,7 @@ namespace SubSteward.Plugin.M1
                     ItemId = itemId,
                     MediaSourceId = mediaSourceId,
                     Language = language,
+                    RequestedLanguageVariant = requestedLanguageVariant,
                     Content = content,
                     Validation = validation,
                     TitleMatch = titleMatch,
