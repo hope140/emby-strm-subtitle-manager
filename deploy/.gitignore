@@ -1,4 +1,0 @@
-# Local deployment inputs referenced by compose.example.yaml.
-config.yaml
-config.host-network.yaml
-secrets/

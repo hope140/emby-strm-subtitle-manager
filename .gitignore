@@ -1,7 +1,6 @@
 # Local-only operations and generated state; never commit these.
 LOCAL_OPERATIONS.md
 .tools/
-config/local*
 data/
 dist/
 tmp/
@@ -30,6 +29,9 @@ temp/
 .env.*
 
 # Local Emby credential file; never commit it.
-embyapi
-/server
-/server.exe
+# Generated outputs for the SubSteward Plugin spike.
+/src/SubSteward.Plugin/bin/
+/src/SubSteward.Plugin/obj/
+/tests/SubSteward.Tests/bin/
+/tests/SubSteward.Tests/obj/
+/TestResults/
