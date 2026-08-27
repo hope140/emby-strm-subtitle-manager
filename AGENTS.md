@@ -2,7 +2,7 @@
 
 ## 适用范围
 
-本文件适用于 `substeward-v1` 分支上的 SubSteward 代码、文档和本地验证。SubSteward 是 Emby 字幕自动补全、质量检查与优化插件，不是 SubBridge Go 服务的 V2。
+本文件适用于 `main` 分支上的 SubSteward 代码、文档和本地验证。SubSteward 是 Emby 字幕自动补全、质量检查与优化插件，不是 SubBridge Go 服务的 V2。
 
 ## 开始任务前的读取顺序
 
