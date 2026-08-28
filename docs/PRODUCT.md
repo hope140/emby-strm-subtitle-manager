@@ -161,13 +161,13 @@ M3 的自动补缺至少要求：目标字幕确实缺失、写入目标明确�
 
 ## 当前状态
 
-M0 与 M1 已完成：插件加载、单 Source STRM 的公开 Search/Fetch、候选预览、ASS/SRT 结构校验、版本化 sidecar 安装、Refresh、Emby 字幕流读取和实际客户端播放验收均已验证。当前 M1 仍是管理员 API 驱动的人工流程。M2 核心分析与保守 Action Advisor 已实现，并接入 Item 详情及 Fetch/Preview Artifact 响应；语言标签区分规范宏语言与简繁变体，社区别名只作输入归一化。Health FAIL 或缺少标题/Hash 绑定的候选项不能进入推荐，自动 Repair/Upgrade 仍未开放。
+M0 与 M1 已完成：插件加载、单 Source STRM 的公开 Search/Fetch、候选预览、ASS/SRT 结构校验、版本化 sidecar 安装、Refresh、Emby 字幕流读取和实际客户端播放验收均已验证。当前 M1 通过嵌入式管理员页面和管理员 API 提供人工流程，页面分为状态、手动处理和设置三个页签，可查看条目摘要、Presence、Health、Preference、Action，并完成 Search → Fetch/Preview → 可选固定偏移对轴 → Install。单条目详情会对安全范围内的外置字幕执行有上限深检，内封字幕继续保持未知，不提取正文。对轴只按管理员明确输入的毫秒值整体提前或延后，派生新 Artifact 后重新校验，不自动猜测音画偏移。设置支持全局默认与媒体库级覆盖。M2 核心分析与保守 Action Advisor 已实现，并接入 Item 详情及 Fetch/Preview Artifact 响应；语言标签区分规范宏语言与简繁变体，配置和 Provider 返回的语言变体会统一归一化，社区别名只作输入归一化。Health FAIL 或缺少标题/Hash 绑定的候选项不能进入推荐，自动 Repair/Upgrade 仍未开放。
 
 ### M2 当前收口边界
 
 以下项目已经作为已知限制记录，本阶段不作为 Action 和人工 Search → Fetch → Preview → Install 主链路的收口阻断项：
 
-- 简体/繁体目前主要依据请求别名、MediaStream 语言、标题和安全文件名证据；没有可靠的正文级简繁识别时，系统保持低置信度，不据此自动替换。
+- 简体/繁体目前会贯通请求配置、MediaStream/Provider 语言码、标题和安全文件名证据；仍没有可靠的正文级简繁识别时，系统保持低置信度，不据此自动替换。
 - 正文级语言检测当前对中文、英语和日语有明确规则；其他第二语言可以保留配置和 Presence 语言码，但展示与正文覆盖分析仍有限。
 - ASS 的 Script Info、Styles、残缺 HTML 和更深层结构校验仍较浅，后续扩展 Health 时处理。
 - Preference 当前支持目标语言、第二语言、双语开关和格式顺序；用户自定义权重以及普通、样式化、高特效偏好暂不纳入本阶段。

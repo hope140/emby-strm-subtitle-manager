@@ -1,9 +1,30 @@
 # SubSteward 文档索引
 
-本分支只保留当前产品仍会使用的文档。SubBridge 的完整服务部署、Canary、评审和历史记录不复制到这里；需要回查时使用稳定基线 `3acdf27047338f81438fa611aed314533e170371` 或远端回退分支 `legacy/subbridge`。
+本分支只保留 SubSteward 当前产品需要的公开文档。旧 SubBridge 的完整服务部署、Canary、评审和历史记录不复制到这里；需要回查时使用稳定基线 `3acdf27047338f81438fa611aed314533e170371` 或远端回退分支 `legacy/subbridge`。
 
-1. [产品说明](PRODUCT.md)：产品边界、业务模型和里程碑。
-2. [SubBridge 经验](SUBBRIDGE_LESSONS.md)：可复用事实、未验证边界与样本策略。
-3. [架构说明](ARCHITECTURE.md)：当前工程和实测清单。
+## 先看哪一份
 
-本机拓扑、连接和恢复步骤只保留在未跟踪的 `LOCAL_OPERATIONS.md`；不得复制到 Git 文档或写入明文凭据。
+| 文档 | 适合回答的问题 |
+| --- | --- |
+| [README](../README.md) | 这个项目是什么、当前主线和核心安全边界是什么 |
+| [产品说明](PRODUCT.md) | 产品做什么、不做什么、M0–M4 如何推进 |
+| [架构与验证状态](ARCHITECTURE.md) | 当前 Plugin、管理员页面、API、写入链路和实测状态是什么 |
+| [可复用经验](SUBBRIDGE_LESSONS.md) | STRM、Provider、语言/质量、写入和验收有哪些不能忘的规则 |
+| `LOCAL_OPERATIONS.md` | 当前机器的凭据入口、XTerminal/C92、路径、部署和回滚怎么做 |
+
+`LOCAL_OPERATIONS.md` 只在本机存在且保持未跟踪，不把其中的连接细节或凭据复制到公开文档。
+
+## 按问题查找
+
+- 要确认产品边界，先看 [产品说明](PRODUCT.md) 的“明确不属于 SubSteward 主线”和“当前状态”。
+- 要调用或检查管理员 API，看 [架构与验证状态](ARCHITECTURE.md) 的“管理员 API 索引”，实际认证和本机连接再看 `LOCAL_OPERATIONS.md`。
+- 要处理 STRM 或怀疑写错媒体，看 [可复用经验](SUBBRIDGE_LESSONS.md) 的“Emby 媒体模型与 STRM”，再看本机手册的路径边界。
+- 要处理错误 Provider 候选，看 [可复用经验](SUBBRIDGE_LESSONS.md) 的“Provider 候选与错误隔离”，不要直接下载搜索第一条。
+- 要判断测试是否足以宣布通过，看 [可复用经验](SUBBRIDGE_LESSONS.md) 的“证据分层与状态写法”和本机手册的“证据等级索引”。
+- 要部署、重启或回滚 C92，只按 `LOCAL_OPERATIONS.md` 执行，并先取得当前任务的明确授权。
+
+## 当前文档口径
+
+截至 2026-08-28，M1 人工 Search → Fetch → Preview → Install → Refresh 主链路和实际客户端验收已有历史实测；当前工作树又包含嵌入式三页签 UI、外置字幕有上限深检、人工固定偏移对轴、语言变体归一化和媒体库覆盖设置等改动。工作树仍有未提交改动，因此这些新增实现必须以当前源码、测试和后续目标 Emby 复验为准，不能仅凭历史部署记录宣布新版本已发布。
+
+最后一笔 C92 记录是白底配色修正版部署；该修订尚未完成认证管理员 API 和线上视觉复核，也未执行 Provider Fetch、Install 或媒体写入。详细证据和未验证项集中记录在 [架构与验证状态](ARCHITECTURE.md) 和本机手册中。

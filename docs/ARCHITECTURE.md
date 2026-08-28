@@ -1,61 +1,142 @@
-# SubSteward 架构
+# SubSteward 架构与验证状态
 
-SubSteward 以一个 Emby Plugin 为主运行时。新分支不包含旧 Go 服务、Web UI、Docker 部署、history、quarantine 或复杂 recovery 系统。
+> 状态快照：2026-08-28。本文描述当前 Plugin/API/UI 形态和已记录证据；部署、连接和本机凭据只看未跟踪的 `LOCAL_OPERATIONS.md`。历史部署 Hash 必须重新核对，不能直接当成当前运行状态。
+
+## 1. 运行时与边界
+
+SubSteward 以一个 Emby Plugin 为主运行时。当前主线不包含旧 Go 服务、独立 Web UI、Docker 运行依赖、数据库、history、quarantine 或复杂 recovery 系统。
 
 ```text
 Emby Server
   └─ SubSteward.Plugin
        ├─ Plugin identity and configuration
+       ├─ Embedded admin UI
        ├─ M1 manual API
        └─ M2 quality, preference and conservative action advice
 ```
 
-## M0 Architecture Spike
+当前工程位于 `src/SubSteward.Plugin`，目标框架为 `netstandard2.0`，编译基线为公开的 `MediaBrowser.Server.Core 4.9.1.90`。测试位于 `tests/SubSteward.Tests`，公开测试数据位于 `testdata/subtitles`。
 
-当前工程位于 `src/SubSteward.Plugin`，使用 `netstandard2.0` 与公开的 `MediaBrowser.Server.Core` 编译基线。当前已实现：
+M0 已完成并已从运行时移除。它只用于验证插件加载、服务器管理的数据目录、Item/MediaSource/MediaStream 读取、公开字幕 API 和单 Source STRM 的一次性闭环，不作为额外的产品服务长期安装。
 
-- `BasePlugin<PluginConfiguration>` 插件入口和稳定 ID。
-- 服务器管理的 Plugin 数据目录入口。
-- M0 已完成并已从运行时移除：它只用于验证插件加载、公开 API 与单 Source STRM 的一次性闭环，不作为产品任务长期安装。
+## 2. 管理页面
 
-M1 提供管理员接口：
+插件通过 `IHasWebPages` 注册嵌入资源 `SubSteward.Plugin.Web.configPage.html` 和 `SubSteward.Plugin.Web.subSteward.js`，由 Emby 管理界面托管，不引入独立 HTTP 服务或旧 SubBridge Web UI。当前注册页面名为 `SubStewardUI3.html`，控制器名为 `SubStewardUI3.js`，用于避开宿主旧缓存。
 
-- `GET /SubSteward/Items` 与 `GET /SubSteward/Items/{Id}`：返回不含路径的 Item、Source 和字幕流摘要；每个 Source 额外返回按配置计算的 Presence，Item 顶层返回保守 Action 建议。已知语言码优先，未知字幕标题仅对中文使用保守文本回退。
-- `GET /SubSteward/Subtitles/Search`：按 Item/source/language 搜索候选，并将 Hash 或标题匹配的候选排在前面。
-- `POST /SubSteward/Subtitles/Fetch`：服务端保存短期候选绑定，Fetch 字节流并 Validate；没有标题或 Hash 匹配的候选拒绝继续安装。
-- `GET /SubSteward/Subtitles/Preview`：返回短期 Artifact 的 Health、编码、格式、原因、Quality、Preference、Action 和最多 200 条 cue。
-- `POST /SubSteward/Subtitles/Install`：重新读取 Item/source，临时文件写入新版本 sidecar，Refresh 并确认新外置字幕流。
+页面有三个顶层页签：
 
-Candidate raw ID、候选和 Artifact 内容仅保存在进程内短期存储中，不进入响应或日志。
+- **状态**：显示当前载入范围、目标语言 Presence、Action 分布和待关注条目。Items API 默认返回 50 条，允许范围为 1–100；页面明确标记为当前样本，不冒充全库扫描。
+- **手动处理**：确认 Item/source 后完成 `Search → Fetch/Preview → 可选固定偏移对轴 → Install`。候选和 Artifact token 只在页面和插件短期内存中流转，不展示 Provider 原始 ID。
+- **设置**：编辑全局默认和媒体库覆盖。覆盖可设置目标语言、第二语言、双语偏好和格式顺序，关闭后恢复继承全局默认。
 
-M2 已加入纯计算的 `QualityAnalyzer`。它只消费 M1 Validation 结果，在 Preview 中输出目标语言、第二语言、双语和 ASS 特效强度摘要；不改变 Search/Fetch/Install 行为，也不自动重写字幕正文。
+页面只调用本节 API。多 Source 条目保持 fail-closed，自动全库扫描、批量补全、健康字幕替换和 MultiSource STRM 写入不由 UI 开启。
 
-当前中文字符用作 zho 的保守正文证据；eng 需要至少两个连续拉丁字母，单个字母或孤立代号不作为第二语言证据。
+## 3. 管理员 API 索引
 
-M2 的 `PreferenceAnalyzer` 也只消费同一 Validation 结果。当前 Preview 输出 RECOMMENDED / ACCEPTABLE / NOT_RECOMMENDED 的 suitability 和理由。排序要求候选有标题或 Hash 绑定、Health 不为 FAIL、正文可见目标语言；Hash 匹配权重高于仅标题匹配。该结果用于人工选择展示，不是最终 Action 判定；默认不对双语和特效强制替换。
+所有路由要求 Emby 管理员认证。响应不包含完整媒体路径、Provider 原始候选 ID 或 Artifact 内容。
 
-M2 的 `ActionAdvisor` 是独立纯计算层。输入包括 Source 数量、目标 Presence、当前或候选 Health、Preference suitability、标题/Hash 绑定和双语置信度。多 Source 或状态不明返回 `MANUAL`；目标缺失且没有可用候选返回 `SEARCH`；目标存在且已有 Health `PASS` 返回 `KEEP`；候选 `PASS` 且绑定和 Preference 合格时仍返回 `MANUAL`，等待人工确认安装。候选 `WARNING`、低置信度双语、已有目标但 Health 未知也返回 `MANUAL`；Health `FAIL`、无标题/Hash 绑定或 `NOT_RECOMMENDED` 候选继续 `SEARCH`。`REPAIR` 与 `UPGRADE` 只保留为产品动作枚举，M2 不自动执行。
+| 方法 | 路由 | 输入/输出要点 | 当前边界 |
+| --- | --- | --- | --- |
+| GET | `/SubSteward/Items` | `SearchTerm`、`Limit`；返回 Movie/Episode 摘要、Source、Presence 和 Action | `Limit` 为 1–100，列表只代表当前样本 |
+| GET | `/SubSteward/Items/{Id}` | 返回单 Item 详情、Source、字幕流、Presence、Health、Quality 和 Action | 外置字幕深检有上限；内封正文保持 `UNKNOWN` |
+| GET | `/SubSteward/Libraries` | 返回媒体库 ID 和名称 | 不返回媒体路径，仅供设置页选择 |
+| GET | `/SubSteward/Subtitles/Search` | `ItemId`、可选 `MediaSourceId`、`Language` | 当前 M1 最终要求 Item 恰好一个 MediaSource；候选最多 20 条 |
+| POST | `/SubSteward/Subtitles/Fetch` | `CandidateToken` | 重新绑定 Item/source、Fetch 字节并 Validate；标题/Hash 不匹配时拒绝 |
+| GET | `/SubSteward/Subtitles/Preview` | `ArtifactToken` | 返回 Health、编码、格式、Quality、Preference、Action 和最多 200 条 cue |
+| POST | `/SubSteward/Subtitles/Align` | `ArtifactToken`、非零 `OffsetMilliseconds` | 只做人工整体对轴；累计偏移前后最多 10 分钟，ASS/SSA 使用 10ms 步进 |
+| POST | `/SubSteward/Subtitles/Install` | `ArtifactToken` | 重读 Item/source，写版本化 sidecar，Refresh 并确认新外置 MediaStream |
 
-M2 的 `PresenceAnalyzer` 只消费 MediaStream 的语言、展示标题和外挂字幕安全文件名，不读取 `.strm` 内容，也不提取内封字幕正文。它能识别 zho/zh/chi 与 eng/en；外挂文件名中的显式简繁标签会用于变体证据。完整路径不进入 API 输出。
+插件使用的 Emby 内部能力是 `ILibraryManager`、`BaseItem.GetMediaSources`、`ISubtitleManager.SearchSubtitles`、`ISubtitleManager.GetRemoteSubtitles` 和 `IProviderManager.RefreshFullItem`。这些能力不等于旧 SubBridge 的 HTTP API。
 
-2026-08-27 在 C92 已用既有授权样本完成 M2 API 验证：Item Presence 正常返回目标语言流；Search 返回候选并显示标题/Hash 绑定状态。一个 Provider 候选 Fetch 失败后按候选隔离处理；另一条标题匹配的 zho SRT Fetch 成功，Preview 返回 PASS、1124 条 cue、目标语言覆盖和 Preference `ACCEPTABLE`，并带有保守 Action 建议。随后实际客户端播放验收已完成；本文不记录具体设备或客户端名称。
-
-2026-08-27 本轮 Action 版本已部署到 C92。Release DLL SHA-256 为 `F118F30AB8AA36904ADC77B64F475188266FCABFD12F133EC59918193AE952C9`，覆盖前旧 DLL 已按同 Hash 备份；仅重启 `emby-server`，重启后状态为 running、RestartCount 为 0。日志确认重新加载 `SubSteward.Plugin`。管理员 API 验证中，Items 列表和 Item 详情均返回 HTTP 200，Item 顶层 `Action` 存在且在当前 Presence 已有、Health 未测量的样本上保守返回 `MANUAL`；Search 返回 HTTP 200。绑定候选中失败内容继续被校验器隔离，另一条候选 Fetch 和 Preview 均返回 HTTP 200、Health `PASS`、Preference `ACCEPTABLE`、Action `MANUAL`。本轮未执行 Install，未修改媒体文件；列表前 100 条均为单 Source 且已有目标 Presence，因此缺失目标的线上 `SEARCH` 分支仍由本地 Action 测试覆盖。
-
-插件配置当前提供 `TargetLanguage`、`SecondaryLanguage`、`PreferBilingual` 和 `FormatOrder`。默认值分别是 `zho`、`eng`、false 和 `ass,ssa,srt`；分隔符接受逗号或分号。`chs/cht、zh-Hans/zh-Hant、简/繁` 等输入别名会归一化为规范宏语言 `zho` 和显式变体标签；Emby 语言码或未知标题中的简繁标记用于 Presence 变体观察。
-
-受控实测确认，尾部标准语言码决定 Emby 的 language/display 字段，紧邻它的自定义段会成为 MediaStream 的 title。Fetch/Install 新写入采用：
+## 4. 数据流与安全门禁
 
 ```text
-<媒体文件主名>.<实际类型标签>.<Emby 语言标签>.<原格式>
+Item + MediaSource
+       ↓
+Presence → Search candidate metadata
+       ↓
+candidate binding → Fetch bytes → Validate/language gate
+       ↓
+Preview → Quality/Preference → optional manual Align
+       ↓
+new versioned sidecar → Refresh → MediaStream → client check
 ```
 
-例如 `<movie>.中文简体.zh-CN.ass` 或 `<movie>.中日双语.zh-CN.srt`。无显式变体时不插入类型标签，保持既有行为。写入仍采用版本化新文件，不覆盖已有文件，也不启用自动替换。
+### 媒体和 STRM
 
-本机已完成 Release 编译与基础测试。C92 Emby 4.9.5.0 已成功加载插件和发现手动任务；“千与千寻”是单 Source STRM，M0 以其 `Item.Path` sidecar 锚点完成 Search、Fetch、安装、Refresh 与 Emby 新字幕流识别。清理本次任务生成的错误 sidecar 后，M1 管理员 API 完成 Search（20 候选）→ Fetch/Preview（ASS、Health PASS、200 cue 预览）→ Install → Refresh；外置字幕流从 2 增至 3，新流官方接口 HTTP 200。
+- `Item`、`MediaSource`、`MediaStream` 是独立事实层，不能因为某个字段为空就猜另一个字段。
+- 不读取 `.strm` 内容，不解析其中的远端 URL，也不探测 URL 指向的视频。
+- STRM sidecar 以本地 `Item.Path` 对应的 `.strm` 文件目录为锚点；远程 `MediaSource.Path` 只用于播放定位，不能作为写入路径。
+- 非 STRM 媒体只有在 Source 是本地普通文件、目录安全且进程具备权限时才允许写入。
+- MultiSource STRM 当前只允许明确绑定后的读取、搜索和预览，不自动写入。
 
-M0 的一次公开 Download 调用最终被 Emby 识别为两条新增外置流，其中一条英语正文被错误标记为 `zh`；该三份本次任务生成的 sidecar 已移至插件数据目录的可恢复目录，原有用户文件未删除。进一步对账发现 Search 第一条 Ghibli 合集候选的 Fetch 字节包含鲁邦，第二条标称中英双语的 Fetch 字节为英语，第三条标题匹配候选才是当前中文 `zho.ass` 的来源。M1 现要求中文候选正文至少包含中文字符、标题或 Hash 匹配，并将候选、Artifact、安装目标和最终 MediaStream 绑定到同一 Item/source；无匹配候选不再进入 Fetch/Install。MultiSource STRM 仍不自动写入；实际客户端播放验收已完成，本文不记录具体设备或客户端名称。
+### 候选和 Artifact
 
-## 写入最小正确性
+- Search 结果按 Hash/标题匹配优先展示，但顺序本身不代表质量。
+- candidate token 和 artifact token 只保存在插件进程短期内存；原始候选 ID、内容和认证信息不写入响应或日志。
+- Fetch 读取上限为 16 MiB。格式/编码/时间轴校验失败、内容为空或中文候选正文没有中文字符时，当前候选失败，不放宽到安装。
+- Health 的 `PASS`、`WARNING`、`FAIL` 与 Preference 的 `RECOMMENDED`、`ACCEPTABLE`、`NOT_RECOMMENDED` 分开计算。M2 Action Advisor 只给建议，不执行自动 Repair/Upgrade。
 
-写入只在 M0 后设计，并至少包含临时文件、简单备份、有限重试、明确失败与 Refresh/MediaStreams 复核。它不恢复旧项目的重型事务模型。
+### 外置字幕深检与对轴
+
+- 单条目详情最多深检 8 条外置字幕，只接受与本地媒体锚点同目录的普通文件，单文件读取上限为 16 MiB。
+- 内封目标语言只提供 Presence，不提取正文、不 OCR、不深检。
+- 对轴支持 SRT、ASS、SSA。SRT 保留毫秒精度，ASS/SSA 以 10ms 为步进；生成新 Artifact 后重新 Validate，不猜测音画偏移。
+
+### 写入与确认
+
+- 写入不覆盖已有字幕，使用新的版本化 sidecar 和临时文件。
+- Refresh 成功后还要按同一 Item/source 和目标文件名确认外置 MediaStream。
+- 任何失败都要清理本次新建文件；文件存在、Refresh 成功或 MediaStream 出现，都不能单独代替实际客户端读取验收。
+
+## 5. 配置与业务模型
+
+全局配置位于 `PluginConfiguration`：
+
+| 配置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `TargetLanguage` | `zho` | 目标语言；支持简繁变体输入 |
+| `SecondaryLanguage` | `eng` | 第二语言 |
+| `PreferBilingual` | `false` | 是否偏好双语 |
+| `FormatOrder` | `ass,ssa,srt` | 格式偏好，逗号和分号均可分隔 |
+| `LibraryOverrides` | `[]` | 可启停的媒体库级覆盖 |
+
+`zho/zh/chi`、`eng/en`、`jpn/ja` 和简繁别名会归一化。简繁变体会继续作为标签证据参与 MediaStream、标题和安全文件名判断，但当前没有可靠的正文级简繁识别，因此不能自动替换。
+
+业务判断固定为：
+
+```text
+Presence → Health → Preference → Action
+```
+
+目标存在但 Health 未测量时保守返回 `MANUAL`；多 Source、状态未知、候选 `WARNING` 或低置信度双语也返回 `MANUAL`。缺少目标语言且没有可用候选时返回 `SEARCH`；目标存在且 Health 为 `PASS` 时返回 `KEEP`。`REPAIR` 和 `UPGRADE` 目前只保留为动作枚举。
+
+## 6. 验证状态
+
+### 已有基线证据
+
+- 本机已记录 Release 编译和基础测试通过。
+- C92 Emby 4.9.5.0 曾成功加载插件并发现手动任务；单 Source STRM 样本曾完成 Search、Fetch/Preview、Install、Refresh、Emby 新字幕流识别和实际客户端播放验收。
+- 该基线还发现过错误候选和一次错误语言标记，因此当前实现增加了标题/Hash 绑定、正文语言门禁、候选隔离和最终 MediaStream 对账。
+
+### 带时间的 C92 记录
+
+以下记录只证明对应时间和对应修订的局部证据，不能合并成“当前版本全部通过”。
+
+| 日期 | 修订/内容 | 已验证 | 未验证或限制 |
+| --- | --- | --- | --- |
+| 2026-08-27 | Action 版本，Release DLL SHA-256 `F118F30AB8AA36904ADC77B64F475188266FCABFD12F133EC59918193AE952C9` | Items、Item 详情、Search、候选失败隔离、Fetch、Preview；容器重启后运行 | 未执行 Install；线上缺失目标的 `SEARCH` 分支仍由本地 Action 测试覆盖 |
+| 2026-08-27 | 嵌入式 UI 修正版，Release DLL SHA-256 `378279EAAF0113731A39F2B6987DEA6A36EDE1A10067BE64DD378718BA83AA4A` | 管理员会话下单实例、CSS、100 条读取、Presence/详情和控制台无错误 | 未执行 Provider Search/Fetch 或 Install |
+| 2026-08-28 | 三页签 UI、人工对轴和移动端聚焦，Release DLL SHA-256 `2B9E630C9395D34EDD2145E6F00D351FCE63C111B0E6CAE5505161B5D158E8BE` | Items、Libraries、配置、UI3 资源 HTTP 200；无效 Artifact token 返回 400；本地模拟 Items → Search → Fetch → Align → 撤销；375px 无横向溢出 | 未执行真实 Provider Fetch、Align Artifact 安装或媒体写入；线上视觉截图受应用内浏览器访问策略限制 |
+| 2026-08-28 | Emby 白底配色修正版，Release DLL SHA-256 `ADF35DE8F2E369C0F01AB8E6AF7369DC50F5D6DFE9384C4AF3DA155523C83E2E` | 覆盖前 Hash 已备份；宿主与容器内 DLL Hash 一致；只重启 `emby-server` | 该最新修订尚未完成认证管理员 API、线上视觉、Provider Fetch、Install 或媒体写入复验 |
+
+因此当前最准确的状态是：M1 基线能力和历史客户端验收已有证据；当前工作树的 UI、对轴、外置字幕深检、语言变体和媒体库覆盖改动仍需按当前修订重新 build/test，并在需要发布时重新做目标 Emby 验收。
+
+## 7. 当前收口边界
+
+- 正文级简繁识别仍不足以驱动自动替换。
+- 正文级语言检测目前重点覆盖中文、英语和日语，其他第二语言主要保留配置和 Presence 语言码。
+- ASS 的 Script Info、Styles、残缺 HTML 和更深层结构校验仍较浅。
+- Preference 支持目标语言、第二语言、双语开关和格式顺序；用户自定义权重以及普通/样式化/高特效偏好尚未纳入。
+- `PreferenceAnalyzer` 支持已 Fetch 候选的纯计算排序，但服务入口没有接入大规模候选的批量 Deep Ranking。
+- 上述限制不改变 fail-closed 规则，也不授权自动 Repair、Upgrade 或 MultiSource STRM 写入。
