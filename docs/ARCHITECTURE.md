@@ -21,15 +21,17 @@ M0 已完成并已从运行时移除。它只用于验证插件加载、服务�
 
 ## 2. 管理页面
 
-插件通过 `IHasWebPages` 注册嵌入资源 `SubSteward.Plugin.Web.configPage.html` 和 `SubSteward.Plugin.Web.subSteward.js`，由 Emby 管理界面托管，不引入独立 HTTP 服务或旧 SubBridge Web UI。当前注册页面名为 `SubStewardUI3.html`，控制器名为 `SubStewardUI3.js`，用于避开宿主旧缓存。
+插件通过 `IHasWebPages` 注册嵌入资源 `SubSteward.Plugin.Web.configPage.html` 和 `SubSteward.Plugin.Web.subSteward.js`，由 Emby 管理界面托管，不引入独立 HTTP 服务或旧 SubBridge Web UI。当前主页面名为 `SubStewardUI7.html`，控制器名为 `SubStewardUI7.js`，用于避开宿主旧缓存；同时保留 UI3/UI4/UI5/UI6 兼容别名，避免已经打开的旧页面直接失效。
 
 页面有三个顶层页签：
 
-- **状态**：显示当前载入范围、目标语言 Presence、Action 分布和待关注条目。Items API 默认返回 50 条，允许范围为 1–100；页面明确标记为当前样本，不冒充全库扫描。
-- **手动处理**：确认 Item/source 后完成 `Search → Fetch/Preview → 可选固定偏移对轴 → Install`。候选和 Artifact token 只在页面和插件短期内存中流转，不展示 Provider 原始 ID。
+- **状态**：通过独立 Summary API 显示当前媒体库/筛选范围的完整计数、目标语言 Presence、Action 分布和待关注条目；不再把当前页当作全库。
+- **手动处理**：先选择媒体库和每页条数；指定媒体库后按 `剧 → 季 → 集` 逐层钻取，电影库直接显示电影，电影/集才进入字幕处理。Items API 仍提供全库分页和名称搜索，随后完成 `Search → Fetch/Preview → 可选固定偏移对轴 → Install`。候选和 Artifact token 只在页面和插件短期内存中流转，不展示 Provider 原始 ID。
 - **设置**：编辑全局默认和媒体库覆盖。覆盖可设置目标语言、第二语言、双语偏好和格式顺序，关闭后恢复继承全局默认。
 
 页面只调用本节 API。多 Source 条目保持 fail-closed，自动全库扫描、批量补全、健康字幕替换和 MultiSource STRM 写入不由 UI 开启。
+
+插件业务日志通过 Emby 的 `ILogManager` 写入宿主日志，前缀为 `[SubSteward]`。日志覆盖 Items/Summary/Browse、Search、Fetch、Preview、Align 和 Install 的开始、结果、质量计数、匹配状态与失败阶段；不写入候选原始 ID、candidate/artifact token、字幕正文、认证信息或完整媒体路径。
 
 ## 3. 管理员 API 索引
 
@@ -37,7 +39,9 @@ M0 已完成并已从运行时移除。它只用于验证插件加载、服务�
 
 | 方法 | 路由 | 输入/输出要点 | 当前边界 |
 | --- | --- | --- | --- |
-| GET | `/SubSteward/Items` | `SearchTerm`、`Limit`；返回 Movie/Episode 摘要、Source、Presence 和 Action | `Limit` 为 1–100，列表只代表当前样本 |
+| GET | `/SubSteward/Items` | `SearchTerm`、可选 `LibraryId`、`Page` 或 `Offset`、`PageSize`；返回 `items`、`page`、`offset`、`pageSize`、`totalCount` 和 Movie/Episode 摘要 | 每页为 1–100；筛选和排序明确，列表不再受首 100 条限制 |
+| GET | `/SubSteward/Summary` | 可选 `SearchTerm`、`LibraryId`；返回完整范围的总数、目标语言 Presence、MultiSource、人工判断数与 Action 分布 | 只汇总状态，不开启自动扫描、Fetch 或媒体写入 |
+| GET | `/SubSteward/Browse` | 必填 `LibraryId`，可选 `ParentId`、`SearchTerm`、`Page`/`Offset`、`PageSize`；返回 `Series → Season → Episode` 节点及分页元数据 | 根层显示 Series/Movie；只有 Series 和 Season 可继续展开，Movie/Episode 进入单项处理 |
 | GET | `/SubSteward/Items/{Id}` | 返回单 Item 详情、Source、字幕流、Presence、Health、Quality 和 Action | 外置字幕深检有上限；内封正文保持 `UNKNOWN` |
 | GET | `/SubSteward/Libraries` | 返回媒体库 ID 和名称 | 不返回媒体路径，仅供设置页选择 |
 | GET | `/SubSteward/Subtitles/Search` | `ItemId`、可选 `MediaSourceId`、`Language` | 当前 M1 最终要求 Item 恰好一个 MediaSource；候选最多 20 条 |
@@ -135,6 +139,12 @@ Presence → Health → Preference → Action
 | 2026-08-28 | 当前工作树部署到 C92，Release DLL SHA-256 `BE006FEC3107DD07E36C2B33721036078ABB4BE43861A2AE4A04D81AE382E88DD` | 旧 DLL 备份 Hash 为 `1EA1F0473ACF4DE070172E3AB780ECF9344F2187AE6418896CC37B1324E23BFE`；新 DLL 远端 Hash 与本地一致；只重启 `emby-server`；容器恢复 `running` 且重启次数为 0；认证管理员 API `/SubSteward/Libraries`、`/SubSteward/Items?Limit=1` 返回 200；Emby `ConfigurationPage` 的 HTML/JS 资源返回 200 且关键页面/接口标记存在 | 未执行 Provider Search/Fetch、Align/Install、Refresh/MediaStream 和真实客户端播放；这些步骤需要明确的媒体样本与后续验收授权 |
 | 2026-08-28 | C92 真实样本“千与千寻”首次安装（通用语言码） | 单 Source STRM、无既有外置字幕；Provider Search 返回 20 条候选；候选 12 的 ASS 结构校验失败，候选 1 的 English.srt 触发中文正文门禁并被拒绝；候选 2 经 Fetch/Preview 校验为 ASS、UTF-8 BOM、Health PASS、中文覆盖约 89.7%、Preference RECOMMENDED；Install 返回 200，生成 `千与千寻.2001.中日双语.zho.ass`，Refresh 后同一 Source 外置字幕数为 1 | 未执行人工 Align；后续已用地区码命名修正版迁移该样本 |
 | 2026-08-28 | C92 真实样本“千与千寻”地区码修正，Release DLL SHA-256 `E0C6261CA796009D71DF9F027E11F47B5A450296001F6F8800921DE03F0ACD81` | C92 `TargetLanguage=zh-Hans`；默认 Search 返回 `Language=zho`、`RequestedLanguageVariant=zh-Hans`；候选 2 经 Fetch/Preview/Install 返回 200，生成 `千与千寻.2001.中日双语.zh-CN.ass`，未添加 `.default`；旧 `.zho.ass` 与新文件内容 Hash 一致后改为退役备份名；官方 Item Refresh 返回 204；同一 Source 保持 1 条外置字幕，条目详情识别为中文（简体）/ASS/PASS；地区码修正后的真实客户端播放已由用户确认通过 | 未执行人工 Align |
+| 2026-08-28 | 全库分页/摘要与人工工作台改造部署，Release DLL SHA-256 `F23AC5F3288BDAAF88F3AD38B3AED27DFA6A6763A0EFEEB7DEDD57C2125A17E6` | 本地 Release build 0 警告/0 错误、测试 68/68、Web JavaScript `node --check` 通过；C92 覆盖前 DLL 已备份且校验一致；远端 DLL 大小 204800 字节、Hash 与本地一致；只重启 `emby-server`，容器保持 `running` 且自动重启次数为 0；启动日志确认 `SubSteward.Plugin 0.1.0.0` 已加载；未认证探针访问 `Summary`、`Items`、`Libraries` 均返回 401 | 尚未用管理员会话验证新的 `totalCount`/分页响应 200；未做线上视觉、真实 Provider Fetch/Install、Refresh/MediaStream 和客户端播放复验 |
+| 2026-08-28 | C92 全库分页/媒体库筛选修正版与“千与千寻”人工验收，Release DLL SHA-256 `9346A7837A1958D02D152B6196B73002895FB73F6138988C34AE138B686BA7C8` | 本地 Release build 0 警告/0 错误、测试 68/68、Web JavaScript `node --check` 通过；C92 只重启 `emby-server`，容器 `running` 且自动重启次数为 0，远端 DLL Hash 与本地一致并确认加载；管理员 API：`Libraries` 200（12 个库）、全库 `Items` 200（`totalCount=7322`），第 2 页与 `offset=100` 200，`动画电影` `LibraryId=24232` 筛选和 Summary 200（`totalCount=100`）；“千与千寻”列表、详情、Provider Search 200；候选 14 经 Fetch/Preview 200，ASS、UTF-8 BOM、Health PASS、简体正文覆盖 99%、Preference ACCEPTABLE，因 Hash 未匹配由 Action 返回 `MANUAL`；用户确认后 Install 200，生成 `千与千寻.2001.中文简体.zh-CN.ass`，Refresh 后同一 Source 外置字幕流为 2 条；原有 `千与千寻.2001.中日双语.zh-CN.ass` 保留，新增 sidecar 存在且无残留临时文件 | 未重新做客户端播放确认；候选 11 的 ASS 结构校验失败并按候选隔离拒绝，候选 14 的人工安装属于用户明确授权的样本验收，不代表批量自动替换已开放 |
+| 2026-08-28 | C92 UI4 缓存失效兼容修正版，Release DLL SHA-256 `D0599ED58234EE952BF3CDAA45012BC2B76F2920B07DC934670B5C3C6DAC90B6` | 修正页面资源名称不变导致浏览器继续使用旧 JS、旧 JS 将分页对象当数组而显示空白的问题；主资源 `SubStewardUI4.html/js` 与 UI3 兼容别名均 HTTP 200，资源包含分页、全库摘要和媒体库筛选标记；新控件在旧 HTML 缺失时安全跳过绑定；本地 Release build 0 警告/0 错误、测试 68/68、Web JavaScript `node --check` 通过；C92 只重启 `emby-server`，容器 `running` 且自动重启次数为 0，远端 DLL Hash 与本地一致并确认加载 | 需要用户重新打开插件页或执行一次硬刷新后确认可视页面；管理员 API 与千与千寻媒体状态已在上一修订和当前最终 DLL 上复验，客户端播放仍未重新确认 |
+| 2026-08-28 | C92 下载状态与左侧可读性修正版，Release DLL SHA-256 `7ADA2125A8F3C2AD7D25E3079655601FAC51338273EAE8C7A9D4A27F9D45AB31` | 依据“小时代2：青木时代”现场截图修正：左侧媒体/元数据不再继承 Emby 暗色主题的浅色变量；候选 Fetch 同时请求改为单候选锁定，按钮显示最多 60 秒等待，超时、HTTP 429 与 Provider 校验失败分别给出恢复提示并允许重试/换候选；离开条目或切换来源时丢弃过期响应；本地 Release build 0 警告/0 错误、测试 68/68、Web JavaScript `node --check` 通过；远端 DLL Hash 与本地一致，UI4 HTML/JS HTTP 200，容器 `running` 且自动重启次数为 0 | 现场验证的前三个 Thunder 候选未出现 HTTP 429，候选 0/1/2 分别快速返回校验失败；当前尚未用用户浏览器重新确认视觉截图，客户端播放不在本次修正范围 |
+| 2026-08-28 | C92 UI5 缓存失效部署，Release DLL SHA-256 `C8DFD18B20C94966BB853DC65A57D4A8CE32199249B2817F986A7D7A4F04E1F9` | 主页面/控制器版本从 UI4 升级到 UI5，保留 UI3/UI4 兼容别名，避免固定资源名缓存旧页面；UI5/旧别名资源均 HTTP 200，容器 `running` 且自动重启次数为 0，远端 DLL Hash 与本地一致并确认加载；管理员 API 回归 `小时代2：青木时代` 200、Summary 200、Libraries 200 | 需要用户重新打开插件页确认左侧高对比文字和候选下载状态提示已生效 |
+| 2026-08-28 | C92 UI7 层级浏览、双语误判修正、候选源拦截与业务日志，Release DLL SHA-256 `E9B7D12EF7551ECF187397C050F68FA65179BF00ED421C1E87BA81B453E12C8B` | 主页面/控制器升级到 UI7，保留 UI3/UI4/UI5/UI6 兼容别名；本地 Release build 0 警告/0 错误、测试 74/74、Web JavaScript `node --check` 通过；`/SubSteward/Browse` 实测 `国产剧` 根层 `Series` → `Season` → `Episode` 分页均 200 且按编号排序；`小时代3：刺金时代` 的 Bilibili clip 候选标记为疑似非完整来源，Fetch 在调用 Provider 前拒绝；宿主日志已出现 `[SubSteward]` 的 Browse、Items、Search、Fetch 阶段及拒绝原因；UI7 HTML/JS HTTP 200；未执行错误候选 Install | 需要用户重新打开插件页确认实际层级视觉；客户端播放不在本次范围 |
 
 因此当前最准确的状态是：M1 基线能力和当前样本的客户端验收已有证据；当前工作树已通过本机 build/test，完成 C92 插件、API、管理页面烟测，以及“千与千寻”的 Provider、地区码命名、安装、Refresh、MediaStream 对账和地区码修正后的真实客户端播放确认。人工 Align 后再安装的真实链路仍未单独验收。
 

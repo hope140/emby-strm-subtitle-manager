@@ -4,8 +4,8 @@ define([], function () {
     return function (view, params) {
         var pageRoot = view && view.getAttribute && view.getAttribute("data-role") === "page"
             ? view
-            : document.querySelector('[data-role="page"][data-controller="__plugin/SubStewardUI3.js"]:not([data-substeward-initialized="true"])')
-                || document.querySelector('[data-role="page"][data-controller="__plugin/SubStewardUI3.js"]');
+            : document.querySelector('[data-role="page"][data-controller="__plugin/SubStewardUI7.js"]:not([data-substeward-initialized="true"])')
+                || document.querySelector('[data-role="page"][data-controller="__plugin/SubStewardUI7.js"]');
         if (!pageRoot || pageRoot.getAttribute("data-substeward-initialized") === "true") {
             return;
         }
@@ -71,14 +71,29 @@ define([], function () {
             configuration: Object.assign({}, DEFAULT_CONFIGURATION),
             libraries: [],
             items: [],
+            summary: null,
+            browseLibraryId: "",
+            browseLibraryName: "",
+            browseParentId: "",
+            browsePath: [],
+            browseNodes: [],
+            browseMode: "flat",
+            page: 1,
+            pageSize: 50,
+            totalCount: 0,
+            pageCount: 0,
             selectedLibrary: null,
             selectedItem: null,
             selectedSourceId: null,
             candidates: [],
             artifact: null,
             alignmentHistory: [],
+            fetchingIndex: null,
+            fetchStates: {},
             activeTab: "status"
         };
+
+        var FETCH_TIMEOUT_MS = 60000;
 
         function getElement(id) {
             return pageRoot.querySelector("#" + id);
@@ -157,14 +172,18 @@ define([], function () {
                     }
                 }
                 if (!response.ok) {
-                    throw new Error(payload && payload.Message
+                    var httpError = new Error(payload && payload.Message
                         ? payload.Message
                         : "Emby 请求失败（HTTP " + response.status + "）。");
+                    httpError.status = response.status;
+                    throw httpError;
                 }
                 return payload;
             } catch (error) {
                 if (controller && controller.signal.aborted) {
-                    throw new Error("Emby 请求超时，请稍后重试。");
+                    var timeoutError = new Error("Emby 请求超时，请稍后重试。");
+                    timeoutError.code = "timeout";
+                    throw timeoutError;
                 }
                 throw error;
             } finally {
@@ -322,30 +341,35 @@ define([], function () {
         }
 
         function renderStatus() {
-            var total = state.items.length;
-            var present = state.items.filter(function (item) { return itemPresence(item) === true; }).length;
-            var missing = state.items.filter(function (item) { return itemPresence(item) === false; }).length;
-            var multiSource = state.items.filter(function (item) {
+            var summary = state.summary;
+            var total = summary ? Number(summary.TotalCount || 0) : Number(state.totalCount || state.items.length);
+            var present = summary ? Number(summary.TargetLanguagePresentCount || 0) : state.items.filter(function (item) { return itemPresence(item) === true; }).length;
+            var missing = summary ? Number(summary.TargetLanguageMissingCount || 0) : state.items.filter(function (item) { return itemPresence(item) === false; }).length;
+            var multiSource = summary ? Number(summary.MultiSourceCount || 0) : state.items.filter(function (item) {
                 return Array.isArray(item.MediaSources) && item.MediaSources.length !== 1;
             }).length;
-            var requiresManual = state.items.filter(function (item) {
+            var requiresManual = summary ? Number(summary.RequiresManualCount || 0) : state.items.filter(function (item) {
                 return actionName(item) === "MANUAL" || !Array.isArray(item.MediaSources) || item.MediaSources.length !== 1;
             }).length;
-            getElement("statusScope").textContent = total ? "当前载入前 " + formatCount(total) + " 项" : "没有数据";
+            getElement("statusScope").textContent = total ? (summary ? "全库统计 " : "当前页 ") + formatCount(total) + " 项" : "没有数据";
             getElement("statusMetrics").innerHTML = [
-                metricCard("已载入条目", total, "按当前名称筛选，最多 100 项"),
-                metricCard("目标字幕已存在", present, total ? formatPercent(present / total) + " 的当前样本" : "暂无样本"),
+                metricCard("统计范围", total, summary ? "当前筛选范围的全库汇总" : "列表正在载入"),
+                metricCard("目标字幕已存在", present, total ? formatPercent(present / total) + " 的当前范围" : "暂无结果"),
                 metricCard("目标字幕缺失", missing, "可进入手动工作台搜索"),
                 metricCard("需要人工判断", requiresManual, multiSource ? multiSource + " 项不是单 Source" : "包含 Health 未知状态")
             ].join("");
 
             var groups = ["KEEP", "SEARCH", "MANUAL", "OTHER"].map(function (name) {
-                var count = state.items.filter(function (item) {
+                var count = summary && summary.ActionCounts
+                    ? (name === "OTHER"
+                        ? total - ["KEEP", "SEARCH", "MANUAL"].reduce(function (sum, action) { return sum + Number(summary.ActionCounts[action] || 0); }, 0)
+                        : Number(summary.ActionCounts[name] || 0))
+                    : state.items.filter(function (item) {
                     var action = actionName(item);
                     return name === "OTHER"
                         ? ["KEEP", "SEARCH", "MANUAL"].indexOf(action) < 0
                         : action === name;
-                }).length;
+                    }).length;
                 return { name: name, count: count };
             });
             getElement("actionBreakdown").innerHTML = groups.map(function (group) {
@@ -378,7 +402,13 @@ define([], function () {
         }
 
         function renderItems() {
-            getElement("itemCount").textContent = formatCount(state.items.length) + " 项";
+            if (state.browseMode === "hierarchy") {
+                renderBrowseNodes();
+                return;
+            }
+
+            renderBrowseBreadcrumb();
+            getElement("itemCount").textContent = formatCount(state.totalCount) + " 项";
             getElement("itemList").innerHTML = state.items.length
                 ? state.items.map(function (item) {
                     var selected = state.selectedItem && state.selectedItem.Id === item.Id;
@@ -390,6 +420,91 @@ define([], function () {
                         + actionClass(actionName(item)) + '">' + escapeHtml(actionName(item)) + '</span></button>';
                 }).join("")
                 : '<div class="ss-empty"><div><strong>没有匹配条目</strong><span>修改筛选条件后重试。</span></div></div>';
+            renderPagination();
+        }
+
+        function browseTypeLabel(type) {
+            if (type === "Series") return "剧";
+            if (type === "Season") return "季";
+            if (type === "Episode") return "集";
+            if (type === "Movie") return "电影";
+            return type || "媒体";
+        }
+
+        function browseNodeTitle(node) {
+            if (node.Type === "Season" && node.IndexNumber !== null && node.IndexNumber !== undefined) {
+                return "第 " + formatCount(node.IndexNumber) + " 季";
+            }
+            if (node.Type === "Episode" && node.IndexNumber !== null && node.IndexNumber !== undefined) {
+                return "第 " + formatCount(node.IndexNumber) + " 集 · " + (node.Name || "未命名集");
+            }
+            return node.Name || "未命名条目";
+        }
+
+        function renderBrowseNodes() {
+            renderBrowseBreadcrumb();
+            getElement("itemCount").textContent = formatCount(state.totalCount) + " 项";
+            getElement("itemList").innerHTML = state.browseNodes.length
+                ? state.browseNodes.map(function (node) {
+                    var selected = state.selectedItem && state.selectedItem.Id === node.Id;
+                    var title = browseNodeTitle(node);
+                    var meta = [browseTypeLabel(node.Type)];
+                    if (node.Type === "Episode" && node.ParentIndexNumber !== null && node.ParentIndexNumber !== undefined) {
+                        meta.push("第 " + formatCount(node.ParentIndexNumber) + " 季");
+                    }
+                    if (node.ChildType) meta.push("进入" + browseTypeLabel(node.ChildType));
+                    return '<button class="ss-item-row ss-browse-node" type="button" aria-current="' + (selected ? "true" : "false")
+                        + '" data-browse-id="' + escapeHtml(node.Id) + '" data-browse-type="' + escapeHtml(node.Type) + '"><span><span class="ss-row-title" title="'
+                        + escapeHtml(title) + '">' + escapeHtml(title) + '</span><span class="ss-row-meta"><span>' + escapeHtml(meta.join(" · "))
+                        + '</span></span></span><span class="ss-browse-node-chevron" aria-hidden="true">' + (node.HasChildren ? "›" : "") + '</span></button>';
+                }).join("")
+                : '<div class="ss-empty"><div><strong>当前层级没有内容</strong><span>可以返回上一级，或修改名称筛选。</span></div></div>';
+            renderPagination();
+        }
+
+        function renderBrowseBreadcrumb() {
+            var host = getElement("browseBreadcrumb");
+            if (!host) return;
+            if (state.browseMode !== "hierarchy" || !state.browseLibraryId) {
+                host.hidden = true;
+                host.innerHTML = "";
+                return;
+            }
+
+            host.hidden = false;
+            var crumbs = [{ id: "", name: state.browseLibraryName || "媒体库", type: "Library" }].concat(state.browsePath || []);
+            host.innerHTML = crumbs.map(function (crumb, index) {
+                var current = index === crumbs.length - 1;
+                return (index ? '<span class="ss-browse-separator" aria-hidden="true">›</span>' : "")
+                    + '<button class="ss-browse-crumb" type="button" data-browse-parent-index="' + index + '"'
+                    + (current ? ' aria-current="page" disabled' : '') + '>' + escapeHtml(crumb.name || browseTypeLabel(crumb.type)) + '</button>';
+            }).join("");
+        }
+
+        function renderBrowseLibraries() {
+            var select = getElement("itemLibraryFilter");
+            if (!select) return;
+            select.innerHTML = '<option value="">全部媒体库</option>' + state.libraries.map(function (library) {
+                return '<option value="' + escapeHtml(library.Id) + '">' + escapeHtml(library.Name || "未命名媒体库") + '</option>';
+            }).join("");
+            select.value = state.browseLibraryId || "";
+        }
+
+        function renderPagination() {
+            var host = getElement("itemPagination");
+            var scope = getElement("itemScope");
+            if (!host || !scope) return;
+            var total = Number(state.totalCount || 0);
+            var page = Number(state.page || 1);
+            var pageCount = Number(state.pageCount || 0);
+            var start = total ? ((page - 1) * state.pageSize) + 1 : 0;
+            var end = Math.min(total, (page - 1) * state.pageSize + state.items.length);
+            scope.textContent = total
+                ? "显示第 " + formatCount(start) + "–" + formatCount(end) + " 项，共 " + formatCount(total) + " 项"
+                : "当前筛选没有结果";
+            host.innerHTML = '<span class="ss-pagination-summary">' + (pageCount ? "第 " + formatCount(page) + " / " + formatCount(pageCount) + " 页" : "无结果") + '</span>'
+                + '<span class="ss-pagination-actions"><button class="ss-button" id="previousPage" type="button"' + (page <= 1 ? " disabled" : "") + '>上一页</button>'
+                + '<button class="ss-button" id="nextPage" type="button"' + (!pageCount || page >= pageCount ? " disabled" : "") + '>下一页</button></span>';
         }
 
         function renderExistingSubtitleStreams(source) {
@@ -421,7 +536,19 @@ define([], function () {
                 + '<div class="ss-candidate-list">' + rows + '</div></div>';
         }
 
+        function renderWorkflow() {
+            var host = getElement("workflowSteps");
+            if (!host) return;
+            var stage = !state.selectedItem ? 0 : state.artifact ? 3 : state.candidates.length ? 1 : 0;
+            var steps = ["\u9009\u62e9\u5a92\u4f53", "\u641c\u7d22\u5019\u9009", "\u83b7\u53d6\u6821\u9a8c", "\u9884\u89c8\u786e\u8ba4", "\u5b89\u88c5\u5237\u65b0"];
+            host.innerHTML = steps.map(function (label, index) {
+                var stateClass = index < stage ? " is-complete" : index === stage ? " is-current" : "";
+                return '<li class="ss-workflow-step' + stateClass + '" data-step="' + (index + 1) + '">' + label + '</li>';
+            }).join("");
+        }
+
         function renderWorkbench() {
+            renderWorkflow();
             var body = getElement("workbenchBody");
             var item = state.selectedItem;
             var workbench = pageRoot.querySelector(".ss-workbench");
@@ -435,11 +562,12 @@ define([], function () {
             var sources = Array.isArray(item.MediaSources) ? item.MediaSources : [];
             var source = sources.filter(function (entry) { return entry.Id === state.selectedSourceId; })[0] || sources[0] || null;
             var singleSource = sources.length === 1;
+            var operationBusy = state.fetchingIndex !== null;
             var presence = source && source.Presence;
             getElement("workbenchState").textContent = actionName(item);
 
             var sourceControl = sources.length
-                ? '<select class="ss-select" id="sourceSelect" aria-label="选择媒体来源">'
+                ? '<select class="ss-select" id="sourceSelect" aria-label="选择媒体来源"' + (operationBusy ? ' disabled' : '') + '>'
                     + sources.map(function (entry) {
                         return '<option value="' + escapeHtml(entry.Id) + '"'
                             + (entry.Id === (source && source.Id) ? " selected" : "") + '>'
@@ -460,7 +588,7 @@ define([], function () {
                  + '</div><div class="ss-muted">' + escapeHtml(presence && presence.TargetLanguageLabel ? presence.TargetLanguageLabel : effectiveConfiguration(item).TargetLanguage)
                  + ' · ' + formatCount(source ? source.SubtitleStreamCount : 0) + ' 条字幕流</div></div></div>'
                  + renderExistingSubtitleStreams(source)
-                 + '<button class="ss-button ss-button-primary" id="searchCandidates" type="button" ' + (singleSource ? "" : "disabled")
+                + '<button class="ss-button ss-button-primary" id="searchCandidates" type="button" ' + (singleSource && !operationBusy ? "" : "disabled")
                 + '>寻找字幕</button><div class="ss-feedback" id="workFeedback">'
                 + (singleSource ? "搜索会使用当前媒体库的有效目标语言。" : "多 Source 保持只读，不开放写入。") + '</div></div></section>'
                 + '<section class="ss-subcard"><div class="ss-card-header"><h3>' + (state.artifact ? "校验与预览" : "字幕候选")
@@ -474,6 +602,8 @@ define([], function () {
                     state.candidates = [];
                     state.artifact = null;
                     state.alignmentHistory = [];
+                    state.fetchingIndex = null;
+                    state.fetchStates = {};
                     renderWorkbench();
                 });
             }
@@ -526,7 +656,11 @@ define([], function () {
                 return '<div class="ss-muted">尚未搜索。候选会按 Hash 或标题绑定状态排序，未绑定候选不可下载。</div>';
             }
             return '<div class="ss-candidate-list">' + state.candidates.map(function (candidate, index) {
-                var matched = candidate.IsHashMatch || candidate.TitleMatch;
+                var blockedSource = candidate.LikelyNonFullRelease && !candidate.IsHashMatch;
+                var matched = (candidate.IsHashMatch || candidate.TitleMatch) && !blockedSource;
+                var fetchState = state.fetchStates[index] || {};
+                var isLoading = state.fetchingIndex === index && fetchState.status === "loading";
+                var anotherLoading = state.fetchingIndex !== null && !isLoading;
                 var badges = candidate.IsHashMatch
                     ? '<span class="ss-chip ss-chip-good">Hash 匹配</span>'
                     : candidate.TitleMatch
@@ -534,13 +668,28 @@ define([], function () {
                         : '<span class="ss-chip ss-chip-danger">未绑定</span>';
                 var mismatchBadges = (candidate.LanguageMismatch ? '<span class="ss-chip ss-chip-warning">语言标注不符</span>' : "")
                     + (candidate.VariantMismatch ? '<span class="ss-chip ss-chip-warning">简繁变体不符</span>' : "");
+                var sourceWarning = candidate.LikelyNonFullRelease
+                    ? '<span class="ss-chip ss-chip-danger">疑似片段/弹幕源</span>'
+                    : "";
+                var blockedSourceHtml = blockedSource
+                    ? '<div class="ss-fetch-error" role="status">疑似短片/片段来源且没有 Hash 匹配，已禁止下载。</div>'
+                    : "";
+                var fetchStateHtml = isLoading
+                    ? '<div class="ss-fetch-state" role="status" aria-live="polite">正在获取并校验正文，最多等待 60 秒；超时后可换候选。</div>'
+                    : fetchState.status === "error"
+                        ? '<div class="ss-fetch-error" role="status" aria-live="polite">' + escapeHtml(fetchState.message || "候选下载失败，可重试或换候选。") + '</div>'
+                        : blockedSourceHtml;
+                var buttonLabel = blockedSource
+                    ? "已拦截"
+                    : isLoading ? "下载校验中…" : fetchState.status === "error" ? "重试下载" : "下载并校验";
+                var disabled = !matched || anotherLoading;
                 return '<div class="ss-candidate"><div><div class="ss-row-title" title="' + escapeHtml(candidate.Name || "未命名候选")
                     + '">' + escapeHtml(candidate.Name || "未命名候选") + '</div><div class="ss-row-meta"><span>'
                     + escapeHtml(candidate.Provider || "未知 Provider") + '</span><span>·</span><span>'
                     + escapeHtml(candidate.LanguageLabel || candidate.Language || "未知语言") + '</span><span>·</span><span>'
                     + escapeHtml(candidate.Format || "未知格式") + '</span></div><div class="ss-chip-row">' + badges + mismatchBadges
-                    + '</div></div><button class="ss-button" type="button" data-fetch-index="' + index + '" '
-                    + (matched ? "" : "disabled") + '>下载并校验</button></div>';
+                    + '</div><div class="ss-chip-row">' + sourceWarning + '</div>' + fetchStateHtml + '</div><button class="ss-button" type="button" data-fetch-index="' + index + '" aria-busy="'
+                    + (isLoading ? "true" : "false") + '" ' + (disabled ? "disabled" : '') + '>' + buttonLabel + '</button></div>';
             }).join("") + '</div>';
         }
 
@@ -662,7 +811,7 @@ define([], function () {
                 }));
                 setFeedback("globalSettingsFeedback", "全局设置已保存。", "success");
                 renderLibraries();
-                await loadItems(true);
+                await refreshBrowseScope(true);
             } catch (error) {
                 setFeedback("globalSettingsFeedback", error.message || "保存失败。", "error");
             } finally {
@@ -679,6 +828,7 @@ define([], function () {
                 setFeedback("librarySettingsFeedback", "媒体库列表读取失败：" + (error.message || "未知错误"), "error");
             }
             renderLibraries();
+            renderBrowseLibraries();
         }
 
         function renderLibraries() {
@@ -780,7 +930,7 @@ define([], function () {
                 await persistConfiguration(Object.assign({}, state.configuration, { LibraryOverrides: entries }));
                 setFeedback("librarySettingsFeedback", enabled ? "媒体库独立设置已保存。" : "已恢复继承全局默认。", "success");
                 renderLibraries();
-                await loadItems(true);
+                await refreshBrowseScope(true);
             } catch (error) {
                 setFeedback("librarySettingsFeedback", error.message || "保存失败。", "error");
             } finally {
@@ -788,12 +938,103 @@ define([], function () {
             }
         }
 
+        async function refreshBrowseScope(preserveSelection) {
+            await Promise.all([
+                state.browseLibraryId ? loadBrowse(preserveSelection) : loadItems(preserveSelection),
+                loadSummary()
+            ]);
+        }
+
+        async function goToPage(page) {
+            var nextPage = Math.max(1, Math.min(Number(state.pageCount || 1), Number(page || 1)));
+            if (nextPage === state.page) return;
+            state.page = nextPage;
+            await (state.browseMode === "hierarchy" ? loadBrowse(false) : loadItems(false));
+        }
+
+        async function loadBrowse(preserveSelection) {
+            var search = getElement("itemSearch").value.trim();
+            state.browseMode = "hierarchy";
+            setFeedback("itemFeedback", "正在读取媒体库层级…");
+            try {
+                var page = await request("/SubSteward/Browse", {
+                    query: {
+                        LibraryId: state.browseLibraryId,
+                        ParentId: state.browseParentId,
+                        SearchTerm: search,
+                        Page: state.page,
+                        PageSize: state.pageSize
+                    }
+                });
+                state.browseMode = "hierarchy";
+                state.browseLibraryName = page && page.LibraryName ? page.LibraryName : state.browseLibraryName;
+                state.browseNodes = page && Array.isArray(page.Nodes) ? page.Nodes : [];
+                state.items = [];
+                state.page = page && Number(page.Page) ? Number(page.Page) : state.page;
+                state.pageSize = page && Number(page.PageSize) ? Number(page.PageSize) : state.pageSize;
+                state.totalCount = page && Number.isFinite(Number(page.TotalCount)) ? Number(page.TotalCount) : state.browseNodes.length;
+                state.pageCount = page && Number.isFinite(Number(page.PageCount)) ? Number(page.PageCount) : (state.totalCount ? 1 : 0);
+                if (!preserveSelection) {
+                    state.selectedItem = null;
+                    state.selectedSourceId = null;
+                    state.candidates = [];
+                    state.artifact = null;
+                    state.fetchingIndex = null;
+                    state.fetchStates = {};
+                }
+                renderStatus();
+                renderItems();
+                renderWorkbench();
+                setFeedback("itemFeedback", state.browseNodes.length
+                    ? "已读取当前层级 " + formatCount(state.browseNodes.length) + " 项，共 " + formatCount(state.totalCount) + " 项。"
+                    : "当前层级没有内容。");
+                getElement("lastUpdated").textContent = "更新于 " + new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+            } catch (error) {
+                state.browseNodes = [];
+                state.totalCount = 0;
+                state.pageCount = 0;
+                renderItems();
+                renderWorkbench();
+                setFeedback("itemFeedback", error.message || "媒体库层级读取失败。", "error");
+            }
+        }
+
+        async function loadSummary() {
+            var search = getElement("itemSearch").value.trim();
+            try {
+                state.summary = await request("/SubSteward/Summary", {
+                    query: { SearchTerm: search, LibraryId: state.browseLibraryId }
+                });
+                renderStatus();
+            } catch (error) {
+                state.summary = null;
+                renderStatus();
+                setFeedback("itemFeedback", "全库统计读取失败；列表仍可继续浏览。" + (error.message || ""), "error");
+            }
+        }
+
         async function loadItems(preserveSelection) {
             var search = getElement("itemSearch").value.trim();
             setFeedback("itemFeedback", "正在读取媒体条目…");
             try {
-                var items = await request("/SubSteward/Items", { query: { SearchTerm: search, Limit: 100 } });
-                state.items = Array.isArray(items) ? items : [];
+                state.browseMode = "flat";
+                state.browseNodes = [];
+                state.browseLibraryName = "";
+                state.browseParentId = "";
+                state.browsePath = [];
+                var page = await request("/SubSteward/Items", {
+                    query: {
+                        SearchTerm: search,
+                        LibraryId: state.browseLibraryId,
+                        Page: state.page,
+                        PageSize: state.pageSize
+                    }
+                });
+                state.items = page && Array.isArray(page.Items) ? page.Items : [];
+                state.page = page && Number(page.Page) ? Number(page.Page) : state.page;
+                state.pageSize = page && Number(page.PageSize) ? Number(page.PageSize) : state.pageSize;
+                state.totalCount = page && Number.isFinite(Number(page.TotalCount)) ? Number(page.TotalCount) : state.items.length;
+                state.pageCount = page && Number.isFinite(Number(page.PageCount)) ? Number(page.PageCount) : (state.totalCount ? 1 : 0);
                 if (preserveSelection && state.selectedItem) {
                     state.selectedItem = state.items.filter(function (item) {
                         return item.Id === state.selectedItem.Id;
@@ -803,12 +1044,14 @@ define([], function () {
                     state.selectedSourceId = null;
                     state.candidates = [];
                     state.artifact = null;
+                    state.fetchingIndex = null;
+                    state.fetchStates = {};
                 }
                 renderStatus();
                 renderItems();
                 renderWorkbench();
                 setFeedback("itemFeedback", state.items.length
-                    ? "已读取前 " + formatCount(state.items.length) + " 项。"
+                    ? "已读取当前页 " + formatCount(state.items.length) + " 项，共 " + formatCount(state.totalCount) + " 项。"
                     : "当前筛选没有结果。");
                 getElement("lastUpdated").textContent = "更新于 " + new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
             } catch (error) {
@@ -821,13 +1064,16 @@ define([], function () {
         }
 
         async function selectItem(itemId) {
-            var cached = state.items.filter(function (item) { return item.Id === itemId; })[0];
+            var cached = state.items.filter(function (item) { return item.Id === itemId; })[0]
+                || state.browseNodes.filter(function (item) { return item.Id === itemId; })[0];
             if (!cached) return;
             state.selectedItem = cached;
             state.selectedSourceId = cached.MediaSources && cached.MediaSources.length ? cached.MediaSources[0].Id : null;
             state.candidates = [];
             state.artifact = null;
             state.alignmentHistory = [];
+            state.fetchingIndex = null;
+            state.fetchStates = {};
             renderItems();
             renderWorkbench();
             try {
@@ -842,6 +1088,47 @@ define([], function () {
                 var feedback = getElement("workFeedback");
                 if (feedback) feedback.textContent = "详情读取失败：" + (error.message || "未知错误");
             }
+        }
+
+        async function openBrowseNode(nodeId, nodeType) {
+            var node = state.browseNodes.filter(function (entry) { return entry.Id === nodeId; })[0];
+            if (!node) return;
+            if (nodeType === "Series" || nodeType === "Season") {
+                state.browseParentId = node.Id;
+                state.browsePath = (state.browsePath || []).concat([{ id: node.Id, name: node.Name, type: node.Type }]);
+                state.page = 1;
+                state.selectedItem = null;
+                state.selectedSourceId = null;
+                state.candidates = [];
+                state.artifact = null;
+                state.fetchingIndex = null;
+                state.fetchStates = {};
+                await loadBrowse(false);
+                return;
+            }
+
+            await selectItem(node.Id);
+        }
+
+        async function goToBrowseParent(index) {
+            var path = state.browsePath || [];
+            if (index <= 0) {
+                state.browseParentId = "";
+                state.browsePath = [];
+            } else {
+                var parent = path[index - 1];
+                if (!parent) return;
+                state.browseParentId = parent.id;
+                state.browsePath = path.slice(0, index);
+            }
+            state.page = 1;
+            state.selectedItem = null;
+            state.selectedSourceId = null;
+            state.candidates = [];
+            state.artifact = null;
+            state.fetchingIndex = null;
+            state.fetchStates = {};
+            await loadBrowse(false);
         }
 
         async function searchCandidates() {
@@ -859,6 +1146,8 @@ define([], function () {
                 state.candidates = response && Array.isArray(response.Candidates) ? response.Candidates : [];
                 state.artifact = null;
                 state.alignmentHistory = [];
+                state.fetchingIndex = null;
+                state.fetchStates = {};
                 renderWorkbench();
                 var feedback = getElement("workFeedback");
                 if (feedback) feedback.textContent = state.candidates.length
@@ -875,20 +1164,40 @@ define([], function () {
         async function fetchCandidate(event) {
             var index = Number(event.currentTarget.getAttribute("data-fetch-index"));
             var candidate = state.candidates[index];
-            if (!candidate) return;
-            setButtonBusy(event.currentTarget, true, "下载校验中…");
+            if (!candidate || state.fetchingIndex !== null) return;
+            var itemId = state.selectedItem && state.selectedItem.Id;
+            state.fetchingIndex = index;
+            state.fetchStates[index] = { status: "loading", startedAt: Date.now() };
+            renderWorkbench();
+            var isCurrent = function () {
+                return state.selectedItem && state.selectedItem.Id === itemId
+                    && state.candidates[index] && state.candidates[index].Token === candidate.Token;
+            };
             try {
-                state.artifact = await request("/SubSteward/Subtitles/Fetch", {
+                var artifact = await request("/SubSteward/Subtitles/Fetch", {
                     method: "POST",
-                    body: { CandidateToken: candidate.Token }
+                    body: { CandidateToken: candidate.Token },
+                    timeoutMs: FETCH_TIMEOUT_MS
                 });
+                if (!isCurrent()) return;
+                state.artifact = artifact;
                 state.alignmentHistory = [];
-                renderWorkbench();
+                state.fetchStates = {};
             } catch (error) {
-                event.currentTarget.disabled = false;
-                event.currentTarget.textContent = "重试下载";
+                if (!isCurrent()) return;
+                var message = error && error.code === "timeout"
+                    ? "下载校验超过 60 秒，Provider 可能暂时不可达；请换候选或稍后重试。"
+                    : error && error.status === 429
+                        ? "Provider 返回 HTTP 429，可能触发限流；请稍后重试或换候选。"
+                        : "候选下载/校验失败：" + (error && error.message ? error.message : "未知错误");
+                state.fetchStates[index] = { status: "error", message: message };
                 var workFeedback = getElement("workFeedback");
-                if (workFeedback) workFeedback.textContent = "候选下载失败：" + (error.message || "未知错误");
+                if (workFeedback) workFeedback.textContent = message;
+            } finally {
+                if (isCurrent()) {
+                    state.fetchingIndex = null;
+                    renderWorkbench();
+                }
             }
         }
 
@@ -955,7 +1264,7 @@ define([], function () {
                 var refreshed = await request("/SubSteward/Items/" + encodeURIComponent(state.selectedItem.Id));
                 state.selectedItem = refreshed;
                 state.selectedSourceId = refreshed.MediaSources && refreshed.MediaSources.length ? refreshed.MediaSources[0].Id : null;
-                await loadItems(true);
+                await refreshBrowseScope(true);
                 renderWorkbench();
                 var feedback = getElement("workFeedback");
                 if (feedback) feedback.textContent = "安装完成：" + (response && response.FileName ? response.FileName : "Emby 已刷新字幕流");
@@ -991,7 +1300,7 @@ define([], function () {
             try {
                 await Promise.all([loadConfiguration(), loadLibraries()]);
                 renderLibraries();
-                await loadItems(true);
+                await refreshBrowseScope(true);
             } finally {
                 setButtonBusy(button, false);
             }
@@ -999,12 +1308,55 @@ define([], function () {
         getElement("openManual").addEventListener("click", function () { switchTab("manual", true); });
         getElement("itemFilterForm").addEventListener("submit", function (event) {
             event.preventDefault();
-            loadItems(false);
+            state.page = 1;
+            refreshBrowseScope(false);
         });
+        var libraryFilter = getElement("itemLibraryFilter");
+        if (libraryFilter) {
+            libraryFilter.addEventListener("change", function (event) {
+                state.browseLibraryId = event.currentTarget.value || "";
+                state.browseLibraryName = event.currentTarget.options[event.currentTarget.selectedIndex]
+                    ? event.currentTarget.options[event.currentTarget.selectedIndex].textContent
+                    : "";
+                state.browseParentId = "";
+                state.browsePath = [];
+                state.page = 1;
+                refreshBrowseScope(false);
+            });
+        }
+        var pageSize = getElement("itemPageSize");
+        if (pageSize) {
+            pageSize.addEventListener("change", function (event) {
+                state.pageSize = Number(event.currentTarget.value) || 50;
+                state.page = 1;
+                refreshBrowseScope(false);
+            });
+        }
+        var pagination = getElement("itemPagination");
+        if (pagination) {
+            pagination.addEventListener("click", function (event) {
+                if (event.target.closest("#previousPage")) goToPage(state.page - 1);
+                if (event.target.closest("#nextPage")) goToPage(state.page + 1);
+            });
+        }
         getElement("itemList").addEventListener("click", function (event) {
+            var browseRow = event.target.closest("[data-browse-id]");
+            if (browseRow) {
+                openBrowseNode(browseRow.getAttribute("data-browse-id"), browseRow.getAttribute("data-browse-type"));
+                return;
+            }
             var row = event.target.closest("[data-item-id]");
             if (row) selectItem(row.getAttribute("data-item-id"));
         });
+        var browseBreadcrumb = getElement("browseBreadcrumb");
+        if (browseBreadcrumb) {
+            browseBreadcrumb.addEventListener("click", function (event) {
+                var crumb = event.target.closest("[data-browse-parent-index]");
+                if (crumb && !crumb.disabled) {
+                    goToBrowseParent(Number(crumb.getAttribute("data-browse-parent-index")));
+                }
+            });
+        }
         getElement("attentionList").addEventListener("click", function (event) {
             var row = event.target.closest("[data-open-item]");
             if (!row) return;
@@ -1024,7 +1376,7 @@ define([], function () {
             try {
                 await Promise.all([loadConfiguration(), loadLibraries()]);
                 renderLibraries();
-                await loadItems(false);
+                await refreshBrowseScope(false);
             } catch (error) {
                 setFeedback("itemFeedback", "SubSteward 初始化失败：" + (error.message || "未知错误"), "error");
                 getElement("statusMetrics").innerHTML = metricCard("页面初始化失败", 0, "请检查管理员会话和插件日志");

@@ -16,7 +16,7 @@ namespace SubSteward.Plugin.M1
         private readonly Dictionary<string, M1CandidateRecord> candidates = new Dictionary<string, M1CandidateRecord>(StringComparer.Ordinal);
         private readonly Dictionary<string, M1ArtifactRecord> artifacts = new Dictionary<string, M1ArtifactRecord>(StringComparer.Ordinal);
 
-        public string AddCandidate(Guid itemId, string mediaSourceId, string language, string rawId, bool titleMatch, bool hashMatch, string requestedLanguageVariant = null)
+        public string AddCandidate(Guid itemId, string mediaSourceId, string language, string rawId, bool titleMatch, bool hashMatch, string requestedLanguageVariant = null, string provider = null, string name = null, string format = null, bool likelyNonFullRelease = false)
         {
             var token = Guid.NewGuid().ToString("N");
             lock (sync)
@@ -33,6 +33,10 @@ namespace SubSteward.Plugin.M1
                     RawId = rawId,
                     TitleMatch = titleMatch,
                     HashMatch = hashMatch,
+                    Provider = provider,
+                    Name = name,
+                    Format = format,
+                    LikelyNonFullRelease = likelyNonFullRelease,
                     ExpiresAtUtc = DateTime.UtcNow.AddMinutes(10)
                 };
             }

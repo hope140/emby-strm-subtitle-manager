@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using SubSteward.Plugin.M1;
 
 namespace SubSteward.Plugin.M2
@@ -8,6 +11,15 @@ namespace SubSteward.Plugin.M2
     {
         private const string DefaultTargetLanguage = "zh-Hans";
         private const string DefaultSecondaryLanguage = "eng";
+        private static readonly Regex LatinWord = new Regex("[A-Za-z]{2,}", RegexOptions.CultureInvariant);
+        private static readonly HashSet<string> CommonEnglishWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "about", "again", "all", "am", "and", "are", "around", "as", "at", "away", "be", "because", "been", "before", "but", "can", "come", "could", "did", "do", "does", "done", "for", "from", "get", "give", "go", "good", "got", "have", "he", "hello", "her", "here", "him", "his", "how", "if", "in", "is", "it", "just", "know", "like", "look", "love", "make", "me", "more", "most", "my", "never", "no", "not", "now", "of", "oh", "on", "one", "or", "our", "out", "please", "really", "right", "say", "see", "she", "so", "some", "sorry", "stop", "thank", "thanks", "that", "the", "their", "them", "then", "there", "they", "this", "time", "to", "too", "very", "wait", "want", "was", "we", "well", "what", "when", "where", "who", "why", "will", "with", "would", "yes", "you", "your"
+        };
+        private static readonly HashSet<string> LatinNoiseTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "aa", "aaa", "aac", "ass", "av", "awww", "bilibili", "bgm", "cmct", "com", "cry", "cut", "dts", "dvd", "hd", "html", "hdtv", "https", "http", "jj", "mkv", "neil", "nf", "qaq", "qq", "qwq", "rip", "srt", "tv", "up", "web", "www", "x264", "yoyo"
+        };
 
         public M2QualityReport Analyze(M1ValidationResult validation, string targetLanguage = DefaultTargetLanguage, string secondaryLanguage = DefaultSecondaryLanguage)
         {
@@ -70,8 +82,10 @@ namespace SubSteward.Plugin.M2
             report.TargetLanguagePresent = report.TargetLanguageCueCount > 0;
             report.TargetLanguageConfidence = report.CueCount == 0 ? 0d : Math.Min(0.99d, report.TargetLanguageCueCount / (double)report.CueCount);
             report.SecondaryLanguagePresent = report.SecondaryLanguageCueCount > 0;
-            report.BilingualDetected = report.TargetLanguagePresent
-                && (report.SecondaryLanguagePresent || (report.JapaneseCueCount > 0 && !M2Language.IsJapanese(normalizedTarget)));
+            // Bilingual means the configured target and secondary languages
+            // are both evidenced in the text. Japanese is tracked separately
+            // for the sidecar label and must not become English evidence.
+            report.BilingualDetected = report.TargetLanguagePresent && report.SecondaryLanguagePresent;
             report.BilingualConfidence = report.CueCount == 0 ? 0d : Math.Min(0.99d, report.BilingualCueCount / (double)report.CueCount);
 
             if (report.EffectCueCount == 0)
@@ -136,21 +150,67 @@ namespace SubSteward.Plugin.M2
 
         private static bool HasLatinCharacter(string text)
         {
-            var runLength = 0;
-            foreach (var character in text)
+            var meaningfulWords = new List<string>();
+            foreach (Match match in LatinWord.Matches(text ?? string.Empty))
             {
-                if ((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z'))
+                var word = match.Value;
+                if (IsLatinNoiseToken(word))
                 {
-                    runLength++;
-                    if (runLength >= 2)
+                    continue;
+                }
+
+                if (word.Length < 3)
+                {
+                    continue;
+                }
+
+                meaningfulWords.Add(word);
+            }
+
+            if (meaningfulWords.Count == 0)
+            {
+                return false;
+            }
+
+            if (meaningfulWords.Any(CommonEnglishWords.Contains))
+            {
+                return true;
+            }
+
+            // A pair of non-noise words is enough for a likely English phrase
+            // such as "Spirited Away", but one isolated name or acronym is not.
+            return meaningfulWords.Count >= 2;
+        }
+
+        private static bool IsLatinNoiseToken(string word)
+        {
+            if (LatinNoiseTokens.Contains(word))
+            {
+                return true;
+            }
+
+            var normalized = word.ToLowerInvariant();
+            if (normalized.Length >= 4 && normalized[0] == 'a')
+            {
+                var allW = true;
+                for (var index = 1; index < normalized.Length; index++)
+                {
+                    if (normalized[index] != 'w')
                     {
-                        return true;
+                        allW = false;
+                        break;
                     }
                 }
-                else
+
+                if (allW)
                 {
-                    runLength = 0;
+                    return true;
                 }
+            }
+
+            if (word.Length >= 3 && word.ToUpperInvariant() == word && !CommonEnglishWords.Contains(word))
+            {
+                return true;
             }
 
             return false;

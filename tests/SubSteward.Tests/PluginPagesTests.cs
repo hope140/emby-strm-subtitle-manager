@@ -32,7 +32,7 @@ public sealed class PluginPagesTests
         var page = reader.ReadToEnd();
 
         Assert.Contains("data-bindheader=\"true\"", page);
-        Assert.Contains("data-controller=\"__plugin/SubStewardUI3.js\"", page);
+        Assert.Contains("data-controller=\"__plugin/SubStewardUI7.js\"", page);
         Assert.Contains("is=\"emby-scroller\"", page);
         Assert.DoesNotContain("id=\"subStewardPage\"", page);
         Assert.Contains("全局状态", page);
@@ -70,6 +70,8 @@ public sealed class PluginPagesTests
         Assert.Contains("define([], function ()", controller);
         Assert.Contains("return function (view, params)", controller);
         Assert.Contains("/SubSteward/Items", controller);
+        Assert.Contains("/SubSteward/Summary", controller);
+        Assert.Contains("/SubSteward/Browse", controller);
         Assert.Contains("/SubSteward/Libraries", controller);
         Assert.Contains("/SubSteward/Subtitles/Search", controller);
         Assert.Contains("/SubSteward/Subtitles/Fetch", controller);
@@ -85,6 +87,23 @@ public sealed class PluginPagesTests
         Assert.Contains("normalizeFormatOrderChoice", controller);
         Assert.Contains("旧值，请改选支持项", controller);
         Assert.DoesNotContain("尚未开放", controller);
+        Assert.Contains("itemLibraryFilter", page);
+        Assert.Contains("itemPageSize", page);
+        Assert.Contains("itemPagination", page);
+        Assert.Contains("workflowSteps", page);
+        Assert.Contains("openBrowseNode", controller);
+        Assert.Contains("Series", controller);
+        Assert.Contains("Season", controller);
+        Assert.Contains("Episode", controller);
+        Assert.Contains("--ss-left-text: #242424", page);
+        Assert.Contains("下载校验超过 60 秒", controller);
+        Assert.Contains("HTTP 429", controller);
+        Assert.Contains("fetchingIndex", controller);
+        Assert.Contains("PageSize", controller);
+        Assert.Contains("totalCount", controller);
+        Assert.Contains("browseBreadcrumb", page);
+        Assert.Contains("LikelyNonFullRelease", controller);
+        Assert.Contains("候选下载/校验失败", controller);
         Assert.DoesNotContain("<script>", page);
     }
 }

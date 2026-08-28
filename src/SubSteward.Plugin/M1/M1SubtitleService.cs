@@ -12,7 +12,9 @@ using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Subtitles;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Providers;
 using MediaBrowser.Model.Services;
 using SubSteward.Plugin.M2;
@@ -25,7 +27,48 @@ namespace SubSteward.Plugin.M1
     {
         public string SearchTerm { get; set; }
 
+        public string LibraryId { get; set; }
+
+        /// <summary>
+        /// One-based page number. Ignored when Offset is provided.
+        /// </summary>
+        public int? Page { get; set; }
+
+        /// <summary>
+        /// Zero-based item offset. Supports direct links into a filtered library.
+        /// </summary>
+        public int? Offset { get; set; }
+
+        public int? PageSize { get; set; }
+
+        // Legacy alias kept for callers that used the initial bounded endpoint.
         public int? Limit { get; set; }
+    }
+
+    [Route("/SubSteward/Summary", "GET", Summary = "Summarizes the complete SubSteward item scope")]
+    [Authenticated(Roles = "Admin")]
+    public sealed class M1SummaryRequest
+    {
+        public string SearchTerm { get; set; }
+
+        public string LibraryId { get; set; }
+    }
+
+    [Route("/SubSteward/Browse", "GET", Summary = "Browses a media library as Series, Season and Episode levels")]
+    [Authenticated(Roles = "Admin")]
+    public sealed class M1BrowseRequest
+    {
+        public string LibraryId { get; set; }
+
+        public string ParentId { get; set; }
+
+        public string SearchTerm { get; set; }
+
+        public int? Page { get; set; }
+
+        public int? Offset { get; set; }
+
+        public int? PageSize { get; set; }
     }
 
     [Route("/SubSteward/Items/{Id}", "GET", Summary = "Gets a SubSteward media item")]
@@ -99,6 +142,92 @@ namespace SubSteward.Plugin.M1
         public List<M1SourceResponse> MediaSources { get; } = new List<M1SourceResponse>();
 
         public M2ActionReport Action { get; set; }
+    }
+
+    public sealed class M1PagedItemsResponse
+    {
+        public string SearchTerm { get; set; }
+
+        public string LibraryId { get; set; }
+
+        public int Page { get; set; }
+
+        public int PageSize { get; set; }
+
+        public int Offset { get; set; }
+
+        public int TotalCount { get; set; }
+
+        public int PageCount { get; set; }
+
+        public List<M1ItemResponse> Items { get; } = new List<M1ItemResponse>();
+    }
+
+    public sealed class M1SummaryResponse
+    {
+        public string SearchTerm { get; set; }
+
+        public string LibraryId { get; set; }
+
+        public int TotalCount { get; set; }
+
+        public int TargetLanguagePresentCount { get; set; }
+
+        public int TargetLanguageMissingCount { get; set; }
+
+        public int RequiresManualCount { get; set; }
+
+        public int MultiSourceCount { get; set; }
+
+        public Dictionary<string, int> ActionCounts { get; } = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    public sealed class M1BrowseNodeResponse
+    {
+        public string Id { get; set; }
+
+        public string Name { get; set; }
+
+        public string Type { get; set; }
+
+        public string ChildType { get; set; }
+
+        public bool HasChildren { get; set; }
+
+        public int? IndexNumber { get; set; }
+
+        public int? ParentIndexNumber { get; set; }
+
+        public string LibraryId { get; set; }
+
+        public string LibraryName { get; set; }
+    }
+
+    public sealed class M1BrowseResponse
+    {
+        public string LibraryId { get; set; }
+
+        public string LibraryName { get; set; }
+
+        public string ParentId { get; set; }
+
+        public string ParentName { get; set; }
+
+        public string ParentType { get; set; }
+
+        public string ChildType { get; set; }
+
+        public int Page { get; set; }
+
+        public int PageSize { get; set; }
+
+        public int Offset { get; set; }
+
+        public int TotalCount { get; set; }
+
+        public int PageCount { get; set; }
+
+        public List<M1BrowseNodeResponse> Nodes { get; } = new List<M1BrowseNodeResponse>();
     }
 
     public sealed class M1LibraryResponse
@@ -177,6 +306,8 @@ namespace SubSteward.Plugin.M1
         public bool LanguageMismatch { get; set; }
 
         public bool VariantMismatch { get; set; }
+
+        public bool LikelyNonFullRelease { get; set; }
     }
 
     public sealed class M1SearchResponse
@@ -265,36 +396,250 @@ namespace SubSteward.Plugin.M1
         private readonly ISubtitleManager subtitleManager;
         private readonly IProviderManager providerManager;
         private readonly IFileSystem fileSystem;
+        private readonly ILogger logger;
 
         public M1SubtitleService(
             ILibraryManager libraryManager,
             ISubtitleManager subtitleManager,
             IProviderManager providerManager,
-            IFileSystem fileSystem)
+            IFileSystem fileSystem,
+            ILogManager logManager = null)
         {
             this.libraryManager = libraryManager;
             this.subtitleManager = subtitleManager;
             this.providerManager = providerManager;
             this.fileSystem = fileSystem;
+            try
+            {
+                logger = logManager?.GetLogger(nameof(M1SubtitleService));
+            }
+            catch
+            {
+                logger = null;
+            }
+        }
+
+        private void LogInfo(string message, params object[] parameters)
+        {
+            try
+            {
+                logger?.Info("[SubSteward] " + message, parameters);
+            }
+            catch
+            {
+                // Logging must never change the subtitle operation outcome.
+            }
+        }
+
+        private void LogWarning(string message, params object[] parameters)
+        {
+            try
+            {
+                logger?.Warn("[SubSteward] " + message, parameters);
+            }
+            catch
+            {
+                // Logging must never change the subtitle operation outcome.
+            }
+        }
+
+        private void LogError(string message, Exception exception, params object[] parameters)
+        {
+            try
+            {
+                if (logger != null)
+                {
+                    logger.ErrorException("[SubSteward] " + message, exception, parameters);
+                }
+            }
+            catch
+            {
+                // Logging must never change the subtitle operation outcome.
+            }
+        }
+
+        private static string SafeLogText(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return "(none)";
+            }
+
+            var normalized = value.Replace("\r", " ").Replace("\n", " ").Trim();
+            return normalized.Length <= 120 ? normalized : normalized.Substring(0, 120) + "…";
+        }
+
+        private void LogArtifactAssessment(BaseItem item, M1ArtifactResponse response, string stage)
+        {
+            if (response == null)
+            {
+                return;
+            }
+
+            var quality = response.Quality;
+            var preference = response.Preference;
+            var action = response.Action;
+            LogInfo(
+                "{0} assessment item={1} format={2} health={3} titleMatch={4} hashMatch={5} targetCues={6}/{7} secondaryCues={8} japaneseCues={9} bilingualCues={10} bilingualDetected={11} bilingualConfidence={12:F3} preference={13} score={14:F1} action={15}",
+                stage,
+                SafeLogText(item?.Name),
+                SafeLogText(response.Format),
+                response.Health,
+                response.TitleMatch,
+                response.HashMatch,
+                quality?.TargetLanguageCueCount ?? 0,
+                quality?.CueCount ?? 0,
+                quality?.SecondaryLanguageCueCount ?? 0,
+                quality?.JapaneseCueCount ?? 0,
+                quality?.BilingualCueCount ?? 0,
+                quality?.BilingualDetected ?? false,
+                quality?.BilingualConfidence ?? 0d,
+                preference?.Suitability,
+                preference?.Score ?? 0d,
+                action?.Action);
         }
 
         public object Get(M1ListItemsRequest request)
         {
-            var limit = request.Limit.GetValueOrDefault(50);
-            if (limit < 1 || limit > 100)
+            var pageSize = request.PageSize ?? request.Limit ?? 50;
+            if (pageSize < 1 || pageSize > 100)
             {
-                throw new ArgumentException("Limit must be between 1 and 100.");
+                throw new ArgumentException("PageSize must be between 1 and 100.");
             }
 
-            var items = libraryManager.GetItemList(new InternalItemsQuery
+            var offset = ResolveOffset(request.Page, request.Offset, pageSize);
+            var library = ResolveLibrary(request.LibraryId);
+            var libraryScopeId = ResolveLibraryScopeId(request.LibraryId, library);
+            var itemsQuery = CreateItemsQuery(
+                request.SearchTerm,
+                libraryScopeId,
+                offset,
+                pageSize);
+            var items = GetItemsSafely(itemsQuery, "page") ?? Array.Empty<BaseItem>();
+            var totalCount = CountItems(request.SearchTerm, libraryScopeId);
+            var response = new M1PagedItemsResponse
             {
                 SearchTerm = request.SearchTerm ?? string.Empty,
-                IncludeItemTypes = new[] { "Movie", "Episode" },
-                Recursive = true,
-                Limit = limit
-            });
+                LibraryId = string.IsNullOrWhiteSpace(request.LibraryId) ? null : NormalizeLibraryId(request.LibraryId),
+                Page = (offset / pageSize) + 1,
+                PageSize = pageSize,
+                Offset = offset,
+                TotalCount = totalCount,
+                PageCount = totalCount == 0 ? 0 : ((totalCount - 1) / pageSize) + 1
+            };
+            response.Items.AddRange(MapItemResponsesSafely(items));
+            LogInfo("Items page library={0} search={1} page={2} pageSize={3} offset={4} total={5} returned={6}", SafeLogText(response.LibraryId), SafeLogText(response.SearchTerm), response.Page, response.PageSize, response.Offset, response.TotalCount, response.Items.Count);
+            return response;
+        }
 
-            return items.Select(item => ToItemResponse(item, false)).ToList();
+        public object Get(M1SummaryRequest request)
+        {
+            var library = ResolveLibrary(request.LibraryId);
+            var libraryScopeId = ResolveLibraryScopeId(request.LibraryId, library);
+            var items = GetItemsSafely(CreateItemsQuery(
+                request.SearchTerm,
+                libraryScopeId,
+                null,
+                null), "summary") ?? Array.Empty<BaseItem>();
+            var response = new M1SummaryResponse
+            {
+                SearchTerm = request.SearchTerm ?? string.Empty,
+                LibraryId = string.IsNullOrWhiteSpace(request.LibraryId) ? null : NormalizeLibraryId(request.LibraryId),
+                TotalCount = items.Length
+            };
+
+            foreach (var itemResponse in MapItemResponsesSafely(items))
+            {
+                var sourceCount = itemResponse.MediaSources.Count;
+                var action = itemResponse.Action?.Action ?? "MANUAL";
+                response.ActionCounts[action] = response.ActionCounts.TryGetValue(action, out var actionCount)
+                    ? actionCount + 1
+                    : 1;
+
+                if (sourceCount != 1)
+                {
+                    response.MultiSourceCount++;
+                    response.RequiresManualCount++;
+                    continue;
+                }
+
+                var targetLanguagePresent = itemResponse.MediaSources[0].Presence?.TargetLanguagePresent;
+                if (targetLanguagePresent == true)
+                {
+                    response.TargetLanguagePresentCount++;
+                }
+                else if (targetLanguagePresent == false)
+                {
+                    response.TargetLanguageMissingCount++;
+                }
+
+                if (string.Equals(action, "MANUAL", StringComparison.OrdinalIgnoreCase))
+                {
+                    response.RequiresManualCount++;
+                }
+            }
+
+            LogInfo("Summary library={0} search={1} total={2} present={3} missing={4} manual={5} multiSource={6}", SafeLogText(response.LibraryId), SafeLogText(response.SearchTerm), response.TotalCount, response.TargetLanguagePresentCount, response.TargetLanguageMissingCount, response.RequiresManualCount, response.MultiSourceCount);
+            return response;
+        }
+
+        public object Get(M1BrowseRequest request)
+        {
+            var pageSize = request.PageSize.GetValueOrDefault(50);
+            if (pageSize < 1 || pageSize > 100)
+            {
+                throw new ArgumentException("PageSize must be between 1 and 100.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.LibraryId))
+            {
+                throw new ArgumentException("LibraryId is required for hierarchical browsing.");
+            }
+
+            var offset = ResolveOffset(request.Page, request.Offset, pageSize);
+            var library = ResolveLibrary(request.LibraryId);
+            var libraryScopeId = ResolveLibraryScopeId(request.LibraryId, library);
+            var parent = string.IsNullOrWhiteSpace(request.ParentId)
+                ? null
+                : ResolveBrowseParent(request.ParentId);
+            var includeItemTypes = ResolveBrowseChildTypes(parent, out var childType);
+            var parentInternalId = parent == null ? (long?)null : parent.InternalId;
+            var query = CreateBrowseQuery(
+                request.SearchTerm,
+                libraryScopeId,
+                parentInternalId,
+                includeItemTypes,
+                null,
+                null);
+            var allNodes = OrderBrowseItems(GetItemsSafely(query, "browse") ?? Array.Empty<BaseItem>(), parent).ToList();
+            var totalCount = allNodes.Count;
+            var nodes = allNodes.Skip(offset).Take(pageSize);
+            var response = new M1BrowseResponse
+            {
+                LibraryId = NormalizeLibraryId(request.LibraryId),
+                LibraryName = library.Name,
+                ParentId = parent == null ? null : parent.Id.ToString("N"),
+                ParentName = parent == null ? library.Name : parent.Name,
+                ParentType = parent == null ? "Library" : parent.GetType().Name,
+                ChildType = childType,
+                Page = (offset / pageSize) + 1,
+                PageSize = pageSize,
+                Offset = offset,
+                TotalCount = totalCount,
+                PageCount = totalCount == 0 ? 0 : ((totalCount - 1) / pageSize) + 1
+            };
+            response.Nodes.AddRange(nodes.Select(item => ToBrowseNode(item, request.LibraryId, library.Name)));
+            LogInfo(
+                "Browse library={0} parent={1} childType={2} search={3} page={4} pageSize={5} total={6} returned={7}",
+                SafeLogText(library.Name),
+                SafeLogText(response.ParentName),
+                childType,
+                SafeLogText(request.SearchTerm),
+                response.Page,
+                response.PageSize,
+                response.TotalCount,
+                response.Nodes.Count);
+            return response;
         }
 
         public object Get(M1GetItemRequest request)
@@ -321,9 +666,11 @@ namespace SubSteward.Plugin.M1
             var source = ResolveSource(item, request.MediaSourceId);
             var requestedLanguage = M2Options.ParseTargetLanguage(request.Language);
             var language = requestedLanguage.Code;
+            LogInfo("Search start item={0} language={1} sourceRemote={2}", SafeLogText(item.Name), language, source.IsRemote);
             var candidates = (await subtitleManager.SearchSubtitles(item, language, false, false, false, Request.CancellationToken).ConfigureAwait(false) ?? Array.Empty<RemoteSubtitleInfo>())
                 .OrderByDescending(candidate => candidate.IsHashMatch.GetValueOrDefault())
                 .ThenByDescending(candidate => CandidateMatchesItem(candidate.Name, item))
+                .ThenBy(candidate => M1CandidateEvidence.LooksLikeNonFullRelease(candidate.Name))
                 .ToList();
             var response = new M1SearchResponse
             {
@@ -343,6 +690,7 @@ namespace SubSteward.Plugin.M1
 
                 var titleMatch = CandidateMatchesItem(candidate.Name, item);
                 var hashMatch = candidate.IsHashMatch.GetValueOrDefault();
+                var likelyNonFullRelease = M1CandidateEvidence.LooksLikeNonFullRelease(candidate.Name) && !hashMatch;
                 var candidateLanguage = candidate.Language ?? language;
                 var parsedCandidateLanguage = M2Language.Parse(candidateLanguage, language);
                 var languageMismatch = !string.IsNullOrWhiteSpace(candidate.Language)
@@ -353,7 +701,7 @@ namespace SubSteward.Plugin.M1
                     && !string.Equals(parsedCandidateLanguage.Variant, requestedLanguage.Variant, StringComparison.OrdinalIgnoreCase);
                 response.Candidates.Add(new M1CandidateResponse
                 {
-                    Token = Store.AddCandidate(item.Id, source.Id, language, candidate.Id, titleMatch, hashMatch, requestedLanguage.Variant),
+                    Token = Store.AddCandidate(item.Id, source.Id, language, candidate.Id, titleMatch, hashMatch, requestedLanguage.Variant, candidate.ProviderName, candidate.Name, candidate.Format, likelyNonFullRelease),
                     Provider = candidate.ProviderName,
                     Name = candidate.Name,
                     Language = candidateLanguage,
@@ -364,7 +712,8 @@ namespace SubSteward.Plugin.M1
                     IsHashMatch = candidate.IsHashMatch,
                     TitleMatch = titleMatch,
                     LanguageMismatch = languageMismatch,
-                    VariantMismatch = variantMismatch
+                    VariantMismatch = variantMismatch,
+                    LikelyNonFullRelease = likelyNonFullRelease
                 });
 
                 if (response.Candidates.Count >= MaxCandidates)
@@ -372,6 +721,14 @@ namespace SubSteward.Plugin.M1
                     break;
                 }
             }
+
+            LogInfo(
+                "Search result item={0} returned={1} hashMatches={2} titleMatches={3} nonFullRelease={4}",
+                SafeLogText(item.Name),
+                response.Candidates.Count,
+                response.Candidates.Count(candidate => candidate.IsHashMatch.GetValueOrDefault()),
+                response.Candidates.Count(candidate => candidate.TitleMatch),
+                response.Candidates.Count(candidate => candidate.LikelyNonFullRelease));
 
             return response;
         }
@@ -386,14 +743,31 @@ namespace SubSteward.Plugin.M1
 
             var item = ResolveItem(candidate.ItemId.ToString("N"));
             var source = ResolveSource(item, candidate.MediaSourceId);
+            LogInfo(
+                "Fetch start item={0} provider={1} format={2} language={3} titleMatch={4} hashMatch={5} nonFullRelease={6}",
+                SafeLogText(item.Name),
+                SafeLogText(candidate.Provider),
+                SafeLogText(candidate.Format),
+                candidate.Language,
+                candidate.TitleMatch,
+                candidate.HashMatch,
+                candidate.LikelyNonFullRelease);
             if (!candidate.TitleMatch && !candidate.HashMatch)
             {
+                LogWarning("Fetch rejected item={0} reason=unbound-candidate", SafeLogText(item.Name));
                 throw new InvalidOperationException("Candidate metadata does not match the selected Item.");
+            }
+
+            if (candidate.LikelyNonFullRelease && !candidate.HashMatch)
+            {
+                LogWarning("Fetch rejected item={0} reason=likely-non-full-release", SafeLogText(item.Name));
+                throw new InvalidOperationException("Candidate appears to be a clip or short-form source rather than the selected full release.");
             }
 
             var fetched = await subtitleManager.GetRemoteSubtitles(candidate.RawId, Request.CancellationToken).ConfigureAwait(false);
             if (fetched == null || fetched.Stream == null)
             {
+                LogWarning("Fetch failed item={0} reason=no-subtitle-content", SafeLogText(item.Name));
                 throw new InvalidOperationException("Emby returned no subtitle content.");
             }
 
@@ -402,19 +776,24 @@ namespace SubSteward.Plugin.M1
             {
                 content = await ReadBoundedAsync(fetched.Stream, Request.CancellationToken).ConfigureAwait(false);
             }
+            LogInfo("Fetch content item={0} bytes={1} providerFormat={2}", SafeLogText(item.Name), content.Length, SafeLogText(fetched.Format));
             var validation = Validator.Validate(content, fetched.Format);
             if (!validation.IsUsable)
             {
+                LogWarning("Fetch rejected item={0} reason=validation-failed format={1} health={2} cues={3} details={4}", SafeLogText(item.Name), SafeLogText(validation.Format), validation.Health, validation.Cues.Count, SafeLogText(string.Join(" | ", validation.Reasons.Take(3))));
                 throw new InvalidOperationException("Fetched subtitle failed validation.");
             }
 
             if (IsChineseLanguage(candidate.Language) && !validation.HasHanCharacters)
             {
+                LogWarning("Fetch rejected item={0} reason=target-language-content-missing format={1} cues={2}", SafeLogText(item.Name), SafeLogText(validation.Format), validation.Cues.Count);
                 throw new InvalidOperationException("Fetched subtitle metadata says Chinese, but its content contains no Chinese characters.");
             }
 
             var artifactToken = Store.AddArtifact(item.Id, source.Id, candidate.Language, content, validation, candidate.TitleMatch, candidate.HashMatch, candidate.RequestedLanguageVariant);
-            return ToArtifactResponse(artifactToken, item.Id, source.Id, candidate.Language, validation, candidate.TitleMatch, candidate.HashMatch, candidate.RequestedLanguageVariant);
+            var artifactResponse = ToArtifactResponse(artifactToken, item.Id, source.Id, candidate.Language, validation, candidate.TitleMatch, candidate.HashMatch, candidate.RequestedLanguageVariant);
+            LogArtifactAssessment(item, artifactResponse, "Fetch");
+            return artifactResponse;
         }
 
         public object Get(M1PreviewSubtitleRequest request)
@@ -425,7 +804,7 @@ namespace SubSteward.Plugin.M1
                 throw new ArgumentException("Artifact token is expired or invalid.");
             }
 
-            return ToArtifactResponse(
+            var response = ToArtifactResponse(
                 artifact.Token,
                 artifact.ItemId,
                 artifact.MediaSourceId,
@@ -435,6 +814,9 @@ namespace SubSteward.Plugin.M1
                 artifact.HashMatch,
                 artifact.RequestedLanguageVariant,
                 artifact.TimelineOffsetMilliseconds);
+            var item = libraryManager.GetItemById(artifact.ItemId);
+            LogArtifactAssessment(item, response, "Preview");
+            return response;
         }
 
         public object Post(M1AlignSubtitleRequest request)
@@ -473,6 +855,7 @@ namespace SubSteward.Plugin.M1
 
             var item = ResolveItem(artifact.ItemId.ToString("N"));
             var source = ResolveSource(item, artifact.MediaSourceId);
+            LogInfo("Align start item={0} offset={1} existingOffset={2}", SafeLogText(item.Name), request.OffsetMilliseconds, artifact.TimelineOffsetMilliseconds);
             var token = Store.AddArtifact(
                 item.Id,
                 source.Id,
@@ -483,7 +866,7 @@ namespace SubSteward.Plugin.M1
                 artifact.HashMatch,
                 artifact.RequestedLanguageVariant,
                 (int)cumulativeOffset);
-            return ToArtifactResponse(
+            var alignedResponse = ToArtifactResponse(
                 token,
                 item.Id,
                 source.Id,
@@ -493,6 +876,8 @@ namespace SubSteward.Plugin.M1
                 artifact.HashMatch,
                 artifact.RequestedLanguageVariant,
                 (int)cumulativeOffset);
+            LogArtifactAssessment(item, alignedResponse, "Align");
+            return alignedResponse;
         }
 
         public async Task<object> Post(M1InstallSubtitleRequest request)
@@ -506,6 +891,7 @@ namespace SubSteward.Plugin.M1
             var item = ResolveItem(artifact.ItemId.ToString("N"));
             var source = ResolveSource(item, artifact.MediaSourceId);
             var before = CountExternalSubtitleStreams(item);
+            LogInfo("Install start item={0} format={1} beforeExternalStreams={2} titleMatch={3} hashMatch={4}", SafeLogText(item.Name), SafeLogText(artifact.Validation?.Format), before, artifact.TitleMatch, artifact.HashMatch);
             string targetPath = null;
             try
             {
@@ -519,7 +905,7 @@ namespace SubSteward.Plugin.M1
                 }
 
                 Store.RemoveArtifact(artifact.Token);
-                return new M1InstallResponse
+                var installResponse = new M1InstallResponse
                 {
                     ItemId = item.Id.ToString("N"),
                     MediaSourceId = source.Id,
@@ -528,14 +914,17 @@ namespace SubSteward.Plugin.M1
                     FileName = Path.GetFileName(targetPath),
                     ExternalSubtitleStreamCount = after
                 };
+                LogInfo("Install success item={0} format={1} fileName={2} afterExternalStreams={3}", SafeLogText(item.Name), SafeLogText(installResponse.Format), SafeLogText(installResponse.FileName), installResponse.ExternalSubtitleStreamCount);
+                return installResponse;
             }
-            catch
+            catch (Exception exception)
             {
                 if (!string.IsNullOrWhiteSpace(targetPath))
                 {
                     TryDeleteCreatedFile(targetPath);
                 }
 
+                LogError("Install failed item=" + SafeLogText(item.Name), exception);
                 throw;
             }
         }
@@ -555,6 +944,293 @@ namespace SubSteward.Plugin.M1
             }
 
             return item;
+        }
+
+        private static int ResolveOffset(int? page, int? offset, int pageSize)
+        {
+            if (offset.HasValue)
+            {
+                if (offset.Value < 0)
+                {
+                    throw new ArgumentException("Offset must not be negative.");
+                }
+
+                return offset.Value;
+            }
+
+            var normalizedPage = page.GetValueOrDefault(1);
+            if (normalizedPage < 1)
+            {
+                throw new ArgumentException("Page must be at least 1.");
+            }
+
+            var calculatedOffset = (long)(normalizedPage - 1) * pageSize;
+            if (calculatedOffset > int.MaxValue)
+            {
+                throw new ArgumentException("Requested page is outside the supported range.");
+            }
+
+            return (int)calculatedOffset;
+        }
+
+        private InternalItemsQuery CreateItemsQuery(
+            string searchTerm,
+            long? libraryScopeId,
+            int? startIndex,
+            int? limit)
+        {
+            var query = new InternalItemsQuery
+            {
+                SearchTerm = searchTerm ?? string.Empty,
+                IncludeItemTypes = new[] { "Movie", "Episode" },
+                Recursive = true
+            };
+
+            if (limit.HasValue)
+            {
+                query.Limit = limit.Value;
+            }
+
+            if (libraryScopeId.HasValue)
+            {
+                query.AncestorIds = new[] { libraryScopeId.Value };
+            }
+
+            if (startIndex.HasValue)
+            {
+                query.StartIndex = startIndex.Value;
+            }
+
+            return query;
+        }
+
+        private int CountItems(string searchTerm, long? libraryScopeId)
+        {
+            var query = CreateItemsQuery(searchTerm, libraryScopeId, null, null);
+            return CountItems(query);
+        }
+
+        private int CountItems(InternalItemsQuery query)
+        {
+            try
+            {
+                return (libraryManager.GetInternalItemIds(query) ?? Array.Empty<long>()).Length;
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException("SubSteward item count query failed: " + exception.Message, exception);
+            }
+        }
+
+        private InternalItemsQuery CreateBrowseQuery(
+            string searchTerm,
+            long? libraryScopeId,
+            long? parentInternalId,
+            string[] includeItemTypes,
+            int? startIndex,
+            int? limit)
+        {
+            var query = new InternalItemsQuery
+            {
+                SearchTerm = searchTerm ?? string.Empty,
+                IncludeItemTypes = includeItemTypes,
+                Recursive = !parentInternalId.HasValue
+            };
+
+            if (limit.HasValue)
+            {
+                query.Limit = limit.Value;
+            }
+
+            if (startIndex.HasValue)
+            {
+                query.StartIndex = startIndex.Value;
+            }
+
+            if (parentInternalId.HasValue)
+            {
+                query.ParentIds = new[] { parentInternalId.Value };
+            }
+            else if (libraryScopeId.HasValue)
+            {
+                query.AncestorIds = new[] { libraryScopeId.Value };
+            }
+
+            return query;
+        }
+
+        private static IEnumerable<BaseItem> OrderBrowseItems(IEnumerable<BaseItem> items, BaseItem parent)
+        {
+            var parentType = parent?.GetType().Name;
+            if (string.Equals(parentType, "Series", StringComparison.Ordinal)
+                || string.Equals(parentType, "Season", StringComparison.Ordinal))
+            {
+                return items
+                    .OrderBy(item => item.IndexNumber ?? int.MaxValue)
+                    .ThenBy(item => item.SortName ?? item.Name, StringComparer.OrdinalIgnoreCase);
+            }
+
+            return items.OrderBy(item => item.SortName ?? item.Name, StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static string[] ResolveBrowseChildTypes(BaseItem parent, out string childType)
+        {
+            if (parent == null)
+            {
+                childType = "Series/Movie";
+                return new[] { "Series", "Movie" };
+            }
+
+            var parentType = parent.GetType().Name;
+            if (string.Equals(parentType, "Series", StringComparison.Ordinal))
+            {
+                childType = "Season";
+                return new[] { "Season" };
+            }
+
+            if (string.Equals(parentType, "Season", StringComparison.Ordinal))
+            {
+                childType = "Episode";
+                return new[] { "Episode" };
+            }
+
+            throw new ArgumentException("Only Series and Season can be opened in the media hierarchy.");
+        }
+
+        private BaseItem ResolveBrowseParent(string parentId)
+        {
+            Guid parsed;
+            if (!Guid.TryParse(parentId, out parsed))
+            {
+                throw new ArgumentException("ParentId is invalid.");
+            }
+
+            var parent = libraryManager.GetItemById(parsed);
+            if (parent == null)
+            {
+                throw new ArgumentException("Browse parent could not be resolved.");
+            }
+
+            var parentType = parent.GetType().Name;
+            if (!string.Equals(parentType, "Series", StringComparison.Ordinal)
+                && !string.Equals(parentType, "Season", StringComparison.Ordinal))
+            {
+                throw new ArgumentException("Only Series and Season can be opened in the media hierarchy.");
+            }
+
+            return parent;
+        }
+
+        private static M1BrowseNodeResponse ToBrowseNode(BaseItem item, string libraryId, string libraryName)
+        {
+            var type = item.GetType().Name;
+            var hasChildren = string.Equals(type, "Series", StringComparison.Ordinal)
+                || string.Equals(type, "Season", StringComparison.Ordinal);
+            return new M1BrowseNodeResponse
+            {
+                Id = item.Id.ToString("N"),
+                Name = item.Name,
+                Type = type,
+                ChildType = string.Equals(type, "Series", StringComparison.Ordinal)
+                    ? "Season"
+                    : string.Equals(type, "Season", StringComparison.Ordinal) ? "Episode" : null,
+                HasChildren = hasChildren,
+                IndexNumber = item.IndexNumber,
+                ParentIndexNumber = item.ParentIndexNumber,
+                LibraryId = NormalizeLibraryId(libraryId),
+                LibraryName = libraryName
+            };
+        }
+
+        private BaseItem[] GetItemsSafely(InternalItemsQuery query, string scope)
+        {
+            try
+            {
+                return libraryManager.GetItemList(query);
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException("SubSteward " + scope + " item query failed: " + exception.Message, exception);
+            }
+        }
+
+        private IEnumerable<M1ItemResponse> MapItemResponsesSafely(IEnumerable<BaseItem> items)
+        {
+            foreach (var item in items)
+            {
+                M1ItemResponse response;
+                try
+                {
+                    response = ToItemResponse(item, false);
+                }
+                catch (Exception exception)
+                {
+                    var itemId = item == null ? "null" : item.Id.ToString("N");
+                    throw new InvalidOperationException("SubSteward item summary failed for " + itemId + ": " + exception.Message, exception);
+                }
+
+                yield return response;
+            }
+        }
+
+        private BaseItem ResolveLibrary(string libraryId)
+        {
+            if (string.IsNullOrWhiteSpace(libraryId))
+            {
+                return null;
+            }
+
+            var normalizedLibraryId = NormalizeLibraryId(libraryId);
+            var folder = libraryManager.GetVirtualFolders()
+                .FirstOrDefault(entry => entry != null
+                    && string.Equals(NormalizeLibraryId(entry.ItemId), normalizedLibraryId, StringComparison.OrdinalIgnoreCase));
+            if (folder == null)
+            {
+                throw new ArgumentException("LibraryId does not identify an available media library.");
+            }
+
+            BaseItem library;
+            long internalId;
+            Guid parsedId;
+            if (long.TryParse(folder.ItemId, out internalId))
+            {
+                library = libraryManager.GetItemById(internalId);
+            }
+            else if (Guid.TryParse(folder.ItemId, out parsedId))
+            {
+                library = libraryManager.GetItemById(parsedId);
+            }
+            else
+            {
+                library = null;
+            }
+
+            if (library == null)
+            {
+                throw new ArgumentException("Media library could not be resolved.");
+            }
+
+            return library;
+        }
+
+        private long? ResolveLibraryScopeId(string libraryId, BaseItem library)
+        {
+            if (string.IsNullOrWhiteSpace(libraryId))
+            {
+                return null;
+            }
+
+            var normalizedLibraryId = NormalizeLibraryId(libraryId);
+            var folder = libraryManager.GetVirtualFolders()
+                .FirstOrDefault(entry => entry != null
+                    && string.Equals(NormalizeLibraryId(entry.ItemId), normalizedLibraryId, StringComparison.OrdinalIgnoreCase));
+            long internalId;
+            if (folder != null && long.TryParse(folder.ItemId, out internalId))
+            {
+                return internalId;
+            }
+
+            return library?.InternalId;
         }
 
         private static MediaSourceInfo ResolveSource(BaseItem item, string mediaSourceId)

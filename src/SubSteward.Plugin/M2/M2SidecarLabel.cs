@@ -39,24 +39,18 @@ namespace SubSteward.Plugin.M2
 
         private static string BilingualSuffix(M2QualityReport report)
         {
-            if (report.CueCount == 0 || !report.BilingualDetected)
+            if (report.CueCount == 0 || !report.TargetLanguagePresent)
             {
                 return null;
             }
 
             var threshold = Math.Max(1, (int)Math.Ceiling(report.CueCount * 0.05d));
-            var bilingualCueCount = Math.Max(report.BilingualCueCount, report.JapaneseCueCount);
-            if (bilingualCueCount < threshold)
-            {
-                return null;
-            }
-
             if (report.JapaneseCueCount >= threshold)
             {
                 return "日";
             }
 
-            return report.SecondaryLanguageCueCount >= threshold ? "英" : null;
+            return report.BilingualDetected && report.SecondaryLanguageCueCount >= threshold ? "英" : null;
         }
     }
 }

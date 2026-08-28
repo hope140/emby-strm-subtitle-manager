@@ -44,6 +44,21 @@ public sealed class M2QualityAnalyzerTests
         Assert.False(report.BilingualDetected);
     }
 
+    [Fact]
+    public void DanmakuLatinFragments_AreNotDetectedAsEnglishContent()
+    {
+        var validation = new M1SubtitleValidator().Validate(
+            Encoding.UTF8.GetBytes("1\n00:00:01,000 --> 00:00:02,000\n好棒 BGM\n\n2\n00:00:02,000 --> 00:00:03,000\nawwwwwwwww Neil QAQ\n\n3\n00:00:03,000 --> 00:00:04,000\n画面太美 yoyoyoyoyoyoyo\n"),
+            "srt");
+        var report = new M2QualityAnalyzer().Analyze(validation);
+
+        Assert.True(report.TargetLanguagePresent);
+        Assert.Equal(0, report.SecondaryLanguageCueCount);
+        Assert.False(report.SecondaryLanguagePresent);
+        Assert.False(report.BilingualDetected);
+        Assert.Equal(0, report.BilingualCueCount);
+    }
+
     [Theory]
     [InlineData("zh-Hans")]
     [InlineData("zh-Hant")]

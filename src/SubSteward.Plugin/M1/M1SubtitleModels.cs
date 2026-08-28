@@ -64,6 +64,14 @@ namespace SubSteward.Plugin.M1
 
         public bool HashMatch { get; set; }
 
+        public string Provider { get; set; }
+
+        public string Name { get; set; }
+
+        public string Format { get; set; }
+
+        public bool LikelyNonFullRelease { get; set; }
+
         public DateTime ExpiresAtUtc { get; set; }
     }
 

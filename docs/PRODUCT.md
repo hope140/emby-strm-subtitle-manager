@@ -106,9 +106,9 @@ Health → Preference → 状态与建议
 候选选择采用两阶段：
 
 1. Metadata Ranking：Provider、名称、语言、格式、Hash、Provider 分数和文件名关键词排序。
-2. Deep Ranking：Fetch 后检查 Health、实际语言、双语、特效、编码、格式和内容问题。
+2. Deep Ranking：Fetch 后检查 Health、实际语言、双语、特效、编码、格式和内容问题。英文证据按可识别词语/短语统计，不把 BGM、用户名、URL、缩写或弹幕拟声词当作英文正文。
 
-Health FAIL 的候选直接淘汰。Provider 返回的语言字段不能代替正文语言检查；中文候选必须经过正文门禁，避免“标称中文但正文是英语或其他影片”的错误写入。初期只 Fetch 有限数量的候选，默认上限为 3。
+Health FAIL 的候选直接淘汰。Provider 返回的语言字段不能代替正文语言检查；中文候选必须经过正文门禁，避免“标称中文但正文是英语或其他影片”的错误写入。候选名称出现 `bilibili`、`clip`、`trailer`、`片段`、`戏份`、`花絮`、`预告`、`混剪` 或 `弹幕` 等短片来源信号且没有 Hash 匹配时，保持人工拒绝，不进入 Fetch。初期只 Fetch 有限数量的候选，默认上限为 3。
 
 候选原始 ID 和 Artifact 内容只在插件进程短期保存，不写入响应、日志或仓库。
 
