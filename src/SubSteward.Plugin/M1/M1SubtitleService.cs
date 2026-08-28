@@ -35,6 +35,12 @@ namespace SubSteward.Plugin.M1
         public string Id { get; set; }
     }
 
+    [Route("/SubSteward/Libraries", "GET", Summary = "Lists Emby media libraries for SubSteward settings")]
+    [Authenticated(Roles = "Admin")]
+    public sealed class M1ListLibrariesRequest
+    {
+    }
+
     [Route("/SubSteward/Subtitles/Search", "GET", Summary = "Searches subtitle candidates")]
     [Authenticated(Roles = "Admin")]
     public sealed class M1SearchSubtitlesRequest
@@ -60,6 +66,15 @@ namespace SubSteward.Plugin.M1
         public string ArtifactToken { get; set; }
     }
 
+    [Route("/SubSteward/Subtitles/Align", "POST", Summary = "Applies a manual uniform timeline offset to a fetched subtitle")]
+    [Authenticated(Roles = "Admin")]
+    public sealed class M1AlignSubtitleRequest
+    {
+        public string ArtifactToken { get; set; }
+
+        public int OffsetMilliseconds { get; set; }
+    }
+
     [Route("/SubSteward/Subtitles/Install", "POST", Summary = "Installs one validated subtitle and refreshes the item")]
     [Authenticated(Roles = "Admin")]
     public sealed class M1InstallSubtitleRequest
@@ -77,9 +92,20 @@ namespace SubSteward.Plugin.M1
 
         public bool IsStrm { get; set; }
 
+        public string LibraryId { get; set; }
+
+        public string LibraryName { get; set; }
+
         public List<M1SourceResponse> MediaSources { get; } = new List<M1SourceResponse>();
 
         public M2ActionReport Action { get; set; }
+    }
+
+    public sealed class M1LibraryResponse
+    {
+        public string Id { get; set; }
+
+        public string Name { get; set; }
     }
 
     public sealed class M1SourceResponse
@@ -94,7 +120,36 @@ namespace SubSteward.Plugin.M1
 
         public int SubtitleStreamCount { get; set; }
 
+        public string ExistingTargetHealth { get; set; }
+
+        public List<M1SubtitleStreamResponse> SubtitleStreams { get; } = new List<M1SubtitleStreamResponse>();
+
         public M2PresenceReport Presence { get; set; }
+    }
+
+    public sealed class M1SubtitleStreamResponse
+    {
+        public bool IsExternal { get; set; }
+
+        public string Language { get; set; }
+
+        public string LanguageLabel { get; set; }
+
+        public string Title { get; set; }
+
+        public bool IsTargetLanguage { get; set; }
+
+        public bool IsSecondaryLanguage { get; set; }
+
+        public string Format { get; set; }
+
+        public string Encoding { get; set; }
+
+        public string Health { get; set; }
+
+        public M2QualityReport Quality { get; set; }
+
+        public List<string> Reasons { get; } = new List<string>();
     }
 
     public sealed class M1CandidateResponse
@@ -159,6 +214,8 @@ namespace SubSteward.Plugin.M1
 
         public bool HashMatch { get; set; }
 
+        public int TimelineOffsetMilliseconds { get; set; }
+
         public List<string> Reasons { get; } = new List<string>();
 
         public M2QualityReport Quality { get; set; }
@@ -189,9 +246,12 @@ namespace SubSteward.Plugin.M1
     {
         private const int MaxCandidates = 20;
         private const int MaxPreviewCues = 200;
+        private const int MaxExistingSubtitleInspections = 8;
 
         private static readonly M1TokenStore Store = new M1TokenStore();
         private static readonly M1SubtitleValidator Validator = new M1SubtitleValidator();
+        private static readonly M1SubtitleFileInspector FileInspector = new M1SubtitleFileInspector(Validator);
+        private static readonly M1SubtitleTimelineShifter TimelineShifter = new M1SubtitleTimelineShifter();
         private static readonly M2QualityAnalyzer QualityAnalyzer = new M2QualityAnalyzer();
         private static readonly M2PreferenceAnalyzer PreferenceAnalyzer = new M2PreferenceAnalyzer();
         private static readonly M2PresenceAnalyzer PresenceAnalyzer = new M2PresenceAnalyzer();
@@ -230,12 +290,25 @@ namespace SubSteward.Plugin.M1
                 Limit = limit
             });
 
-            return items.Select(ToItemResponse).ToList();
+            return items.Select(item => ToItemResponse(item, false)).ToList();
         }
 
         public object Get(M1GetItemRequest request)
         {
-            return ToItemResponse(ResolveItem(request.Id));
+            return ToItemResponse(ResolveItem(request.Id), true);
+        }
+
+        public object Get(M1ListLibrariesRequest request)
+        {
+            return libraryManager.GetVirtualFolders()
+                .Where(folder => folder != null && !string.IsNullOrWhiteSpace(folder.ItemId))
+                .Select(folder => new M1LibraryResponse
+                {
+                    Id = NormalizeLibraryId(folder.ItemId),
+                    Name = folder.Name
+                })
+                .OrderBy(folder => folder.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         public async Task<object> Get(M1SearchSubtitlesRequest request)
@@ -338,7 +411,68 @@ namespace SubSteward.Plugin.M1
                 throw new ArgumentException("Artifact token is expired or invalid.");
             }
 
-            return ToArtifactResponse(artifact.Token, artifact.ItemId, artifact.MediaSourceId, artifact.Language, artifact.Validation, artifact.TitleMatch, artifact.HashMatch, artifact.RequestedLanguageVariant);
+            return ToArtifactResponse(
+                artifact.Token,
+                artifact.ItemId,
+                artifact.MediaSourceId,
+                artifact.Language,
+                artifact.Validation,
+                artifact.TitleMatch,
+                artifact.HashMatch,
+                artifact.RequestedLanguageVariant,
+                artifact.TimelineOffsetMilliseconds);
+        }
+
+        public object Post(M1AlignSubtitleRequest request)
+        {
+            M1ArtifactRecord artifact;
+            if (!Store.TryGetArtifact(request.ArtifactToken, out artifact))
+            {
+                throw new ArgumentException("Artifact token is expired or invalid.");
+            }
+
+            var cumulativeOffset = (long)artifact.TimelineOffsetMilliseconds + request.OffsetMilliseconds;
+            if (Math.Abs(cumulativeOffset) > M1SubtitleTimelineShifter.MaxAbsoluteOffsetMilliseconds)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(request.OffsetMilliseconds),
+                    "Cumulative timeline offset cannot exceed 10 minutes in either direction.");
+            }
+
+            var shiftedContent = TimelineShifter.Shift(artifact.Content, artifact.Validation.Format, request.OffsetMilliseconds);
+            var shiftedValidation = Validator.Validate(shiftedContent, artifact.Validation.Format);
+            if (!shiftedValidation.IsUsable)
+            {
+                throw new InvalidOperationException("Shifted subtitle failed validation.");
+            }
+
+            if (IsChineseLanguage(artifact.Language) && !shiftedValidation.HasHanCharacters)
+            {
+                throw new InvalidOperationException("Shifted subtitle no longer passes the target-language content gate.");
+            }
+
+            var item = ResolveItem(artifact.ItemId.ToString("N"));
+            var source = ResolveSource(item, artifact.MediaSourceId);
+            var token = Store.AddArtifact(
+                item.Id,
+                source.Id,
+                artifact.Language,
+                shiftedContent,
+                shiftedValidation,
+                artifact.TitleMatch,
+                artifact.HashMatch,
+                artifact.RequestedLanguageVariant,
+                (int)cumulativeOffset);
+            return ToArtifactResponse(
+                token,
+                item.Id,
+                source.Id,
+                artifact.Language,
+                shiftedValidation,
+                artifact.TitleMatch,
+                artifact.HashMatch,
+                artifact.RequestedLanguageVariant,
+                (int)cumulativeOffset);
         }
 
         public async Task<object> Post(M1InstallSubtitleRequest request)
@@ -425,32 +559,60 @@ namespace SubSteward.Plugin.M1
             return M2Options.ParseTargetLanguage(language).Code;
         }
 
-        private static string GetTargetLanguage()
+        private static string NormalizeLibraryId(string libraryId)
         {
-            var configuration = Plugin.Instance?.Configuration;
-            return M2Options.NormalizeTargetLanguage(configuration?.TargetLanguage);
+            Guid parsed;
+            return Guid.TryParse(libraryId, out parsed) ? parsed.ToString("N") : libraryId;
         }
 
-        private static string GetSecondaryLanguage()
+        private static string GetTargetLanguage(LibraryPreferenceOverride libraryOverride = null)
         {
             var configuration = Plugin.Instance?.Configuration;
-            return M2Options.NormalizeSecondaryLanguage(configuration?.SecondaryLanguage);
+            return M2Options.CanonicalizeTargetLanguage(
+                libraryOverride != null && libraryOverride.Enabled && !string.IsNullOrWhiteSpace(libraryOverride.TargetLanguage)
+                    ? libraryOverride.TargetLanguage
+                    : configuration?.TargetLanguage);
         }
 
-        private static M2PreferenceOptions GetPreferenceOptions()
+        private static string GetSecondaryLanguage(LibraryPreferenceOverride libraryOverride = null)
+        {
+            var configuration = Plugin.Instance?.Configuration;
+            return M2Options.CanonicalizeSecondaryLanguage(
+                libraryOverride != null && libraryOverride.Enabled && !string.IsNullOrWhiteSpace(libraryOverride.SecondaryLanguage)
+                    ? libraryOverride.SecondaryLanguage
+                    : configuration?.SecondaryLanguage);
+        }
+
+        private static M2PreferenceOptions GetPreferenceOptions(LibraryPreferenceOverride libraryOverride = null)
         {
             var configuration = Plugin.Instance?.Configuration;
             return M2Options.ParsePreferenceOptions(
-                configuration?.PreferBilingual ?? false,
-                configuration?.FormatOrder);
+                libraryOverride != null && libraryOverride.Enabled
+                    ? libraryOverride.PreferBilingual
+                    : configuration?.PreferBilingual ?? false,
+                libraryOverride != null && libraryOverride.Enabled && !string.IsNullOrWhiteSpace(libraryOverride.FormatOrder)
+                    ? libraryOverride.FormatOrder
+                    : configuration?.FormatOrder);
+        }
+
+        private LibraryPreferenceOverride GetLibraryOverride(BaseItem item)
+        {
+            var folders = libraryManager.GetCollectionFolders(item);
+            var folder = folders == null ? null : folders.FirstOrDefault();
+            var configuration = Plugin.Instance?.Configuration;
+            if (folder == null || configuration?.LibraryOverrides == null)
+            {
+                return null;
+            }
+
+            var libraryId = folder.Id.ToString("N");
+            return configuration.LibraryOverrides.FirstOrDefault(entry =>
+                entry != null && string.Equals(NormalizeLibraryId(entry.LibraryId), libraryId, StringComparison.OrdinalIgnoreCase));
         }
 
         private static bool IsChineseLanguage(string language)
         {
-            return string.Equals(language, "zho", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(language, "zh", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(language, "zh-CN", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(language, "chi", StringComparison.OrdinalIgnoreCase);
+            return M2Language.IsChinese(language);
         }
 
         private static bool CandidateMatchesItem(string candidateName, BaseItem item)
@@ -464,14 +626,21 @@ namespace SubSteward.Plugin.M1
                 || (!string.IsNullOrWhiteSpace(item.OriginalTitle) && candidateName.IndexOf(item.OriginalTitle, StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
-        private static M1ItemResponse ToItemResponse(BaseItem item)
+        private M1ItemResponse ToItemResponse(BaseItem item, bool inspectExistingSubtitles)
         {
+            var folders = libraryManager.GetCollectionFolders(item);
+            var folder = folders == null ? null : folders.FirstOrDefault();
+            var libraryOverride = GetLibraryOverride(item);
+            var targetLanguage = GetTargetLanguage(libraryOverride);
+            var secondaryLanguage = GetSecondaryLanguage(libraryOverride);
             var response = new M1ItemResponse
             {
                 Id = item.Id.ToString("N"),
                 Name = item.Name,
                 Type = item.GetType().Name,
-                IsStrm = !string.IsNullOrWhiteSpace(item.Path) && item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase)
+                IsStrm = !string.IsNullOrWhiteSpace(item.Path) && item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase),
+                LibraryId = folder?.Id.ToString("N"),
+                LibraryName = folder?.Name
             };
 
             foreach (var source in item.GetMediaSources(false, false, new LibraryOptions()))
@@ -489,31 +658,183 @@ namespace SubSteward.Plugin.M1
                         })
                         .ToList();
 
-                response.MediaSources.Add(new M1SourceResponse
+                var sourceResponse = new M1SourceResponse
                 {
                     Id = source.Id,
                     Name = source.Name,
                     Container = source.Container,
                     IsRemote = source.IsRemote,
                     SubtitleStreamCount = source.MediaStreams == null ? 0 : source.MediaStreams.Count(stream => stream.Type.ToString() == "Subtitle"),
-                    Presence = PresenceAnalyzer.Analyze(subtitleStreams, GetTargetLanguage(), GetSecondaryLanguage())
-                });
+                    Presence = PresenceAnalyzer.Analyze(
+                        subtitleStreams,
+                        targetLanguage,
+                        secondaryLanguage)
+                };
+
+                if (inspectExistingSubtitles)
+                {
+                    PopulateExistingSubtitleStreams(
+                        item,
+                        source,
+                        sourceResponse,
+                        targetLanguage,
+                        secondaryLanguage);
+                    sourceResponse.ExistingTargetHealth = DetermineExistingTargetHealth(sourceResponse);
+                }
+
+                response.MediaSources.Add(sourceResponse);
             }
 
-            // Presence does not include health. Keep a present target manual until
-            // a health result is supplied instead of silently treating presence as PASS.
+            var existingTargetHealth = inspectExistingSubtitles && response.MediaSources.Count == 1
+                ? response.MediaSources[0].ExistingTargetHealth
+                : null;
             response.Action = ActionAdvisor.Advise(new M2ActionInput
             {
                 SourceCount = response.MediaSources.Count,
                 TargetLanguagePresent = response.MediaSources.Count == 1 && response.MediaSources[0].Presence != null
                     ? (bool?)response.MediaSources[0].Presence.TargetLanguagePresent
-                    : null
+                    : null,
+                ExistingTargetHealth = existingTargetHealth
             });
 
             return response;
         }
 
-        private static M1ArtifactResponse ToArtifactResponse(string token, Guid itemId, string sourceId, string language, M1ValidationResult validation, bool titleMatch, bool hashMatch, string requestedLanguageVariant)
+        private void PopulateExistingSubtitleStreams(
+            BaseItem item,
+            MediaSourceInfo source,
+            M1SourceResponse sourceResponse,
+            string targetLanguage,
+            string secondaryLanguage)
+        {
+            var streams = (source.MediaStreams ?? new List<MediaBrowser.Model.Entities.MediaStream>())
+                .Where(stream => stream.Type.ToString() == "Subtitle")
+                .Select(stream => new
+                {
+                    Stream = stream,
+                    Snapshot = new M2SubtitleStreamSnapshot
+                    {
+                        IsExternal = stream.IsExternal,
+                        Language = stream.Language,
+                        Title = string.IsNullOrWhiteSpace(stream.DisplayTitle) ? stream.Title : stream.DisplayTitle,
+                        Path = stream.IsExternal ? stream.Path : null
+                    }
+                })
+                .OrderByDescending(entry => PresenceAnalyzer.MatchesConfiguredLanguage(entry.Snapshot, targetLanguage))
+                .ThenByDescending(entry => PresenceAnalyzer.MatchesConfiguredLanguage(entry.Snapshot, secondaryLanguage))
+                .ThenByDescending(entry => entry.Stream.IsExternal)
+                .ToList();
+
+            var inspectionCount = 0;
+            foreach (var entry in streams)
+            {
+                var isTargetLanguage = PresenceAnalyzer.MatchesConfiguredLanguage(entry.Snapshot, targetLanguage);
+                var isSecondaryLanguage = PresenceAnalyzer.MatchesConfiguredLanguage(entry.Snapshot, secondaryLanguage);
+                var parsedLanguage = string.IsNullOrWhiteSpace(entry.Stream.Language)
+                    ? null
+                    : M2Language.Parse(entry.Stream.Language, entry.Stream.Language);
+                var detail = new M1SubtitleStreamResponse
+                {
+                    IsExternal = entry.Stream.IsExternal,
+                    Language = entry.Stream.Language,
+                    LanguageLabel = parsedLanguage == null
+                        ? (isTargetLanguage ? M2Language.Parse(targetLanguage, targetLanguage).Label : "未知语言")
+                        : parsedLanguage.Label,
+                    Title = string.IsNullOrWhiteSpace(entry.Stream.DisplayTitle) ? entry.Stream.Title : entry.Stream.DisplayTitle,
+                    IsTargetLanguage = isTargetLanguage,
+                    IsSecondaryLanguage = isSecondaryLanguage,
+                    Health = "UNKNOWN"
+                };
+
+                if (!entry.Stream.IsExternal)
+                {
+                    detail.Reasons.Add("内封字幕默认不提取正文，当前无法深检。即使存在目标语言，也不会自动修改。");
+                }
+                else if (inspectionCount >= MaxExistingSubtitleInspections)
+                {
+                    detail.Reasons.Add("当前条目已达到外置字幕深检数量上限。");
+                }
+                else
+                {
+                    inspectionCount++;
+                    var inspection = FileInspector.Inspect(
+                        GetInspectionAnchor(item, source),
+                        entry.Stream.Path,
+                        GetSubtitleFormat(entry.Stream.Path));
+                    if (!inspection.IsInspectable || inspection.Validation == null)
+                    {
+                        detail.Reasons.AddRange(inspection.Reasons);
+                    }
+                    else
+                    {
+                        detail.Format = inspection.Validation.Format;
+                        detail.Encoding = inspection.Validation.Encoding;
+                        detail.Health = inspection.Validation.Health;
+                        detail.Reasons.AddRange(inspection.Reasons);
+                        detail.Quality = QualityAnalyzer.Analyze(inspection.Validation, targetLanguage, secondaryLanguage);
+                    }
+                }
+
+                sourceResponse.SubtitleStreams.Add(detail);
+            }
+        }
+
+        private static string DetermineExistingTargetHealth(M1SourceResponse source)
+        {
+            var targetStreams = source.SubtitleStreams
+                .Where(stream => stream.IsTargetLanguage)
+                .ToList();
+            if (targetStreams.Count == 0)
+            {
+                return null;
+            }
+
+            if (targetStreams.Any(stream => string.Equals(stream.Health, "PASS", StringComparison.OrdinalIgnoreCase)))
+            {
+                return "PASS";
+            }
+
+            if (targetStreams.Any(stream => string.Equals(stream.Health, "WARNING", StringComparison.OrdinalIgnoreCase)))
+            {
+                return "WARNING";
+            }
+
+            if (targetStreams.All(stream => string.Equals(stream.Health, "FAIL", StringComparison.OrdinalIgnoreCase)))
+            {
+                return "FAIL";
+            }
+
+            return null;
+        }
+
+        private static string GetInspectionAnchor(BaseItem item, MediaSourceInfo source)
+        {
+            if (!string.IsNullOrWhiteSpace(item.Path) && item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
+            {
+                return item.Path;
+            }
+
+            return source.IsRemote ? null : source.Path;
+        }
+
+        private static string GetSubtitleFormat(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return null;
+            }
+
+            try
+            {
+                return Path.GetExtension(path);
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
+        }
+
+        private M1ArtifactResponse ToArtifactResponse(string token, Guid itemId, string sourceId, string language, M1ValidationResult validation, bool titleMatch, bool hashMatch, string requestedLanguageVariant, int timelineOffsetMilliseconds = 0)
         {
             var response = new M1ArtifactResponse
             {
@@ -527,11 +848,14 @@ namespace SubSteward.Plugin.M1
                 Encoding = validation.Encoding,
                 Health = validation.Health,
                 TitleMatch = titleMatch,
-                HashMatch = hashMatch
+                HashMatch = hashMatch,
+                TimelineOffsetMilliseconds = timelineOffsetMilliseconds
             };
             response.Reasons.AddRange(validation.Reasons);
-            var secondaryLanguage = GetSecondaryLanguage();
-            var preferenceOptions = GetPreferenceOptions();
+            var item = libraryManager.GetItemById(itemId);
+            var libraryOverride = item == null ? null : GetLibraryOverride(item);
+            var secondaryLanguage = GetSecondaryLanguage(libraryOverride);
+            var preferenceOptions = GetPreferenceOptions(libraryOverride);
             response.Quality = QualityAnalyzer.Analyze(validation, language, secondaryLanguage);
             response.Preference = PreferenceAnalyzer.Evaluate(
                 validation,

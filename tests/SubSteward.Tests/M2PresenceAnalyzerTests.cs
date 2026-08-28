@@ -68,6 +68,30 @@ public sealed class M2PresenceAnalyzerTests
     }
 
     [Fact]
+    public void ExplicitOppositeVariant_DoesNotSatisfyRequestedVariant()
+    {
+        var report = new M2PresenceAnalyzer().Analyze(new[]
+        {
+            new M2SubtitleStreamSnapshot { IsExternal = true, Language = "zh-Hant" }
+        }, "zh-Hans");
+
+        Assert.Equal("zh-Hans", report.RequestedTargetVariant);
+        Assert.False(report.TargetLanguagePresent);
+    }
+
+    [Fact]
+    public void UnknownVariantEvidence_RemainsPresentForRequestedVariant()
+    {
+        var report = new M2PresenceAnalyzer().Analyze(new[]
+        {
+            new M2SubtitleStreamSnapshot { IsExternal = true, Language = "zho" }
+        }, "zh-Hans");
+
+        Assert.True(report.TargetLanguagePresent);
+        Assert.Equal("zh-Hans", report.RequestedTargetVariant);
+    }
+
+    [Fact]
     public void KnownJapaneseStream_DoesNotUseChineseTitleFallback()
     {
         var report = new M2PresenceAnalyzer().Analyze(new[]

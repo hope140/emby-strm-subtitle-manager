@@ -43,4 +43,20 @@ public sealed class M2QualityAnalyzerTests
         Assert.False(report.SecondaryLanguagePresent);
         Assert.False(report.BilingualDetected);
     }
+
+    [Theory]
+    [InlineData("zh-Hans")]
+    [InlineData("zh-Hant")]
+    public void ChineseLanguageVariants_AreDetectedAsChineseContent(string language)
+    {
+        var validation = new M1SubtitleValidator().Validate(
+            Encoding.UTF8.GetBytes("1\n00:00:01,000 --> 00:00:02,000\n你好\n"),
+            "srt");
+
+        var report = new M2QualityAnalyzer().Analyze(validation, language);
+
+        Assert.Equal("zho", report.TargetLanguage);
+        Assert.True(report.TargetLanguagePresent);
+        Assert.Equal(1, report.TargetLanguageCueCount);
+    }
 }

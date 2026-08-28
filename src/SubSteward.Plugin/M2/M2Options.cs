@@ -43,7 +43,8 @@ namespace SubSteward.Plugin.M2
 
         public static string ResolveSubtitleLanguageTag(string requestedLanguageVariant, string fallbackCode)
         {
-            var variant = (requestedLanguageVariant ?? string.Empty).Trim().ToLowerInvariant();
+            var selection = M2Language.Parse(requestedLanguageVariant, fallbackCode);
+            var variant = (selection.Variant ?? string.Empty).Trim().ToLowerInvariant();
             if (variant == "zh-hans")
             {
                 return "zh-CN";
@@ -54,7 +55,19 @@ namespace SubSteward.Plugin.M2
                 return "zh-TW";
             }
 
-            return ParseTargetLanguage(fallbackCode).Code;
+            return selection.Code;
+        }
+
+        public static string CanonicalizeTargetLanguage(string language)
+        {
+            var selection = ParseTargetLanguage(language);
+            return selection.Variant ?? selection.Code;
+        }
+
+        public static string CanonicalizeSecondaryLanguage(string language)
+        {
+            var selection = ParseSecondaryLanguage(language);
+            return selection.Variant ?? selection.Code;
         }
 
         public static string NormalizeTargetLanguage(string language)

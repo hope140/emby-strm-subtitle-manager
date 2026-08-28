@@ -154,20 +154,17 @@ namespace SubSteward.Plugin.M2
 
         private static bool DetectLanguage(string language, string text)
         {
-            if (string.Equals(language, "zho", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(language, "zh", StringComparison.OrdinalIgnoreCase))
+            if (M2Language.IsChinese(language))
             {
                 return HasHanCharacter(text);
             }
 
-            if (string.Equals(language, "eng", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(language, "en", StringComparison.OrdinalIgnoreCase))
+            if (M2Language.IsEnglish(language))
             {
                 return HasLatinCharacter(text);
             }
 
-            if (string.Equals(language, "jpn", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(language, "ja", StringComparison.OrdinalIgnoreCase))
+            if (M2Language.IsJapanese(language))
             {
                 return HasKanaCharacter(text);
             }
@@ -191,7 +188,7 @@ namespace SubSteward.Plugin.M2
 
         private static string NormalizeLanguage(string language, string defaultLanguage)
         {
-            return string.IsNullOrWhiteSpace(language) ? defaultLanguage : language.Trim();
+            return M2Language.Parse(language, defaultLanguage).Code;
         }
     }
 }

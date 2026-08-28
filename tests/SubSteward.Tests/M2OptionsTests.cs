@@ -49,5 +49,14 @@ public sealed class M2OptionsTests
         Assert.Equal("zh-CN", M2Options.ResolveSubtitleLanguageTag("zh-Hans", "zho"));
         Assert.Equal("zh-TW", M2Options.ResolveSubtitleLanguageTag("zh-Hant", "zho"));
         Assert.Equal("zho", M2Options.ResolveSubtitleLanguageTag(null, "zho"));
+        Assert.Equal("zh-CN", M2Options.ResolveSubtitleLanguageTag(null, "zh-Hans"));
+    }
+
+    [Fact]
+    public void CanonicalLanguageValues_PreserveChineseVariants()
+    {
+        Assert.Equal("zh-Hans", M2Options.CanonicalizeTargetLanguage("chs"));
+        Assert.Equal("zh-Hant", M2Options.CanonicalizeTargetLanguage("zh-TW"));
+        Assert.Equal("zh-Hant", M2Options.CanonicalizeSecondaryLanguage("cht"));
     }
 }

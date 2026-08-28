@@ -18,10 +18,11 @@ public sealed class M1TokenStoreTests
         Assert.Equal("provider-private-id", candidate.RawId);
         Assert.Equal("zh-Hans", candidate.RequestedLanguageVariant);
 
-        var artifactToken = store.AddArtifact(itemId, "source", "zho", new byte[] { 1, 2 }, new M1ValidationResult { Format = "srt", Health = "PASS" }, true, false, candidate.RequestedLanguageVariant);
+        var artifactToken = store.AddArtifact(itemId, "source", "zho", new byte[] { 1, 2 }, new M1ValidationResult { Format = "srt", Health = "PASS" }, true, false, candidate.RequestedLanguageVariant, 500);
         Assert.True(store.TryGetArtifact(artifactToken, out var artifact));
         Assert.Equal(itemId, artifact.ItemId);
         Assert.Equal("zh-Hans", artifact.RequestedLanguageVariant);
+        Assert.Equal(500, artifact.TimelineOffsetMilliseconds);
         Assert.True(store.RemoveArtifact(artifactToken));
         Assert.False(store.TryGetArtifact(artifactToken, out _));
     }

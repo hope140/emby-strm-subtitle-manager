@@ -33,8 +33,7 @@ namespace SubSteward.Plugin.M2
                         continue;
                     }
 
-                    var evidence = BuildEvidence(stream);
-                    if (MatchesLanguage(report.TargetLanguage, stream.Language, evidence))
+                    if (MatchesConfiguredLanguage(stream, target))
                     {
                         report.TargetLanguagePresent = true;
                         var variant = DetectStreamVariant(stream);
@@ -53,7 +52,7 @@ namespace SubSteward.Plugin.M2
                         }
                     }
 
-                    if (MatchesLanguage(report.SecondaryLanguage, stream.Language, evidence))
+                    if (MatchesConfiguredLanguage(stream, secondary))
                     {
                         report.SecondaryLanguagePresent = true;
                     }
@@ -61,6 +60,23 @@ namespace SubSteward.Plugin.M2
             }
 
             return report;
+        }
+
+        public bool MatchesConfiguredLanguage(M2SubtitleStreamSnapshot stream, string expectedLanguage)
+        {
+            if (stream == null)
+            {
+                return false;
+            }
+
+            return MatchesConfiguredLanguage(stream, M2Language.Parse(expectedLanguage, M2Language.Chinese));
+        }
+
+        private static bool MatchesConfiguredLanguage(M2SubtitleStreamSnapshot stream, M2LanguageSelection expected)
+        {
+            var evidence = BuildEvidence(stream);
+            return MatchesLanguage(expected.Code, stream.Language, evidence)
+                && M2Language.StreamMatchesVariant(stream, expected.Variant);
         }
 
         private static bool MatchesLanguage(string expectedLanguage, string actualLanguage, string title)

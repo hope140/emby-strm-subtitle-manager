@@ -45,7 +45,7 @@ namespace SubSteward.Plugin.M1
             }
         }
 
-        public string AddArtifact(Guid itemId, string mediaSourceId, string language, byte[] content, M1ValidationResult validation, bool titleMatch, bool hashMatch, string requestedLanguageVariant = null)
+        public string AddArtifact(Guid itemId, string mediaSourceId, string language, byte[] content, M1ValidationResult validation, bool titleMatch, bool hashMatch, string requestedLanguageVariant = null, int timelineOffsetMilliseconds = 0)
         {
             var token = Guid.NewGuid().ToString("N");
             lock (sync)
@@ -62,6 +62,7 @@ namespace SubSteward.Plugin.M1
                     Validation = validation,
                     TitleMatch = titleMatch,
                     HashMatch = hashMatch,
+                    TimelineOffsetMilliseconds = timelineOffsetMilliseconds,
                     ExpiresAtUtc = DateTime.UtcNow.AddMinutes(20)
                 };
             }

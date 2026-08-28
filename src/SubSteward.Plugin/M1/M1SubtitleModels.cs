@@ -87,6 +87,8 @@ namespace SubSteward.Plugin.M1
 
         public bool HashMatch { get; set; }
 
+        public int TimelineOffsetMilliseconds { get; set; }
+
         public DateTime ExpiresAtUtc { get; set; }
     }
 }

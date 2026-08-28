@@ -1,0 +1,804 @@
+<div data-role="page" class="page type-interior pluginConfigurationPage ss-page"
+     data-require="emby-button,emby-select,emby-checkbox,emby-input"
+     data-controller="__plugin/SubStewardUI3.js"
+     data-horizontal="false"
+     data-forcescrollbar="false"
+     data-bindheader="true"
+     is="emby-scroller">
+    <div data-role="content" class="padded-left padded-right padded-left-page">
+        <style>
+            .ss-page {
+                --ss-accent: var(--theme-primary-color, #52b54b);
+                --ss-accent-hover: var(--theme-primary-color-hover, #3f9f39);
+                --ss-page: #ffffff;
+                --ss-surface: #ffffff;
+                --ss-surface-raised: #f6f7f6;
+                --ss-soft: rgba(0, 0, 0, .04);
+                --ss-border: rgba(0, 0, 0, .12);
+                --ss-border-strong: rgba(0, 0, 0, .24);
+                --ss-text: #1c1c1c;
+                --ss-muted: #5f6368;
+                --ss-left-text: var(--primaryTextColor, #f5f5f5);
+                --ss-left-muted: var(--secondaryTextColor, #b7b7b7);
+                --ss-good: #2f7d32;
+                --ss-danger: #b4232e;
+                --ss-warning: #8a5a00;
+                --ss-info: #236c99;
+                --ss-radius: 10px;
+                --ss-radius-sm: 6px;
+                --ss-control: 44px;
+                min-height: 100%;
+                color: var(--ss-text);
+                background: var(--ss-page);
+                font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+            }
+
+            .ss-page *, .ss-page *::before, .ss-page *::after { box-sizing: border-box; }
+            .ss-page button, .ss-page input, .ss-page select { font: inherit; }
+            .ss-page button { touch-action: manipulation; }
+            .ss-page button:focus-visible,
+            .ss-page input:focus-visible,
+            .ss-page select:focus-visible,
+            .ss-page summary:focus-visible {
+                outline: 3px solid var(--ss-accent);
+                outline-offset: 2px;
+            }
+
+            .ss-app {
+                width: min(1440px, 100%);
+                min-height: calc(100dvh - 112px);
+                margin: 0 auto;
+                padding: 22px 0 34px;
+            }
+
+            .ss-app-header,
+            .ss-panel-heading,
+            .ss-card-header,
+            .ss-header-actions,
+            .ss-inline-actions,
+            .ss-form-actions,
+            .ss-filter-row,
+            .ss-chip-row {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .ss-app-header {
+                min-height: 56px;
+                justify-content: space-between;
+                gap: 20px;
+                margin-bottom: 12px;
+            }
+
+            .ss-title-wrap { min-width: 0; }
+            .ss-title-line { display: flex; align-items: center; gap: 10px; }
+            .ss-logo {
+                display: grid;
+                width: 34px;
+                height: 34px;
+                flex: 0 0 auto;
+                place-items: center;
+                border-radius: 8px;
+                color: #0d1b0d;
+                background: var(--ss-accent);
+                font-size: .72rem;
+                font-weight: 800;
+            }
+
+            .ss-app h1 {
+                margin: 0;
+                color: var(--ss-text);
+                font-size: clamp(1.35rem, 2vw, 1.7rem);
+                font-weight: 600;
+                letter-spacing: -.02em;
+            }
+
+            .ss-subtitle {
+                margin: 4px 0 0 44px;
+                overflow: hidden;
+                color: var(--ss-muted);
+                font-size: .78rem;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .ss-header-actions { justify-content: flex-end; }
+            .ss-last-updated { color: var(--ss-muted); font-size: .75rem; white-space: nowrap; }
+
+            .ss-button {
+                display: inline-flex;
+                min-height: var(--ss-control);
+                align-items: center;
+                justify-content: center;
+                gap: 7px;
+                padding: 8px 15px;
+                border: 1px solid var(--ss-border-strong);
+                border-radius: var(--ss-radius-sm);
+                color: var(--ss-text);
+                background: var(--ss-soft);
+                cursor: pointer;
+                font-size: .86rem;
+                font-weight: 600;
+                transition: background-color 160ms ease, border-color 160ms ease;
+            }
+
+            .ss-button:hover { border-color: rgba(0,0,0,.32); background: rgba(0,0,0,.06); }
+            .ss-button-primary { border-color: var(--ss-accent); color: #0a190a; background: var(--ss-accent); }
+            .ss-button-primary:hover { border-color: var(--ss-accent-hover); background: var(--ss-accent-hover); }
+            .ss-button:disabled { cursor: not-allowed; opacity: .42; }
+
+            .ss-tabbar {
+                position: sticky;
+                z-index: 20;
+                top: 0;
+                display: flex;
+                gap: 4px;
+                padding: 4px;
+                border: 1px solid var(--ss-border);
+                border-radius: var(--ss-radius);
+                background: var(--ss-surface-raised);
+                box-shadow: 0 4px 16px rgba(0,0,0,.08);
+            }
+
+            .ss-tab {
+                position: relative;
+                display: inline-flex;
+                min-width: 138px;
+                min-height: 46px;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                padding: 8px 18px;
+                border: 0;
+                border-radius: 7px;
+                color: var(--ss-muted);
+                background: transparent;
+                cursor: pointer;
+                font-size: .9rem;
+                font-weight: 600;
+            }
+
+            .ss-tab:hover { color: var(--ss-text); background: var(--ss-soft); }
+            .ss-tab[aria-selected="true"] { color: var(--ss-text); background: var(--ss-surface-raised); }
+            .ss-tab[aria-selected="true"]::after {
+                position: absolute;
+                right: 18px;
+                bottom: 3px;
+                left: 18px;
+                height: 2px;
+                border-radius: 999px;
+                background: var(--ss-accent);
+                content: "";
+            }
+
+            .ss-tab-index { color: var(--ss-accent); font-size: .69rem; font-weight: 800; }
+            .ss-tab-panel { padding-top: 16px; }
+            .ss-tab-panel[hidden], .ss-settings-pane[hidden] { display: none !important; }
+
+            .ss-panel-heading {
+                align-items: flex-end;
+                justify-content: space-between;
+                gap: 18px;
+                margin-bottom: 12px;
+            }
+
+            .ss-panel-heading h2, .ss-section-title {
+                margin: 0;
+                color: var(--ss-text);
+                font-size: 1.05rem;
+                font-weight: 600;
+            }
+
+            .ss-panel-heading p, .ss-section-copy {
+                margin: 4px 0 0;
+                color: var(--ss-muted);
+                font-size: .78rem;
+                line-height: 1.55;
+            }
+
+            .ss-card {
+                min-width: 0;
+                border: 1px solid var(--ss-border);
+                border-radius: var(--ss-radius);
+                background: var(--ss-surface);
+            }
+
+            .ss-card-header {
+                min-height: 54px;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 12px 15px;
+                border-bottom: 1px solid var(--ss-border);
+            }
+
+            .ss-card-header h3, .ss-settings-card h3 {
+                margin: 0;
+                color: var(--ss-text);
+                font-size: .92rem;
+                font-weight: 600;
+            }
+
+            .ss-card-body { padding: 14px 15px; }
+            .ss-metric-grid {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 10px;
+            }
+
+            .ss-metric-card { min-height: 116px; padding: 16px; }
+            .ss-metric-label { color: var(--ss-muted); font-size: .76rem; }
+            .ss-metric-value {
+                margin-top: 8px;
+                color: var(--ss-text);
+                font-size: clamp(1.65rem, 3vw, 2.2rem);
+                font-variant-numeric: tabular-nums;
+                font-weight: 600;
+                line-height: 1;
+            }
+            .ss-metric-note { margin-top: 10px; color: var(--ss-muted); font-size: .72rem; }
+
+            .ss-overview-grid {
+                display: grid;
+                grid-template-columns: minmax(280px, .78fr) minmax(0, 1.35fr);
+                gap: 10px;
+                margin-top: 10px;
+            }
+
+            .ss-action-bars, .ss-attention-list, .ss-item-list, .ss-library-list, .ss-candidate-list {
+                display: grid;
+                gap: 2px;
+            }
+
+            .ss-action-bars { gap: 13px; }
+            .ss-action-bar-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                margin-bottom: 6px;
+                color: var(--ss-muted);
+                font-size: .74rem;
+            }
+            .ss-bar-track { height: 6px; overflow: hidden; border-radius: 999px; background: rgba(0,0,0,.08); }
+            .ss-bar-fill { height: 100%; border-radius: inherit; background: var(--ss-accent); }
+            .ss-bar-fill.is-warning { background: var(--ss-warning); }
+            .ss-bar-fill.is-danger { background: var(--ss-danger); }
+
+            .ss-attention-list { max-height: 292px; overflow: auto; }
+            .ss-attention-row, .ss-item-row, .ss-library-row {
+                display: grid;
+                width: 100%;
+                min-height: 52px;
+                align-items: center;
+                gap: 10px;
+                padding: 9px 11px;
+                border: 1px solid transparent;
+                border-radius: 7px;
+                color: var(--ss-text);
+                text-align: left;
+                background: transparent;
+                cursor: pointer;
+            }
+
+            .ss-attention-row, .ss-item-row, .ss-library-row { grid-template-columns: minmax(0, 1fr) auto; }
+            .ss-attention-row:hover,
+            .ss-item-row:hover,
+            .ss-library-row:hover,
+            .ss-item-row[aria-current="true"],
+            .ss-library-row[aria-current="true"] {
+                border-color: var(--ss-border);
+                background: var(--ss-soft);
+            }
+
+            .ss-row-title {
+                overflow: hidden;
+                color: var(--ss-text);
+                font-size: .85rem;
+                font-weight: 600;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .ss-row-meta {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 6px;
+                margin-top: 3px;
+                color: var(--ss-muted);
+                font-size: .7rem;
+            }
+
+            /* Keep the media/library rail on Emby's existing text tokens while the page surfaces turn light. */
+            .ss-browser-card .ss-item-row,
+            .ss-browser-card .ss-row-title,
+            .ss-settings-layout > .ss-card:first-child .ss-library-row,
+            .ss-settings-layout > .ss-card:first-child .ss-row-title { color: var(--ss-left-text); }
+            .ss-browser-card .ss-row-meta,
+            .ss-settings-layout > .ss-card:first-child .ss-row-meta { color: var(--ss-left-muted); }
+
+            .ss-chip {
+                display: inline-flex;
+                min-height: 24px;
+                align-items: center;
+                padding: 3px 8px;
+                border: 1px solid var(--ss-border-strong);
+                border-radius: 999px;
+                color: var(--ss-muted);
+                font-size: .68rem;
+                font-weight: 700;
+                white-space: nowrap;
+            }
+            .ss-chip-good { border-color: rgba(47,125,50,.45); color: var(--ss-good); }
+            .ss-chip-warning { border-color: rgba(138,90,0,.42); color: var(--ss-warning); }
+            .ss-chip-danger { border-color: rgba(180,35,46,.42); color: var(--ss-danger); }
+
+            .ss-boundary-note {
+                display: flex;
+                align-items: flex-start;
+                gap: 10px;
+                margin-top: 10px;
+                padding: 11px 13px;
+                border-left: 3px solid var(--ss-info);
+                border-radius: 4px var(--ss-radius-sm) var(--ss-radius-sm) 4px;
+                color: var(--ss-muted);
+                background: rgba(35,108,153,.08);
+                font-size: .75rem;
+                line-height: 1.55;
+            }
+            .ss-boundary-note strong { color: var(--ss-text); }
+
+            .ss-workbench {
+                display: grid;
+                grid-template-columns: minmax(260px, .72fr) minmax(0, 1.65fr);
+                gap: 10px;
+                min-height: min(680px, calc(100dvh - 240px));
+            }
+            .ss-filter-area { padding: 12px; border-bottom: 1px solid var(--ss-border); }
+            .ss-filter-row { align-items: stretch; }
+            .ss-input, .ss-select {
+                width: 100%;
+                min-height: var(--ss-control);
+                padding: 8px 11px;
+                border: 1px solid var(--ss-border-strong);
+                border-radius: var(--ss-radius-sm);
+                color: var(--ss-text);
+                outline: 0;
+                background: var(--ss-surface);
+            }
+            .ss-input::placeholder { color: #70757a; }
+            .ss-select option { color: #111; background: #fff; }
+
+            .ss-item-list {
+                max-height: min(560px, calc(100dvh - 350px));
+                padding: 7px;
+                overflow: auto;
+            }
+            .ss-work-card { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+            .ss-work-body { min-height: 0; padding: 15px; }
+            .ss-empty {
+                display: grid;
+                min-height: 360px;
+                place-items: center;
+                padding: 30px;
+                color: var(--ss-muted);
+                text-align: center;
+            }
+            .ss-empty strong { display: block; margin-bottom: 7px; color: var(--ss-text); font-size: 1rem; }
+
+            .ss-item-summary {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                gap: 16px;
+                align-items: start;
+            }
+            .ss-item-summary h3 { margin: 0; color: var(--ss-text); font-size: 1.15rem; font-weight: 600; }
+            .ss-stepper {
+                display: grid;
+                grid-template-columns: repeat(5, minmax(0, 1fr));
+                gap: 4px;
+                margin: 14px 0;
+            }
+            .ss-step {
+                min-width: 0;
+                padding: 9px 8px;
+                border-bottom: 2px solid var(--ss-border);
+                color: var(--ss-muted);
+                font-size: .7rem;
+                text-align: center;
+            }
+            .ss-step.is-active, .ss-step.is-done { border-color: var(--ss-accent); color: var(--ss-text); }
+            .ss-step.is-optional { border-color: var(--ss-warning); color: var(--ss-muted); border-bottom-style: dashed; }
+
+            .ss-work-grid, .ss-settings-layout, .ss-form-grid, .ss-quality-grid {
+                display: grid;
+                gap: 10px;
+            }
+            .ss-work-grid { grid-template-columns: minmax(240px, .82fr) minmax(0, 1.25fr); align-items: start; }
+            .ss-subcard { border: 1px solid var(--ss-border); border-radius: var(--ss-radius-sm); background: rgba(0,0,0,.025); }
+            .ss-subcard-body { padding: 12px; }
+            .ss-presence { display: flex; align-items: center; gap: 9px; margin: 11px 0; }
+            .ss-status-dot {
+                width: 10px;
+                height: 10px;
+                flex: 0 0 auto;
+                border-radius: 50%;
+                background: var(--ss-danger);
+                box-shadow: 0 0 0 4px rgba(180,35,46,.12);
+            }
+            .ss-status-dot.is-good { background: var(--ss-accent); box-shadow: 0 0 0 4px rgba(82,181,75,.16); }
+
+            .ss-candidate-list { max-height: 310px; overflow: auto; }
+            .ss-candidate {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                gap: 10px;
+                align-items: center;
+                padding: 10px;
+                border-bottom: 1px solid var(--ss-border);
+            }
+            .ss-candidate:last-child { border-bottom: 0; }
+            .ss-quality-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 11px 0; }
+            .ss-quality-item { min-width: 0; padding: 10px; border-radius: var(--ss-radius-sm); background: var(--ss-soft); }
+            .ss-quality-item span, .ss-field-help, .ss-muted {
+                color: var(--ss-muted);
+                font-size: .71rem;
+                line-height: 1.5;
+            }
+            .ss-quality-item strong {
+                display: block;
+                margin-top: 5px;
+                overflow: hidden;
+                color: var(--ss-text);
+                font-size: .84rem;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .ss-reason-list { margin: 10px 0 0; padding-left: 18px; color: var(--ss-muted); font-size: .74rem; line-height: 1.55; }
+            .ss-cue-details { margin-top: 10px; border-top: 1px solid var(--ss-border); }
+            .ss-cue-details summary { min-height: 42px; padding: 11px 0; color: var(--ss-text); cursor: pointer; font-size: .78rem; font-weight: 600; }
+            .ss-cue-list { max-height: 220px; overflow: auto; }
+            .ss-cue { display: grid; grid-template-columns: 84px minmax(0,1fr); gap: 9px; padding: 7px 0; border-top: 1px solid rgba(0,0,0,.07); color: var(--ss-muted); font-size: .7rem; }
+            .ss-cue-text { color: var(--ss-text); white-space: pre-wrap; }
+            .ss-align-note {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                gap: 12px;
+                align-items: center;
+                margin-top: 10px;
+                padding: 11px 12px;
+                border: 1px dashed rgba(138,90,0,.46);
+                border-radius: var(--ss-radius-sm);
+                background: rgba(138,90,0,.07);
+            }
+            .ss-align-controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+            .ss-align-input { width: 126px; }
+
+            .ss-settings-switcher { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--ss-border); border-radius: 8px; background: rgba(0,0,0,.04); }
+            .ss-settings-switch {
+                min-height: 40px;
+                padding: 7px 14px;
+                border: 0;
+                border-radius: 6px;
+                color: var(--ss-muted);
+                background: transparent;
+                cursor: pointer;
+                font-size: .82rem;
+                font-weight: 600;
+            }
+            .ss-settings-switch[aria-pressed="true"] { color: var(--ss-text); background: var(--ss-surface-raised); }
+            .ss-settings-layout { grid-template-columns: minmax(240px,.68fr) minmax(0,1.45fr); }
+            .ss-settings-card { padding: 16px; }
+            .ss-form-grid { grid-template-columns: repeat(2,minmax(0,1fr)); margin-top: 14px; }
+            .ss-field { min-width: 0; }
+            .ss-field label, .ss-field-label { display: block; margin-bottom: 6px; color: var(--ss-text); font-size: .76rem; font-weight: 600; }
+            .ss-field-help { display: block; min-height: 32px; margin-top: 5px; }
+            .ss-check-field {
+                display: flex;
+                min-height: var(--ss-control);
+                align-items: center;
+                gap: 9px;
+                padding: 8px 10px;
+                border: 1px solid var(--ss-border);
+                border-radius: var(--ss-radius-sm);
+                background: rgba(0,0,0,.025);
+            }
+            .ss-check-field input { width: 19px; height: 19px; accent-color: var(--ss-accent); }
+            .ss-form-actions { justify-content: flex-end; margin-top: 14px; }
+            .ss-library-list { max-height: 420px; padding: 6px; overflow: auto; }
+            .ss-library-settings[aria-disabled="true"] .ss-library-fieldset { opacity: .48; }
+            .ss-library-fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+            .ss-feedback { min-height: 22px; margin-top: 8px; color: var(--ss-muted); font-size: .74rem; line-height: 1.5; }
+            .ss-feedback[data-kind="success"] { color: var(--ss-good); }
+            .ss-feedback[data-kind="error"] { color: var(--ss-danger); }
+            .ss-mobile-only { display: none; }
+            .ss-loading { animation: ss-pulse 1.1s ease-in-out infinite alternate; }
+            @keyframes ss-pulse { from { opacity: .45; } to { opacity: .9; } }
+
+            @media (max-width: 1024px) {
+                .ss-metric-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+                .ss-workbench { grid-template-columns: minmax(230px,.65fr) minmax(0,1.35fr); }
+                .ss-work-grid, .ss-settings-layout { grid-template-columns: 1fr; }
+                .ss-library-list { max-height: 210px; }
+            }
+
+            @media (max-width: 760px) {
+                .ss-app { padding-top: 12px; }
+                .ss-app-header, .ss-panel-heading { align-items: flex-start; flex-wrap: wrap; }
+                .ss-header-actions { flex-wrap: wrap; }
+                .ss-subtitle { margin-left: 0; white-space: normal; }
+                .ss-last-updated { width: 100%; }
+                .ss-tabbar { overflow-x: auto; }
+                .ss-tab { min-width: 0; flex: 1 1 0; padding-inline: 10px; }
+                .ss-overview-grid, .ss-workbench { grid-template-columns: 1fr; }
+                .ss-workbench.ss-has-selection > .ss-browser-card { display: none; }
+                .ss-item-list { max-height: 260px; }
+                .ss-workbench { min-height: 0; }
+                .ss-quality-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+                .ss-form-grid { grid-template-columns: 1fr; }
+                .ss-settings-layout.ss-library-selected > :first-child { display: none; }
+                .ss-mobile-only { display: inline-flex; }
+            }
+
+            @media (max-width: 460px) {
+                .ss-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                .ss-metric-card { min-height: 98px; }
+                .ss-header-actions, .ss-inline-actions, .ss-filter-row, .ss-form-actions { width: 100%; }
+                .ss-button { flex: 1; }
+                .ss-item-summary, .ss-candidate, .ss-align-note { grid-template-columns: 1fr; }
+                .ss-align-controls { justify-content: stretch; }
+                .ss-align-input { width: 100%; }
+                .ss-stepper { grid-template-columns: repeat(3,minmax(0,1fr)); }
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .ss-page *, .ss-page *::before, .ss-page *::after {
+                    scroll-behavior: auto !important;
+                    transition-duration: .01ms !important;
+                    animation-duration: .01ms !important;
+                    animation-iteration-count: 1 !important;
+                }
+            }
+        </style>
+
+        <div class="ss-app" id="subStewardApp" data-fd-id="substeward-app-shell">
+            <header class="ss-app-header" data-fd-id="app-header">
+                <div class="ss-title-wrap">
+                    <div class="ss-title-line">
+                        <span class="ss-logo" aria-hidden="true">SS</span>
+                        <h1 data-fd-editable="text">SubSteward</h1>
+                    </div>
+                    <p class="ss-subtitle" data-fd-editable="text">Emby 内的字幕状态、偏好与单项处理</p>
+                </div>
+                <div class="ss-header-actions">
+                    <span class="ss-last-updated" id="lastUpdated">尚未同步</span>
+                    <button class="ss-button" id="refreshAll" type="button">刷新数据</button>
+                </div>
+            </header>
+
+            <nav class="ss-tabbar" role="tablist" aria-label="SubSteward 页面" data-fd-id="primary-tabs">
+                <button class="ss-tab" id="tabStatus" type="button" role="tab" aria-selected="true" aria-controls="panelStatus" data-tab="status" data-fd-id="tab-status">
+                    <span class="ss-tab-index" aria-hidden="true">01</span><span>状态</span>
+                </button>
+                <button class="ss-tab" id="tabManual" type="button" role="tab" aria-selected="false" aria-controls="panelManual" data-tab="manual" data-fd-id="tab-manual">
+                    <span class="ss-tab-index" aria-hidden="true">02</span><span>手动处理</span>
+                </button>
+                <button class="ss-tab" id="tabSettings" type="button" role="tab" aria-selected="false" aria-controls="panelSettings" data-tab="settings" data-fd-id="tab-settings">
+                    <span class="ss-tab-index" aria-hidden="true">03</span><span>设置</span>
+                </button>
+            </nav>
+
+            <section class="ss-tab-panel" id="panelStatus" role="tabpanel" aria-labelledby="tabStatus" tabindex="-1" data-fd-id="section-status">
+                <div class="ss-panel-heading">
+                    <div>
+                        <h2>全局状态</h2>
+                        <p>快速确认字幕覆盖和需要人工处理的条目。统计范围会明确显示，不把抽样结果冒充全库扫描。</p>
+                    </div>
+                    <span class="ss-chip" id="statusScope">等待载入</span>
+                </div>
+                <div class="ss-metric-grid" id="statusMetrics" aria-live="polite" data-fd-id="status-metrics">
+                    <div class="ss-card ss-metric-card ss-loading"><span class="ss-metric-label">正在读取</span></div>
+                </div>
+                <div class="ss-overview-grid">
+                    <section class="ss-card" aria-labelledby="actionBreakdownTitle" data-fd-id="card-action-breakdown">
+                        <div class="ss-card-header"><h3 id="actionBreakdownTitle">建议动作分布</h3></div>
+                        <div class="ss-card-body ss-action-bars" id="actionBreakdown"></div>
+                    </section>
+                    <section class="ss-card" aria-labelledby="attentionTitle" data-fd-id="card-attention-list">
+                        <div class="ss-card-header">
+                            <h3 id="attentionTitle">需要关注</h3>
+                            <button class="ss-button" id="openManual" type="button">进入工作台</button>
+                        </div>
+                        <div class="ss-card-body ss-attention-list" id="attentionList"></div>
+                    </section>
+                </div>
+                <div class="ss-boundary-note" data-fd-id="status-boundary-note">
+                    <strong>当前安全边界</strong>
+                    <span>不会自动扫描全库或替换健康字幕；多 Source STRM 只展示状态，保持人工确认和 fail-closed。</span>
+                </div>
+            </section>
+
+            <section class="ss-tab-panel" id="panelManual" role="tabpanel" aria-labelledby="tabManual" tabindex="-1" hidden data-fd-id="section-manual-workbench">
+                <div class="ss-panel-heading">
+                    <div>
+                        <h2>单项字幕工作台</h2>
+                        <p>选择一个电影或单集，在同一页完成寻找、下载校验、可选对轴和安装。</p>
+                    </div>
+                    <span class="ss-chip">人工流程</span>
+                </div>
+                <div class="ss-workbench">
+                    <section class="ss-card ss-browser-card" aria-labelledby="itemBrowserTitle" data-fd-id="card-item-browser">
+                        <div class="ss-card-header">
+                            <h3 id="itemBrowserTitle">选择媒体</h3>
+                            <span class="ss-chip" id="itemCount">0 项</span>
+                        </div>
+                        <form class="ss-filter-area" id="itemFilterForm">
+                            <label class="ss-field-label" for="itemSearch">按名称筛选</label>
+                            <div class="ss-filter-row">
+                                <input class="ss-input" id="itemSearch" type="search" autocomplete="off" placeholder="电影或剧集名称" />
+                                <button class="ss-button" type="submit">筛选</button>
+                            </div>
+                            <div class="ss-feedback" id="itemFeedback" aria-live="polite"></div>
+                        </form>
+                        <div class="ss-item-list" id="itemList" aria-label="媒体条目列表"></div>
+                    </section>
+                    <section class="ss-card ss-work-card" aria-labelledby="workbenchTitle" data-fd-id="card-subtitle-workbench">
+                        <div class="ss-card-header">
+                            <h3 id="workbenchTitle">处理流程</h3>
+                            <span class="ss-chip" id="workbenchState">未选择</span>
+                        </div>
+                        <div class="ss-work-body" id="workbenchBody" aria-live="polite">
+                            <div class="ss-empty"><div><strong>先选择一个媒体条目</strong><span>条目状态、候选和字幕预览会显示在这里。</span></div></div>
+                        </div>
+                    </section>
+                </div>
+            </section>
+
+            <section class="ss-tab-panel" id="panelSettings" role="tabpanel" aria-labelledby="tabSettings" tabindex="-1" hidden data-fd-id="section-settings">
+                <div class="ss-panel-heading">
+                    <div>
+                        <h2>字幕设置</h2>
+                        <p>全局默认适用于所有媒体库；启用媒体库覆盖后，该库使用自己的偏好。</p>
+                    </div>
+                    <div class="ss-settings-switcher" aria-label="设置范围">
+                        <button class="ss-settings-switch" id="showGlobalSettings" type="button" aria-pressed="true" data-settings-pane="global">全局默认</button>
+                        <button class="ss-settings-switch" id="showLibrarySettings" type="button" aria-pressed="false" data-settings-pane="library">媒体库覆盖</button>
+                    </div>
+                </div>
+
+                <div class="ss-settings-pane" id="globalSettingsPane" data-fd-id="settings-global-defaults">
+                    <section class="ss-card ss-settings-card">
+                        <h3>全局默认偏好</h3>
+                        <p class="ss-section-copy">这些值是所有媒体库的基础配置。语言和格式都从支持列表中选择。</p>
+                        <div class="ss-form-grid">
+                            <div class="ss-field">
+                                <label for="globalTargetLanguage">目标语言</label>
+                                <select class="ss-select" id="globalTargetLanguage" aria-describedby="globalTargetHelp">
+                                    <option value="zho">中文（不区分简繁）</option>
+                                    <option value="zh-Hans">简体中文</option>
+                                    <option value="zh-Hant">繁体中文</option>
+                                    <option value="eng">英语</option>
+                                    <option value="jpn">日语</option>
+                                </select>
+                                <span class="ss-field-help" id="globalTargetHelp">选择要优先补全和检查的字幕语言。</span>
+                            </div>
+                            <div class="ss-field">
+                                <label for="globalSecondaryLanguage">第二语言</label>
+                                <select class="ss-select" id="globalSecondaryLanguage" aria-describedby="globalSecondaryHelp">
+                                    <option value="zho">中文（不区分简繁）</option>
+                                    <option value="zh-Hans">简体中文</option>
+                                    <option value="zh-Hant">繁体中文</option>
+                                    <option value="eng">英语</option>
+                                    <option value="jpn">日语</option>
+                                </select>
+                                <span class="ss-field-help" id="globalSecondaryHelp">用于双语覆盖判断和候选偏好分析。</span>
+                            </div>
+                            <div class="ss-field">
+                                <label for="globalFormatOrder">格式优先级</label>
+                                <select class="ss-select" id="globalFormatOrder" aria-describedby="globalFormatHelp">
+                                    <option value="ass,ssa,srt">ASS → SSA → SRT（默认）</option>
+                                    <option value="ass,srt,ssa">ASS → SRT → SSA</option>
+                                    <option value="ssa,ass,srt">SSA → ASS → SRT</option>
+                                    <option value="ssa,srt,ass">SSA → SRT → ASS</option>
+                                    <option value="srt,ass,ssa">SRT → ASS → SSA</option>
+                                    <option value="srt,ssa,ass">SRT → SSA → ASS</option>
+                                </select>
+                                <span class="ss-field-help" id="globalFormatHelp">前面的格式优先，未命中时继续使用后面的格式。</span>
+                            </div>
+                            <div class="ss-field">
+                                <span class="ss-field-label">双语偏好</span>
+                                <label class="ss-check-field" for="globalPreferBilingual">
+                                    <input id="globalPreferBilingual" type="checkbox" />
+                                    <span>优先推荐双语字幕</span>
+                                </label>
+                                <span class="ss-field-help">偏好不会把健康单语字幕直接判为损坏。</span>
+                            </div>
+                        </div>
+                        <div class="ss-form-actions">
+                            <button class="ss-button ss-button-primary" id="saveGlobalSettings" type="button">保存全局设置</button>
+                        </div>
+                        <div class="ss-feedback" id="globalSettingsFeedback" aria-live="polite"></div>
+                    </section>
+                </div>
+
+                <div class="ss-settings-pane" id="librarySettingsPane" hidden data-fd-id="settings-library-overrides">
+                    <div class="ss-settings-layout">
+                        <section class="ss-card" aria-labelledby="libraryListTitle">
+                            <div class="ss-card-header">
+                                <h3 id="libraryListTitle">媒体库</h3>
+                                <span class="ss-chip" id="libraryCount">0 个</span>
+                            </div>
+                            <div class="ss-library-list" id="libraryList"></div>
+                        </section>
+                        <section class="ss-card ss-settings-card ss-library-settings" id="librarySettingsCard" aria-disabled="true">
+                            <div id="librarySettingsEmpty" class="ss-empty">
+                                <div><strong>选择一个媒体库</strong><span>可查看继承状态并设置独立偏好。</span></div>
+                            </div>
+                            <div id="librarySettingsForm" hidden>
+                                <div class="ss-panel-heading">
+                                    <div>
+                                        <h3 id="selectedLibraryName">媒体库设置</h3>
+                                        <p id="libraryInheritanceSummary">当前继承全局默认。</p>
+                                    </div>
+                                    <div class="ss-inline-actions">
+                                        <button class="ss-button ss-mobile-only" id="changeLibrary" type="button">更换媒体库</button>
+                                        <label class="ss-check-field" for="libraryOverrideEnabled">
+                                            <input id="libraryOverrideEnabled" type="checkbox" />
+                                            <span>启用独立设置</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <fieldset class="ss-library-fieldset" id="libraryFieldset" disabled>
+                                    <div class="ss-form-grid">
+                                        <div class="ss-field">
+                                            <label for="libraryTargetLanguage">目标语言</label>
+                                            <select class="ss-select" id="libraryTargetLanguage">
+                                                <option value="zho">中文（不区分简繁）</option>
+                                                <option value="zh-Hans">简体中文</option>
+                                                <option value="zh-Hant">繁体中文</option>
+                                                <option value="eng">英语</option>
+                                                <option value="jpn">日语</option>
+                                            </select>
+                                        </div>
+                                        <div class="ss-field">
+                                            <label for="librarySecondaryLanguage">第二语言</label>
+                                            <select class="ss-select" id="librarySecondaryLanguage">
+                                                <option value="zho">中文（不区分简繁）</option>
+                                                <option value="zh-Hans">简体中文</option>
+                                                <option value="zh-Hant">繁体中文</option>
+                                                <option value="eng">英语</option>
+                                                <option value="jpn">日语</option>
+                                            </select>
+                                        </div>
+                                        <div class="ss-field">
+                                            <label for="libraryFormatOrder">格式优先级</label>
+                                            <select class="ss-select" id="libraryFormatOrder">
+                                                <option value="ass,ssa,srt">ASS → SSA → SRT（默认）</option>
+                                                <option value="ass,srt,ssa">ASS → SRT → SSA</option>
+                                                <option value="ssa,ass,srt">SSA → ASS → SRT</option>
+                                                <option value="ssa,srt,ass">SSA → SRT → ASS</option>
+                                                <option value="srt,ass,ssa">SRT → ASS → SSA</option>
+                                                <option value="srt,ssa,ass">SRT → SSA → ASS</option>
+                                            </select>
+                                        </div>
+                                        <div class="ss-field">
+                                            <span class="ss-field-label">双语偏好</span>
+                                            <label class="ss-check-field" for="libraryPreferBilingual">
+                                                <input id="libraryPreferBilingual" type="checkbox" />
+                                                <span>优先推荐双语字幕</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </fieldset>
+                                <div class="ss-form-actions">
+                                    <button class="ss-button ss-button-primary" id="saveLibrarySettings" type="button">保存媒体库设置</button>
+                                </div>
+                                <div class="ss-feedback" id="librarySettingsFeedback" aria-live="polite"></div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>

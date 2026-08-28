@@ -21,7 +21,10 @@ namespace SubSteward.Plugin.M2
             var value = (language ?? string.Empty).Trim().ToLowerInvariant();
             if (value.Length == 0)
             {
-                return Parse(fallbackCode, null);
+                var fallback = (fallbackCode ?? string.Empty).Trim();
+                return fallback.Length == 0
+                    ? new M2LanguageSelection { Code = string.Empty, Label = string.Empty }
+                    : Parse(fallback, null);
             }
 
             if (MatchesAny(value, "zho", "zh", "chi"))
@@ -50,12 +53,22 @@ namespace SubSteward.Plugin.M2
 
         public static bool IsChinese(string code)
         {
-            return MatchesAny((code ?? string.Empty).Trim(), "zho", "zh", "chi");
+            return MatchesAny((code ?? string.Empty).Trim(),
+                "zho", "zh", "chi",
+                "zh-hans", "hans", "chs", "gb", "gbk", "sc", "simplified", "simplified-chinese",
+                "zh-cn", "zh-sg", "zh-my",
+                "zh-hant", "hant", "cht", "big5", "tc", "traditional", "traditional-chinese",
+                "zh-tw", "zh-hk", "zh-mo");
         }
 
         public static bool IsEnglish(string code)
         {
             return MatchesAny((code ?? string.Empty).Trim(), "eng", "en");
+        }
+
+        public static bool IsJapanese(string code)
+        {
+            return MatchesAny((code ?? string.Empty).Trim(), "jpn", "ja", "japanese");
         }
 
         public static bool StreamMatchesVariant(M2SubtitleStreamSnapshot stream, string variant)
@@ -65,14 +78,31 @@ namespace SubSteward.Plugin.M2
                 return true;
             }
 
-            var textual = ((stream.Language ?? string.Empty) + " " + (stream.Title ?? string.Empty)).ToLowerInvariant();
+            var textual = ((stream.Language ?? string.Empty) + " " + (stream.Title ?? string.Empty) + " " + (stream.Path ?? string.Empty)).ToLowerInvariant();
             if (variant == "zh-Hans")
             {
-                return MatchesAny(textual, "zh-hans", "hans", "chs", "zh-cn", "zh-sg", "zh-my", "简体", "简", "双简")
-                    || (!textual.Contains("繁") && !MatchesAny(textual, "zh-hant", "hant", "cht", "big5", "zh-tw") && textual.Contains("中英"));
+                return !ContainsEvidence(textual, "zh-hant", "hant", "cht", "big5", "zh-tw", "zh-hk", "zh-mo", "繁体", "繁", "雙繁");
             }
 
-            return MatchesAny(textual, "zh-hant", "hant", "cht", "big5", "zh-tw", "zh-hk", "zh-mo", "繁体", "繁", "雙繁");
+            if (variant == "zh-Hant")
+            {
+                return !ContainsEvidence(textual, "zh-hans", "hans", "chs", "zh-cn", "zh-sg", "zh-my", "简体", "简", "双简");
+            }
+
+            return true;
+        }
+
+        private static bool ContainsEvidence(string value, params string[] aliases)
+        {
+            foreach (var alias in aliases)
+            {
+                if (value.IndexOf(alias, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool MatchesAny(string value, params string[] aliases)
