@@ -27,4 +27,4 @@
 
 截至 2026-08-28，M1 人工 Search → Fetch → Preview → Install → Refresh 主链路和实际客户端验收已有历史实测；当前工作树又包含嵌入式三页签 UI、外置字幕有上限深检、人工固定偏移对轴、语言变体归一化、Emby 地区码命名和媒体库覆盖设置等改动。工作树仍有未提交改动，因此这些新增实现必须以当前源码、测试和后续目标 Emby 复验为准，不能仅凭历史部署记录宣布新版本已发布。
 
-最新一笔 C92 记录已完成地区码命名修正版部署，并用“千与千寻”完成 Provider Search、Fetch/Preview、Install、Refresh 和 MediaStream 对账；生成文件为 `.zh-CN.ass`，不追加 `.default`，地区码修正后的真实客户端播放仍待确认。详细证据和未验证项集中记录在 [架构与验证状态](ARCHITECTURE.md) 和本机手册中。
+最新一笔 C92 记录已完成地区码命名修正版部署，并用“千与千寻”完成 Provider Search、Fetch/Preview、Install、Refresh、MediaStream 对账和真实客户端播放确认；生成文件为 `.zh-CN.ass`，不追加 `.default`。人工 Align 后再安装的真实链路仍未单独验收。详细证据和未验证项集中记录在 [架构与验证状态](ARCHITECTURE.md) 和本机手册中。
