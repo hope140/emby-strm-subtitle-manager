@@ -71,4 +71,31 @@ public sealed class M1SubtitleTimelineShifterTests
 
         Assert.Contains("10 millisecond increments", error.Message);
     }
+
+    [Fact]
+    public void Shift_ZeroOffsetReturnsIdenticalContentClone()
+    {
+        const string text = "1\n00:00:01,000 --> 00:00:02,000\n中文\n";
+        var content = Encoding.UTF8.GetBytes(text);
+
+        var shifted = shifter.Shift(content, "srt", 0);
+
+        Assert.NotSame(content, shifted);
+        Assert.True(content.SequenceEqual(shifted));
+        var validation = validator.Validate(shifted, "srt");
+        Assert.Equal("PASS", validation.Health);
+        Assert.Equal(1000, validation.Cues[0].StartMilliseconds);
+    }
+
+    [Fact]
+    public void Shift_AssWithHoursAboveNinetyNine_ThrowsFriendlyError()
+    {
+        var content = Encoding.UTF8.GetBytes(
+            "[Events]\nFormat: Layer, Start, End, Style, Text\n"
+            + "Dialogue: 0,100:00:01.00,100:00:02.00,Default,中文\n");
+
+        var error = Assert.Throws<InvalidOperationException>(() => shifter.Shift(content, "ass", 1000));
+
+        Assert.Contains("hours exceed the supported range", error.Message);
+    }
 }

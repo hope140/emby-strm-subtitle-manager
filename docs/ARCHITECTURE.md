@@ -95,13 +95,15 @@ new versioned sidecar → Refresh → MediaStream → client check
 
 | 配置 | 默认值 | 说明 |
 | --- | --- | --- |
-| `TargetLanguage` | `zho` | 目标语言；支持简繁变体输入 |
+| `TargetLanguage` | `zh-Hans` | 默认简体中文；支持显式选择通用中文或繁体变体 |
 | `SecondaryLanguage` | `eng` | 第二语言 |
 | `PreferBilingual` | `false` | 是否偏好双语 |
 | `FormatOrder` | `ass,ssa,srt` | 格式偏好，逗号和分号均可分隔 |
 | `LibraryOverrides` | `[]` | 可启停的媒体库级覆盖 |
 
 `zho/zh/chi`、`eng/en`、`jpn/ja` 和简繁别名会归一化。简繁变体会继续作为标签证据参与 MediaStream、标题和安全文件名判断，但当前没有可靠的正文级简繁识别，因此不能自动替换。
+
+搜索语言码与落盘文件名标签分开处理：调用 Emby 官方 `ISubtitleManager.SearchSubtitles` 时，`zh-Hans` 先归一化为基础语言码 `zho`，再由 Emby/Provider 映射为各自的 `chi` 或 `zh`；请求变体单独保留。写入外置字幕时遵循 [Emby 字幕命名说明](https://emby.media/support/articles/Subtitles.html)，简体使用 `zh-CN`、繁体使用 `zh-TW`，其他无地区变体语言使用对应 ISO 语言码。当前不追加 `.default`、`.forced` 或 `.sdh`，默认选择交由 Emby 用户字幕设置调整。
 
 业务判断固定为：
 
@@ -129,8 +131,12 @@ Presence → Health → Preference → Action
 | 2026-08-27 | 嵌入式 UI 修正版，Release DLL SHA-256 `378279EAAF0113731A39F2B6987DEA6A36EDE1A10067BE64DD378718BA83AA4A` | 管理员会话下单实例、CSS、100 条读取、Presence/详情和控制台无错误 | 未执行 Provider Search/Fetch 或 Install |
 | 2026-08-28 | 三页签 UI、人工对轴和移动端聚焦，Release DLL SHA-256 `2B9E630C9395D34EDD2145E6F00D351FCE63C111B0E6CAE5505161B5D158E8BE` | Items、Libraries、配置、UI3 资源 HTTP 200；无效 Artifact token 返回 400；本地模拟 Items → Search → Fetch → Align → 撤销；375px 无横向溢出 | 未执行真实 Provider Fetch、Align Artifact 安装或媒体写入；线上视觉截图受应用内浏览器访问策略限制 |
 | 2026-08-28 | Emby 白底配色修正版，Release DLL SHA-256 `ADF35DE8F2E369C0F01AB8E6AF7369DC50F5D6DFE9384C4AF3DA155523C83E2E` | 覆盖前 Hash 已备份；宿主与容器内 DLL Hash 一致；只重启 `emby-server` | 该最新修订尚未完成认证管理员 API、线上视觉、Provider Fetch、Install 或媒体写入复验 |
+| 2026-08-28 | 当前工作树本机验证（部署前，未提交），Release DLL SHA-256 `BE006FEC3107DD07E36C2B33721036078ABB4BE43861A2AE4A04D81AE382E88DD` | 本机 Release build 0 警告/0 错误；Release 测试程序集 68/68 通过；Web JavaScript `node --check` 通过；MediaStream 路径无法规范化时按不匹配处理 | 当时尚未部署 C92；最新修订的插件加载、管理员 API、Provider Search/Fetch、Align/Install、Refresh/MediaStream 和客户端播放均未复验 |
+| 2026-08-28 | 当前工作树部署到 C92，Release DLL SHA-256 `BE006FEC3107DD07E36C2B33721036078ABB4BE43861A2AE4A04D81AE382E88DD` | 旧 DLL 备份 Hash 为 `1EA1F0473ACF4DE070172E3AB780ECF9344F2187AE6418896CC37B1324E23BFE`；新 DLL 远端 Hash 与本地一致；只重启 `emby-server`；容器恢复 `running` 且重启次数为 0；认证管理员 API `/SubSteward/Libraries`、`/SubSteward/Items?Limit=1` 返回 200；Emby `ConfigurationPage` 的 HTML/JS 资源返回 200 且关键页面/接口标记存在 | 未执行 Provider Search/Fetch、Align/Install、Refresh/MediaStream 和真实客户端播放；这些步骤需要明确的媒体样本与后续验收授权 |
+| 2026-08-28 | C92 真实样本“千与千寻”首次安装（通用语言码） | 单 Source STRM、无既有外置字幕；Provider Search 返回 20 条候选；候选 12 的 ASS 结构校验失败，候选 1 的 English.srt 触发中文正文门禁并被拒绝；候选 2 经 Fetch/Preview 校验为 ASS、UTF-8 BOM、Health PASS、中文覆盖约 89.7%、Preference RECOMMENDED；Install 返回 200，生成 `千与千寻.2001.中日双语.zho.ass`，Refresh 后同一 Source 外置字幕数为 1 | 未执行人工 Align；后续已用地区码命名修正版迁移该样本 |
+| 2026-08-28 | C92 真实样本“千与千寻”地区码修正，Release DLL SHA-256 `E0C6261CA796009D71DF9F027E11F47B5A450296001F6F8800921DE03F0ACD81` | C92 `TargetLanguage=zh-Hans`；默认 Search 返回 `Language=zho`、`RequestedLanguageVariant=zh-Hans`；候选 2 经 Fetch/Preview/Install 返回 200，生成 `千与千寻.2001.中日双语.zh-CN.ass`，未添加 `.default`；旧 `.zho.ass` 与新文件内容 Hash 一致后改为退役备份名；官方 Item Refresh 返回 204；同一 Source 保持 1 条外置字幕，条目详情识别为中文（简体）/ASS/PASS | 未执行人工 Align；地区码修正后的真实客户端播放待用户再次确认 |
 
-因此当前最准确的状态是：M1 基线能力和历史客户端验收已有证据；当前工作树的 UI、对轴、外置字幕深检、语言变体和媒体库覆盖改动仍需按当前修订重新 build/test，并在需要发布时重新做目标 Emby 验收。
+因此当前最准确的状态是：M1 基线能力和历史客户端验收已有证据；当前工作树已通过本机 build/test，完成 C92 插件、API、管理页面烟测，以及“千与千寻”的 Provider、地区码命名、安装、Refresh 和 MediaStream 对账；地区码修正后的真实客户端播放仍待确认。
 
 ## 7. 当前收口边界
 

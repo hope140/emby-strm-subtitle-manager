@@ -18,6 +18,8 @@ public sealed class M2OptionsTests
     public void BlankLanguages_UseSafeDefaults()
     {
         Assert.Equal("zho", M2Options.NormalizeTargetLanguage("  "));
+        Assert.Equal("zh-Hans", M2Options.ParseTargetLanguage(null).Variant);
+        Assert.Equal("中文（简体）", M2Options.ParseTargetLanguage(null).Label);
         Assert.Null(M2Options.ParseTargetLanguage("zho").Variant);
         Assert.Equal("中文", M2Options.ParseTargetLanguage("zho").Label);
         Assert.Equal("eng", M2Options.NormalizeSecondaryLanguage(null));

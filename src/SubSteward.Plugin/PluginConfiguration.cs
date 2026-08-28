@@ -9,7 +9,7 @@ namespace SubSteward.Plugin
     /// </summary>
     public sealed class PluginConfiguration : BasePluginConfiguration
     {
-        public string TargetLanguage { get; set; } = "zho";
+        public string TargetLanguage { get; set; } = "zh-Hans";
 
         public string SecondaryLanguage { get; set; } = "eng";
 

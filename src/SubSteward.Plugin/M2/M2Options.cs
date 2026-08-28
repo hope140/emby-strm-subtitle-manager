@@ -5,7 +5,7 @@ namespace SubSteward.Plugin.M2
 {
     public static class M2Options
     {
-        private const string DefaultTargetLanguage = "zho";
+        private const string DefaultTargetLanguage = "zh-Hans";
         private const string DefaultSecondaryLanguage = "eng";
         private const string DefaultFormatOrder = "ass,ssa,srt";
 

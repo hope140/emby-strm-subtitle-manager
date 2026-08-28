@@ -6,7 +6,7 @@ namespace SubSteward.Plugin.M2
 {
     public sealed class M2QualityAnalyzer
     {
-        private const string DefaultTargetLanguage = "zho";
+        private const string DefaultTargetLanguage = "zh-Hans";
         private const string DefaultSecondaryLanguage = "eng";
 
         public M2QualityReport Analyze(M1ValidationResult validation, string targetLanguage = DefaultTargetLanguage, string secondaryLanguage = DefaultSecondaryLanguage)
@@ -16,10 +16,13 @@ namespace SubSteward.Plugin.M2
                 throw new ArgumentNullException(nameof(validation));
             }
 
+            var normalizedTarget = NormalizeLanguage(targetLanguage, DefaultTargetLanguage);
+            var normalizedSecondary = NormalizeLanguage(secondaryLanguage, DefaultSecondaryLanguage);
+            var secondaryActive = !string.Equals(normalizedTarget, normalizedSecondary, StringComparison.OrdinalIgnoreCase);
             var report = new M2QualityReport
             {
-                TargetLanguage = NormalizeLanguage(targetLanguage, DefaultTargetLanguage),
-                SecondaryLanguage = NormalizeLanguage(secondaryLanguage, DefaultSecondaryLanguage),
+                TargetLanguage = normalizedTarget,
+                SecondaryLanguage = secondaryActive ? normalizedSecondary : null,
                 CueCount = validation.Cues.Count,
                 Format = validation.Format,
                 Encoding = validation.Encoding,
@@ -30,7 +33,7 @@ namespace SubSteward.Plugin.M2
             {
                 var visibleText = StripAssOverrideTags(cue.Text);
                 var hasTargetLanguage = DetectLanguage(report.TargetLanguage, visibleText);
-                var hasSecondaryLanguage = DetectLanguage(report.SecondaryLanguage, visibleText);
+                var hasSecondaryLanguage = secondaryActive && DetectLanguage(normalizedSecondary, visibleText);
                 var hasJapaneseText = HasKanaCharacter(visibleText);
 
                 if (hasTargetLanguage)
@@ -67,7 +70,8 @@ namespace SubSteward.Plugin.M2
             report.TargetLanguagePresent = report.TargetLanguageCueCount > 0;
             report.TargetLanguageConfidence = report.CueCount == 0 ? 0d : Math.Min(0.99d, report.TargetLanguageCueCount / (double)report.CueCount);
             report.SecondaryLanguagePresent = report.SecondaryLanguageCueCount > 0;
-            report.BilingualDetected = report.TargetLanguagePresent && (report.SecondaryLanguagePresent || report.JapaneseCueCount > 0);
+            report.BilingualDetected = report.TargetLanguagePresent
+                && (report.SecondaryLanguagePresent || (report.JapaneseCueCount > 0 && !M2Language.IsJapanese(normalizedTarget)));
             report.BilingualConfidence = report.CueCount == 0 ? 0d : Math.Min(0.99d, report.BilingualCueCount / (double)report.CueCount);
 
             if (report.EffectCueCount == 0)

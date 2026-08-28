@@ -173,6 +173,10 @@ namespace SubSteward.Plugin.M1
         public bool? IsHashMatch { get; set; }
 
         public bool TitleMatch { get; set; }
+
+        public bool LanguageMismatch { get; set; }
+
+        public bool VariantMismatch { get; set; }
     }
 
     public sealed class M1SearchResponse
@@ -339,18 +343,28 @@ namespace SubSteward.Plugin.M1
 
                 var titleMatch = CandidateMatchesItem(candidate.Name, item);
                 var hashMatch = candidate.IsHashMatch.GetValueOrDefault();
+                var candidateLanguage = candidate.Language ?? language;
+                var parsedCandidateLanguage = M2Language.Parse(candidateLanguage, language);
+                var languageMismatch = !string.IsNullOrWhiteSpace(candidate.Language)
+                    && !string.Equals(parsedCandidateLanguage.Code, language, StringComparison.OrdinalIgnoreCase);
+                var variantMismatch = !string.IsNullOrWhiteSpace(candidate.Language)
+                    && !string.IsNullOrWhiteSpace(parsedCandidateLanguage.Variant)
+                    && !string.IsNullOrWhiteSpace(requestedLanguage.Variant)
+                    && !string.Equals(parsedCandidateLanguage.Variant, requestedLanguage.Variant, StringComparison.OrdinalIgnoreCase);
                 response.Candidates.Add(new M1CandidateResponse
                 {
                     Token = Store.AddCandidate(item.Id, source.Id, language, candidate.Id, titleMatch, hashMatch, requestedLanguage.Variant),
                     Provider = candidate.ProviderName,
                     Name = candidate.Name,
-                    Language = candidate.Language ?? language,
-                    LanguageLabel = M2Language.Parse(candidate.Language ?? language, requestedLanguage.Code).Label,
+                    Language = candidateLanguage,
+                    LanguageLabel = parsedCandidateLanguage.Label,
                     RequestedLanguageVariant = requestedLanguage.Variant,
                     Format = candidate.Format,
                     Author = candidate.Author,
                     IsHashMatch = candidate.IsHashMatch,
-                    TitleMatch = titleMatch
+                    TitleMatch = titleMatch,
+                    LanguageMismatch = languageMismatch,
+                    VariantMismatch = variantMismatch
                 });
 
                 if (response.Candidates.Count >= MaxCandidates)
@@ -431,6 +445,12 @@ namespace SubSteward.Plugin.M1
                 throw new ArgumentException("Artifact token is expired or invalid.");
             }
 
+            if (artifact.Validation.HasReplacementCharacter
+                || string.Equals(artifact.Validation.Encoding, "unknown (replacement)", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("The subtitle cannot be aligned because its encoding cannot be decoded losslessly; aligning would corrupt the content.");
+            }
+
             var cumulativeOffset = (long)artifact.TimelineOffsetMilliseconds + request.OffsetMilliseconds;
             if (Math.Abs(cumulativeOffset) > M1SubtitleTimelineShifter.MaxAbsoluteOffsetMilliseconds)
             {
@@ -493,7 +513,7 @@ namespace SubSteward.Plugin.M1
                 await providerManager.RefreshFullItem(item, new MetadataRefreshOptions(new DirectoryService(fileSystem)), Request.CancellationToken).ConfigureAwait(false);
                 var refreshed = libraryManager.GetItemById(item.Id);
                 var after = refreshed == null ? before : CountExternalSubtitleStreams(refreshed);
-                if (after <= before || !HasExternalSubtitleStream(refreshed, source.Id, Path.GetFileName(targetPath)))
+                if (after <= before || !HasExternalSubtitleStream(refreshed, source.Id, targetPath))
                 {
                     throw new InvalidOperationException("Emby did not report the newly installed subtitle stream after refresh.");
                 }
@@ -917,7 +937,7 @@ namespace SubSteward.Plugin.M1
         private static string WriteSidecar(BaseItem item, MediaSourceInfo source, M1ArtifactRecord artifact)
         {
             var anchor = item.Path;
-            if (item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(item.Path) && item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
             {
                 EnsureRegularFile(anchor, "STRM Item.Path");
             }
@@ -1001,12 +1021,50 @@ namespace SubSteward.Plugin.M1
             }
         }
 
-        private static bool HasExternalSubtitleStream(BaseItem item, string sourceId, string fileName)
+        private static bool HasExternalSubtitleStream(BaseItem item, string sourceId, string targetPath)
         {
+            string fullTargetPath;
+            if (!TryGetFullPath(targetPath, out fullTargetPath))
+            {
+                return false;
+            }
+
             return item.GetMediaSources(false, false, new LibraryOptions())
                 .Where(source => string.Equals(source.Id, sourceId, StringComparison.Ordinal))
                 .SelectMany(source => source.MediaStreams ?? new List<MediaBrowser.Model.Entities.MediaStream>())
-                .Any(stream => stream.IsExternal && stream.Type.ToString() == "Subtitle" && !string.IsNullOrWhiteSpace(stream.Path) && stream.Path.EndsWith(fileName, StringComparison.OrdinalIgnoreCase));
+                .Any(stream => stream.IsExternal
+                    && stream.Type.ToString() == "Subtitle"
+                    && PathsEqual(stream.Path, fullTargetPath));
+        }
+
+        private static bool PathsEqual(string path, string expectedFullPath)
+        {
+            string fullPath;
+            return TryGetFullPath(path, out fullPath)
+                && string.Equals(fullPath, expectedFullPath, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool TryGetFullPath(string path, out string fullPath)
+        {
+            fullPath = null;
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+
+            try
+            {
+                fullPath = Path.GetFullPath(path);
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+            catch (NotSupportedException)
+            {
+                return false;
+            }
         }
 
         private static void TryDeleteCreatedFile(string path)

@@ -24,11 +24,16 @@ namespace SubSteward.Plugin.M1
                 throw new ArgumentException("Subtitle content is empty.", nameof(content));
             }
 
-            if (offsetMilliseconds == 0 || Math.Abs((long)offsetMilliseconds) > MaxAbsoluteOffsetMilliseconds)
+            if (offsetMilliseconds == 0)
+            {
+                return (byte[])content.Clone();
+            }
+
+            if (Math.Abs((long)offsetMilliseconds) > MaxAbsoluteOffsetMilliseconds)
             {
                 throw new ArgumentOutOfRangeException(
                     nameof(offsetMilliseconds),
-                    "Timeline offset must be non-zero and no more than 10 minutes in either direction.");
+                    "Timeline offset must be no more than 10 minutes in either direction.");
             }
 
             var normalizedFormat = NormalizeFormat(format);
@@ -212,6 +217,11 @@ namespace SubSteward.Plugin.M1
                 || centiseconds > 99)
             {
                 throw new InvalidOperationException("ASS dialogue has an invalid timestamp.");
+            }
+
+            if (hours > 99)
+            {
+                throw new InvalidOperationException("ASS timestamp hours exceed the supported range.");
             }
 
             return checked((((hours * 60) + minutes) * 60 + seconds) * 1000 + centiseconds * 10);

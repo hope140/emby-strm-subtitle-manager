@@ -22,12 +22,12 @@ namespace SubSteward.Plugin.M2
                     return secondary == "日" ? "中日双语" : "中英双语";
                 }
 
-                if (requestedLanguageVariant == "zh-Hans")
+                if (requestedLanguageVariant == "zh-Hans" && validation.HasHanCharacters)
                 {
                     return "中文简体";
                 }
 
-                if (requestedLanguageVariant == "zh-Hant")
+                if (requestedLanguageVariant == "zh-Hant" && validation.HasHanCharacters)
                 {
                     return "中文繁體";
                 }

@@ -14,7 +14,7 @@ define([], function () {
 
         var PLUGIN_ID = "20b47482-cb89-42d2-a6e0-5b87fd9b7858";
         var DEFAULT_CONFIGURATION = {
-            TargetLanguage: "zho",
+            TargetLanguage: "zh-Hans",
             SecondaryLanguage: "eng",
             PreferBilingual: false,
             FormatOrder: "ass,ssa,srt",
@@ -131,27 +131,45 @@ define([], function () {
                 body = JSON.stringify(body);
                 headers["Content-Type"] = "application/json";
             }
-            var response = await fetch(buildUrl(path, requestOptions.query), {
-                method: requestOptions.method || "GET",
-                headers: headers,
-                body: body,
-                credentials: "same-origin"
-            });
-            var text = await response.text();
-            var payload = null;
-            if (text) {
-                try {
-                    payload = JSON.parse(text);
-                } catch (error) {
-                    payload = text;
+            var controller = null;
+            var timer = null;
+            if (typeof AbortController !== "undefined") {
+                controller = new AbortController();
+                timer = setTimeout(function () {
+                    controller.abort();
+                }, requestOptions.timeoutMs || 60000);
+            }
+            try {
+                var response = await fetch(buildUrl(path, requestOptions.query), {
+                    method: requestOptions.method || "GET",
+                    headers: headers,
+                    body: body,
+                    credentials: "same-origin",
+                    signal: controller ? controller.signal : undefined
+                });
+                var text = await response.text();
+                var payload = null;
+                if (text) {
+                    try {
+                        payload = JSON.parse(text);
+                    } catch (error) {
+                        payload = text;
+                    }
                 }
+                if (!response.ok) {
+                    throw new Error(payload && payload.Message
+                        ? payload.Message
+                        : "Emby 请求失败（HTTP " + response.status + "）。");
+                }
+                return payload;
+            } catch (error) {
+                if (controller && controller.signal.aborted) {
+                    throw new Error("Emby 请求超时，请稍后重试。");
+                }
+                throw error;
+            } finally {
+                if (timer) clearTimeout(timer);
             }
-            if (!response.ok) {
-                throw new Error(payload && payload.Message
-                    ? payload.Message
-                    : "Emby 请求失败（HTTP " + response.status + "）。");
-            }
-            return payload;
         }
 
         function escapeHtml(value) {
@@ -456,7 +474,6 @@ define([], function () {
                     state.candidates = [];
                     state.artifact = null;
                     state.alignmentHistory = [];
-                    state.alignmentHistory = [];
                     renderWorkbench();
                 });
             }
@@ -515,11 +532,13 @@ define([], function () {
                     : candidate.TitleMatch
                         ? '<span class="ss-chip ss-chip-warning">标题匹配</span>'
                         : '<span class="ss-chip ss-chip-danger">未绑定</span>';
+                var mismatchBadges = (candidate.LanguageMismatch ? '<span class="ss-chip ss-chip-warning">语言标注不符</span>' : "")
+                    + (candidate.VariantMismatch ? '<span class="ss-chip ss-chip-warning">简繁变体不符</span>' : "");
                 return '<div class="ss-candidate"><div><div class="ss-row-title" title="' + escapeHtml(candidate.Name || "未命名候选")
                     + '">' + escapeHtml(candidate.Name || "未命名候选") + '</div><div class="ss-row-meta"><span>'
                     + escapeHtml(candidate.Provider || "未知 Provider") + '</span><span>·</span><span>'
                     + escapeHtml(candidate.LanguageLabel || candidate.Language || "未知语言") + '</span><span>·</span><span>'
-                    + escapeHtml(candidate.Format || "未知格式") + '</span></div><div class="ss-chip-row">' + badges
+                    + escapeHtml(candidate.Format || "未知格式") + '</span></div><div class="ss-chip-row">' + badges + mismatchBadges
                     + '</div></div><button class="ss-button" type="button" data-fetch-index="' + index + '" '
                     + (matched ? "" : "disabled") + '>下载并校验</button></div>';
             }).join("") + '</div>';

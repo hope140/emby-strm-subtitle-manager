@@ -30,7 +30,8 @@ public sealed class M2PresenceAnalyzerTests
         });
 
         Assert.Equal("zho", report.TargetLanguage);
-        Assert.Equal("中文", report.TargetLanguageLabel);
+        Assert.Equal("zh-Hans", report.RequestedTargetVariant);
+        Assert.Equal("中文（简体）", report.TargetLanguageLabel);
         Assert.True(report.TargetLanguagePresent);
         Assert.Equal(1, report.ExternalTargetLanguageStreamCount);
     }

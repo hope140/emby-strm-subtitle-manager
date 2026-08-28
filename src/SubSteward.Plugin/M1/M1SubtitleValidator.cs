@@ -99,7 +99,9 @@ namespace SubSteward.Plugin.M1
             {
                 foreach (var character in cue.Text ?? string.Empty)
                 {
-                    if (character >= '\u4e00' && character <= '\u9fff')
+                    if ((character >= '\u3400' && character <= '\u4dbf')
+                        || (character >= '\u4e00' && character <= '\u9fff')
+                        || (character >= '\uf900' && character <= '\ufaff'))
                     {
                         return true;
                     }
@@ -419,13 +421,25 @@ namespace SubSteward.Plugin.M1
                 return false;
             }
 
+            if (hours > 99)
+            {
+                return false;
+            }
+
             if (minutes > 59 || seconds > 59 || millis > 999)
             {
                 return false;
             }
 
-            milliseconds = (((hours * 60) + minutes) * 60 + seconds) * 1000 + millis;
-            return true;
+            try
+            {
+                checked { milliseconds = (((hours * 60) + minutes) * 60 + seconds) * 1000 + millis; }
+                return true;
+            }
+            catch (OverflowException)
+            {
+                return false;
+            }
         }
 
         private static bool TryParseAssTime(string value, out int milliseconds)
@@ -446,13 +460,25 @@ namespace SubSteward.Plugin.M1
                 return false;
             }
 
+            if (hours > 99)
+            {
+                return false;
+            }
+
             if (minutes > 59 || seconds > 59 || centiseconds > 99)
             {
                 return false;
             }
 
-            milliseconds = (((hours * 60) + minutes) * 60 + seconds) * 1000 + centiseconds * 10;
-            return true;
+            try
+            {
+                checked { milliseconds = (((hours * 60) + minutes) * 60 + seconds) * 1000 + centiseconds * 10; }
+                return true;
+            }
+            catch (OverflowException)
+            {
+                return false;
+            }
         }
 
         private static string NormalizeFormat(string format)

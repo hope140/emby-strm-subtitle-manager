@@ -92,4 +92,59 @@ public sealed class M1SubtitleValidatorTests
         Assert.True(result.HasAssOverrideTagIssue);
         Assert.Equal(1, System.Linq.Enumerable.Count(result.Reasons, reason => reason == "ASS dialogue has an unbalanced override tag"));
     }
+
+    [Fact]
+    public void SrtWithThreeDigitHours_IsRejectedAsInvalidTimestamp()
+    {
+        var result = new M1SubtitleValidator().Validate(
+            Encoding.UTF8.GetBytes("1\n100:00:01,000 --> 100:00:02,000\n超长字幕\n"),
+            "srt");
+
+        Assert.Equal("FAIL", result.Health);
+        Assert.Contains("timestamp", string.Join(" ", result.Reasons), System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SrtAtMaximumSupportedHours_RemainsValid()
+    {
+        var result = new M1SubtitleValidator().Validate(
+            Encoding.UTF8.GetBytes("1\n99:59:58,000 --> 99:59:59,999\n极限字幕\n"),
+            "srt");
+
+        Assert.Equal("PASS", result.Health);
+        Assert.Single(result.Cues);
+        Assert.Equal(359998000, result.Cues[0].StartMilliseconds);
+        Assert.Equal(359999999, result.Cues[0].EndMilliseconds);
+    }
+
+    [Fact]
+    public void AssWithHoursAboveNinetyNine_IsRejectedWithoutOverflow()
+    {
+        const string ass = "[Events]\nFormat: Layer, Start, End, Style, Text\nDialogue: 0,100:00:01.00,100:00:02.00,Default,超长字幕\n";
+        var result = new M1SubtitleValidator().Validate(Encoding.UTF8.GetBytes(ass), "ass");
+
+        Assert.Equal("FAIL", result.Health);
+        Assert.Contains("invalid timeline", string.Join(" ", result.Reasons), System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AssWithOverflowingHours_IsRejectedInsteadOfCrashing()
+    {
+        const string ass = "[Events]\nFormat: Layer, Start, End, Style, Text\nDialogue: 0,99999999:00:00.00,99999999:00:01.00,Default,超长字幕\n";
+        var result = new M1SubtitleValidator().Validate(Encoding.UTF8.GetBytes(ass), "ass");
+
+        Assert.Equal("FAIL", result.Health);
+        Assert.Contains("invalid timeline", string.Join(" ", result.Reasons), System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ExtendedHanRanges_AreDetectedAsChineseContent()
+    {
+        var result = new M1SubtitleValidator().Validate(
+            Encoding.UTF8.GetBytes("1\n00:00:01,000 --> 00:00:02,000\n\u3400\n"),
+            "srt");
+
+        Assert.Equal("PASS", result.Health);
+        Assert.True(result.HasHanCharacters);
+    }
 }

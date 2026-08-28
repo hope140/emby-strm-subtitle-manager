@@ -59,4 +59,54 @@ public sealed class M2QualityAnalyzerTests
         Assert.True(report.TargetLanguagePresent);
         Assert.Equal(1, report.TargetLanguageCueCount);
     }
+
+    [Fact]
+    public void SameTargetAndSecondaryLanguage_DoesNotReportBilingualContent()
+    {
+        var validation = new M1SubtitleValidator().Validate(
+            Encoding.UTF8.GetBytes("1\n00:00:01,000 --> 00:00:02,000\nHello world\n"),
+            "srt");
+
+        var report = new M2QualityAnalyzer().Analyze(validation, "eng", "eng");
+
+        Assert.Equal("eng", report.TargetLanguage);
+        Assert.True(report.TargetLanguagePresent);
+        Assert.Equal(1, report.TargetLanguageCueCount);
+        Assert.Null(report.SecondaryLanguage);
+        Assert.False(report.SecondaryLanguagePresent);
+        Assert.Equal(0, report.SecondaryLanguageCueCount);
+        Assert.False(report.BilingualDetected);
+    }
+
+    [Fact]
+    public void JapaneseTarget_KanaIsNotCountedAsBilingualEvidence()
+    {
+        var validation = new M1SubtitleValidator().Validate(
+            Encoding.UTF8.GetBytes("1\n00:00:01,000 --> 00:00:02,000\nこんにちは\n"),
+            "srt");
+
+        var report = new M2QualityAnalyzer().Analyze(validation, "jpn");
+
+        Assert.Equal("jpn", report.TargetLanguage);
+        Assert.True(report.TargetLanguagePresent);
+        Assert.Equal(1, report.JapaneseCueCount);
+        Assert.False(report.SecondaryLanguagePresent);
+        Assert.False(report.BilingualDetected);
+    }
+
+    [Theory]
+    [InlineData("\u3400")]
+    [InlineData("\u4dbf")]
+    [InlineData("\uf900")]
+    public void ExtendedHanRanges_AreDetectedAsChineseContent(string hanCharacter)
+    {
+        var validation = new M1SubtitleValidator().Validate(
+            Encoding.UTF8.GetBytes("1\n00:00:01,000 --> 00:00:02,000\n" + hanCharacter + "\n"),
+            "srt");
+
+        var report = new M2QualityAnalyzer().Analyze(validation, "zh-Hans");
+
+        Assert.True(report.TargetLanguagePresent);
+        Assert.Equal(1, report.TargetLanguageCueCount);
+    }
 }

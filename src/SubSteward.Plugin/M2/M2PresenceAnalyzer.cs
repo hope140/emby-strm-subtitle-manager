@@ -10,7 +10,7 @@ namespace SubSteward.Plugin.M2
 
         public M2PresenceReport Analyze(
             IEnumerable<M2SubtitleStreamSnapshot> streams,
-            string targetLanguage = "zho",
+            string targetLanguage = "zh-Hans",
             string secondaryLanguage = "eng")
         {
             var target = M2Language.Parse(targetLanguage, M2Language.Chinese);

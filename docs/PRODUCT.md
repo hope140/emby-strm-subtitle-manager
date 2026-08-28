@@ -142,6 +142,7 @@ M3 的自动补缺至少要求：目标字幕确实缺失、写入目标明确�
 - MultiSource STRM V1 只允许明确绑定后的读取、搜索和预览，不自动写入。
 - 写入必须使用临时文件和简单备份，失败不能留下半截正式文件。
 - Refresh 后必须确认 Emby 的 MediaStreams 能看到新字幕，并报告明确失败原因。
+- 外置字幕文件名遵循 [Emby 字幕命名说明](https://emby.media/support/articles/Subtitles.html)：搜索层使用基础语言码，简繁地区信息写入文件名，例如简体 `zh-CN`、繁体 `zh-TW`。插件当前不追加 `.default`、`.forced` 或 `.sdh`，默认选择交由 Emby 用户字幕设置调整。
 
 ## 明确不属于 SubSteward 主线的内容
 

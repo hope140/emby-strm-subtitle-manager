@@ -9,6 +9,9 @@ namespace SubSteward.Plugin.M1
     /// </summary>
     public sealed class M1TokenStore
     {
+        private const int MaxCandidates = 200;
+        private const int MaxArtifacts = 32;
+
         private readonly object sync = new object();
         private readonly Dictionary<string, M1CandidateRecord> candidates = new Dictionary<string, M1CandidateRecord>(StringComparer.Ordinal);
         private readonly Dictionary<string, M1ArtifactRecord> artifacts = new Dictionary<string, M1ArtifactRecord>(StringComparer.Ordinal);
@@ -19,6 +22,7 @@ namespace SubSteward.Plugin.M1
             lock (sync)
             {
                 PruneExpired(DateTime.UtcNow);
+                EvictOldestCandidates();
                 candidates[token] = new M1CandidateRecord
                 {
                     Token = token,
@@ -51,6 +55,7 @@ namespace SubSteward.Plugin.M1
             lock (sync)
             {
                 PruneExpired(DateTime.UtcNow);
+                EvictOldestArtifacts();
                 artifacts[token] = new M1ArtifactRecord
                 {
                     Token = token,
@@ -115,6 +120,54 @@ namespace SubSteward.Plugin.M1
             foreach (var token in expiredArtifacts)
             {
                 artifacts.Remove(token);
+            }
+        }
+
+        private void EvictOldestCandidates()
+        {
+            while (candidates.Count >= MaxCandidates)
+            {
+                string oldestToken = null;
+                var oldestExpiry = DateTime.MaxValue;
+                foreach (var pair in candidates)
+                {
+                    if (pair.Value.ExpiresAtUtc < oldestExpiry)
+                    {
+                        oldestExpiry = pair.Value.ExpiresAtUtc;
+                        oldestToken = pair.Key;
+                    }
+                }
+
+                if (oldestToken == null)
+                {
+                    break;
+                }
+
+                candidates.Remove(oldestToken);
+            }
+        }
+
+        private void EvictOldestArtifacts()
+        {
+            while (artifacts.Count >= MaxArtifacts)
+            {
+                string oldestToken = null;
+                var oldestExpiry = DateTime.MaxValue;
+                foreach (var pair in artifacts)
+                {
+                    if (pair.Value.ExpiresAtUtc < oldestExpiry)
+                    {
+                        oldestExpiry = pair.Value.ExpiresAtUtc;
+                        oldestToken = pair.Key;
+                    }
+                }
+
+                if (oldestToken == null)
+                {
+                    break;
+                }
+
+                artifacts.Remove(oldestToken);
             }
         }
     }
