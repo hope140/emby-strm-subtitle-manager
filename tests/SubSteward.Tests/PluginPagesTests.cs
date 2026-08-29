@@ -115,6 +115,9 @@ public sealed class PluginPagesTests
         Assert.Contains("browseBreadcrumb", page);
         Assert.Contains("LikelyNonFullRelease", controller);
         Assert.Contains("候选字幕下载或校验失败", controller);
+        Assert.Contains("来源对应", controller);
+        Assert.DoesNotContain("文件指纹匹配", controller);
+        Assert.DoesNotContain("文件指纹（Hash）", controller);
         Assert.DoesNotContain("<script>", page);
     }
 }

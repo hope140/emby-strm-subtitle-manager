@@ -5,8 +5,9 @@ namespace SubSteward.Plugin.M1
 {
     /// <summary>
     /// Identifies metadata that strongly suggests a short-form or fan-edit
-    /// source. A marker alone never proves the content is wrong; callers must
-    /// combine it with the absence of a provider hash match before blocking.
+    /// source. A marker alone never proves the content is wrong for an
+    /// ordinary local source; STRM callers must not use a STRM file hash to
+    /// override the marker because the file is only a playback pointer.
     /// </summary>
     public static class M1CandidateEvidence
     {

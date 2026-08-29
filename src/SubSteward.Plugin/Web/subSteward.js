@@ -80,13 +80,13 @@ define([], function () {
             "Health FAILED and the candidate was eliminated": "字幕健康检查失败，候选已被淘汰",
             "Health is PASS": "字幕健康检查通过",
             "Health is WARNING; inspect it before installation": "字幕存在需要留意的问题，安装前请人工确认",
-            "The provider reported a hash match": "字幕来源报告文件指纹（Hash）匹配",
+            "The provider reported a hash match": "字幕来源服务提供了媒体对应证据",
             "Only metadata title matching is available": "目前只有标题匹配证据",
-            "No provider hash or title binding is available": "没有可用的文件指纹（Hash）或片名绑定证据",
+            "No provider hash or title binding is available": "没有可用的媒体对应或片名绑定证据",
             "Target-language text was detected in subtitle content": "字幕正文中检测到目标语言",
             "Bilingual content matches the configured preference": "检测到双语内容，符合当前偏好",
             "Target-language text was not detected in subtitle content": "字幕正文中没有检测到目标语言",
-            "A candidate must have title or hash evidence before installation": "安装前必须有片名或文件指纹（Hash）绑定证据",
+            "A candidate must have title or hash evidence before installation": "安装前必须有片名或媒体对应绑定证据",
             "Weak evidence or missing preference match": "匹配证据较弱，或没有满足当前偏好",
             "The item was explicitly marked to be ignored": "该媒体已明确标记为不处理",
             "Required subtitle state is not known": "当前无法确认所需字幕状态",
@@ -101,7 +101,7 @@ define([], function () {
             "Candidate Health is FAIL; search for another candidate": "候选字幕健康检查失败，请寻找其他候选",
             "Candidate health has an unknown value": "候选字幕返回了无法识别的健康状态",
             "Candidate Health is WARNING; inspect it manually before installation": "候选字幕有需要留意的问题，安装前请人工确认",
-            "Candidate has neither title nor hash binding to the selected Item": "候选字幕与当前媒体既没有片名绑定，也没有文件指纹（Hash）绑定",
+            "Candidate has neither title nor hash binding to the selected Item": "候选字幕与当前媒体既没有片名绑定，也没有媒体对应证据",
             "Candidate preference suitability is not known": "尚未确认候选字幕是否符合当前偏好",
             "Candidate is not recommended by Preference analysis; search for another candidate": "候选字幕不符合当前偏好，请寻找其他候选",
             "Candidate preference suitability has an unknown value": "候选字幕返回了无法识别的偏好结果",
@@ -787,16 +787,17 @@ define([], function () {
         function renderStage() {
             if (state.artifact) return renderArtifact(state.artifact);
             if (!state.candidates.length) {
-                return '<div class="ss-muted">尚未搜索。候选会按文件指纹或片名对应关系排序；无法确认属于当前媒体的候选不能下载。</div>';
+                return '<div class="ss-muted">尚未搜索。候选会按媒体对应证据或片名关系排序；无法确认属于当前媒体的候选不能下载。</div>';
             }
             return '<div class="ss-candidate-list">' + state.candidates.map(function (candidate, index) {
-                var blockedSource = candidate.LikelyNonFullRelease && !candidate.IsHashMatch;
+                var selectedIsStrm = Boolean(state.selectedItem && state.selectedItem.IsStrm);
+                var blockedSource = candidate.LikelyNonFullRelease && (selectedIsStrm || !candidate.IsHashMatch);
                 var matched = (candidate.IsHashMatch || candidate.TitleMatch) && !blockedSource;
                 var fetchState = state.fetchStates[index] || {};
                 var isLoading = state.fetchingIndex === index && fetchState.status === "loading";
                 var anotherLoading = state.fetchingIndex !== null && !isLoading;
                 var badges = candidate.IsHashMatch
-                    ? '<span class="ss-chip ss-chip-good" title="字幕来源服务报告 Hash 匹配">文件指纹匹配</span>'
+                    ? '<span class="ss-chip ss-chip-good" title="字幕来源服务提供了媒体对应证据">来源对应</span>'
                     : candidate.TitleMatch
                         ? '<span class="ss-chip ss-chip-warning">片名匹配</span>'
                         : '<span class="ss-chip ss-chip-danger">无法确认对应媒体</span>';
@@ -806,7 +807,7 @@ define([], function () {
                     ? '<span class="ss-chip ss-chip-danger">疑似片段/弹幕源</span>'
                     : "";
                 var blockedSourceHtml = blockedSource
-                    ? '<div class="ss-fetch-error" role="status">疑似短片或片段来源，而且没有文件指纹匹配，已禁止下载。</div>'
+                    ? '<div class="ss-fetch-error" role="status">疑似短片或片段来源，已禁止自动下载。</div>'
                     : "";
                 var fetchStateHtml = isLoading
                     ? '<div class="ss-fetch-state" role="status" aria-live="polite">正在获取并校验正文，最多等待 60 秒；超时后可换候选。</div>'

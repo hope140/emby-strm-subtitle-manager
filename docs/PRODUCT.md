@@ -16,8 +16,8 @@ SubSteward 是一个独立运行在 Emby 内的字幕自动化插件，负责发
 - 第二语言，例如英语或日语。
 - 是否偏好双语字幕。
 - 字幕格式优先级，默认 `ASS > SSA > SRT`，但默认保持原格式。
-- 是否偏好特效字幕、指定 Provider 或 Hash 匹配。
-- 是否开启自动补缺，以及允许处理的媒体库范围。
+- 是否偏好特效字幕、指定 Provider 或媒体对应证据。Hash 是 Provider/Emby 在能够识别视频内容时提供的媒体指纹，不对 `.strm` 文件本身计算或匹配。
+- 是否开启自动补缺，以及允许处理的媒体库范围。M3 还提供默认 dry-run 和每次运行/每条目的上限。
 
 SubSteward 对每个视频最终给出清晰状态和动作建议，而不是只返回一个搜索结果：
 
@@ -41,7 +41,7 @@ KEEP / REPAIR / SEARCH / UPGRADE / MANUAL / IGNORE
 发现缺失 → 搜索候选 → Fetch → 质量校验 → 偏好排序 → 安装 → Refresh
 ```
 
-只有候选与目标 Item/source 绑定、Health 通过且写入目标明确时，才允许进入安装。
+人工流程只在候选与目标 Item/source 绑定、Health 通过且写入目标明确时进入安装。M3 对 STRM 使用片名与年份/集数等媒体元数据做对应，不读取 `.strm` 内容，也不把 STRM 文件哈希当作视频指纹；自动流程还要求媒体库白名单、单 Source、目标确实缺失和 Preference `RECOMMENDED`。
 
 ### 已有外挂字幕
 
@@ -90,7 +90,7 @@ Health → Preference → 状态与建议
 - 双语 cue 比例和检测置信度。
 - ASS/SSA/SRT 格式偏好。
 - 普通、样式化或高特效字幕偏好。
-- Provider、Hash 和文件名匹配。
+- Provider、媒体指纹（仅在可用时）和文件名匹配。
 - 用户自定义权重。
 
 低置信度的双语判断只能用于人工建议，不能单独触发自动替换。
@@ -108,7 +108,7 @@ Health → Preference → 状态与建议
 1. Metadata Ranking：Provider、名称、语言、格式、Hash、Provider 分数和文件名关键词排序。
 2. Deep Ranking：Fetch 后检查 Health、实际语言、双语、特效、编码、格式和内容问题。英文证据按可识别词语/短语统计，不把 BGM、用户名、URL、缩写或弹幕拟声词当作英文正文。
 
-Health FAIL 的候选直接淘汰。Provider 返回的语言字段不能代替正文语言检查；中文候选必须经过正文门禁，避免“标称中文但正文是英语或其他影片”的错误写入。候选名称出现 `bilibili`、`clip`、`trailer`、`片段`、`戏份`、`花絮`、`预告`、`混剪` 或 `弹幕` 等短片来源信号且没有 Hash 匹配时，保持人工拒绝，不进入 Fetch。初期只 Fetch 有限数量的候选，默认上限为 3。
+Health FAIL 的候选直接淘汰。Provider 返回的语言字段不能代替正文语言检查；中文候选必须经过正文门禁，避免“标称中文但正文是英语或其他影片”的错误写入。候选名称出现 `bilibili`、`clip`、`trailer`、`片段`、`戏份`、`花絮`、`预告`、`混剪` 或 `弹幕` 等短片来源信号时，保持人工拒绝，不进入自动 Fetch。普通本地媒体可以使用 Provider 的媒体指纹作为证据；STRM 不读取指针内容，也不使用 STRM 文件哈希，M3 改用标题与年份/集数等结构化元数据。人工流程最多展示 20 条候选；M3 每个条目最多自动 Fetch 3 条。
 
 候选原始 ID 和 Artifact 内容只在插件进程短期保存，不写入响应、日志或仓库。
 
@@ -124,7 +124,7 @@ Health FAIL 的候选直接淘汰。Provider 返回的语言字段不能代替�
 | M3 | 只对明确授权媒体库中、单 Source、缺少目标语言字幕的媒体做保守自动补缺。 |
 | M4 | 在积累真实误判、候选选择和播放反馈后，再评估自动 Repair 与 Upgrade。 |
 
-M3 的自动补缺至少要求：目标字幕确实缺失、写入目标明确、候选 Health PASS、匹配置信度达标，并且用户明确开启自动化。
+M3 的自动补缺至少要求：目标字幕确实缺失、写入目标明确、候选 Health `PASS`、正文目标语言存在、Preference 为 `RECOMMENDED`、媒体对应置信度达到自动阈值，并且用户明确开启自动化。对 STRM，自动阈值是标题匹配加年份或集数信息，且来源不能带片段/预告等短片信号；不读取 `.strm` 内容，也不使用 STRM 文件哈希。自动对轴在一次运行内 Fetch 多个候选，通过对白文本或序列建立相对时间轴共识；共识不足或检测到时间漂移时转人工。默认配置为关闭和 dry-run，媒体库必须通过显式白名单授权。
 
 以下行为在早期不自动执行：
 
@@ -162,7 +162,7 @@ M3 的自动补缺至少要求：目标字幕确实缺失、写入目标明确�
 
 ## 当前状态
 
-M0 与 M1 已完成：插件加载、单 Source STRM 的公开 Search/Fetch、候选预览、ASS/SRT 结构校验、版本化 sidecar 安装、Refresh、Emby 字幕流读取和实际客户端播放验收均已验证。当前 M1 通过嵌入式管理员页面和管理员 API 提供人工流程，页面分为状态、手动处理和设置三个页签，可查看条目摘要、Presence、Health、Preference、Action，并完成 Search → Fetch/Preview → 可选固定偏移对轴 → Install。单条目详情会对安全范围内的外置字幕执行有上限深检，内封字幕继续保持未知，不提取正文。对轴只按管理员明确输入的毫秒值整体提前或延后，派生新 Artifact 后重新校验，不自动猜测音画偏移。设置支持全局默认与媒体库级覆盖。M2 核心分析与保守 Action Advisor 已实现，并接入 Item 详情及 Fetch/Preview Artifact 响应；语言标签区分规范宏语言与简繁变体，配置和 Provider 返回的语言变体会统一归一化，社区别名只作输入归一化。Health FAIL 或缺少标题/Hash 绑定的候选项不能进入推荐，自动 Repair/Upgrade 仍未开放。
+项目当前暂时搁置。M0 与 M1 已完成：插件加载、单 Source STRM 的公开 Search/Fetch、候选预览、ASS/SRT 结构校验、版本化 sidecar 安装、Refresh、Emby 字幕流读取和实际客户端播放验收均已验证。M1 通过嵌入式管理员页面和管理员 API 提供人工流程，可完成 Search → Fetch/Preview → 可选固定偏移对轴 → Install。M2 核心分析和保守 Action Advisor 已实现，并接入 Item 详情及 Fetch/Preview Artifact 响应；M3 后端自动补缺已在 C92 完成白名单、范围扫描、缺失识别、STRM 标题/年份对应、Fetch/Validate 失败隔离、候选间时间轴共识和 dry-run 的阶段性验证。候选互相对照版本检测到时间漂移后转人工，未写入媒体；“妖猫传”的历史单样本安装、Refresh 和 MediaStream 对账仍保留，客户端播放仍待确认。暂停期间不继续开发、部署或运行自动化，自动 Repair/Upgrade 仍未开放。
 
 ### M2 当前收口边界
 
@@ -173,5 +173,6 @@ M0 与 M1 已完成：插件加载、单 Source STRM 的公开 Search/Fetch、�
 - ASS 的 Script Info、Styles、残缺 HTML 和更深层结构校验仍较浅，后续扩展 Health 时处理。
 - Preference 当前支持目标语言、第二语言、双语开关和格式顺序；用户自定义权重以及普通、样式化、高特效偏好暂不纳入本阶段。
 - `PreferenceAnalyzer` 支持对已 Fetch 的候选做纯计算排序，但服务入口尚未接入大规模候选的批量 Deep Ranking，后续在自动化范围明确后再评估。
+- M3 当前已完成后端任务和 fail-closed 门禁的阶段性实现，运行摘要尚未持久化，管理员页面的自动化配置和结果展示仍待后续 UI 收口；项目暂停后暂不继续处理这些事项。
 
 这些限制不改变当前的 fail-closed 规则，也不授权自动 Repair、Upgrade 或 MultiSource STRM 写入。

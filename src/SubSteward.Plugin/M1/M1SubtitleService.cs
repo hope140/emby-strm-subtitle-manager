@@ -690,7 +690,8 @@ namespace SubSteward.Plugin.M1
 
                 var titleMatch = CandidateMatchesItem(candidate.Name, item);
                 var hashMatch = candidate.IsHashMatch.GetValueOrDefault();
-                var likelyNonFullRelease = M1CandidateEvidence.LooksLikeNonFullRelease(candidate.Name) && !hashMatch;
+                var likelyNonFullRelease = M1CandidateEvidence.LooksLikeNonFullRelease(candidate.Name)
+                    && (!hashMatch || IsStrmItem(item));
                 var candidateLanguage = candidate.Language ?? language;
                 var parsedCandidateLanguage = M2Language.Parse(candidateLanguage, language);
                 var languageMismatch = !string.IsNullOrWhiteSpace(candidate.Language)
@@ -758,7 +759,7 @@ namespace SubSteward.Plugin.M1
                 throw new InvalidOperationException("Candidate metadata does not match the selected Item.");
             }
 
-            if (candidate.LikelyNonFullRelease && !candidate.HashMatch)
+            if (candidate.LikelyNonFullRelease && (!candidate.HashMatch || IsStrmItem(item)))
             {
                 LogWarning("Fetch rejected item={0} reason=likely-non-full-release", SafeLogText(item.Name));
                 throw new InvalidOperationException("Candidate appears to be a clip or short-form source rather than the selected full release.");
@@ -1309,6 +1310,13 @@ namespace SubSteward.Plugin.M1
         private static bool IsChineseLanguage(string language)
         {
             return M2Language.IsChinese(language);
+        }
+
+        private static bool IsStrmItem(BaseItem item)
+        {
+            return item != null
+                && !string.IsNullOrWhiteSpace(item.Path)
+                && item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool CandidateMatchesItem(string candidateName, BaseItem item)

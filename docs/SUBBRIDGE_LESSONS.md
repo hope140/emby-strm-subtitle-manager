@@ -8,7 +8,7 @@
 | --- | --- |
 | 媒体身份 | 以 `Item + MediaSource` 作为处理单位，不猜第一个 Source |
 | STRM 写入 | `.strm` sidecar 只锚定本地 `Item.Path`；远程 `MediaSource.Path` 不是文件路径 |
-| 候选选择 | Search 顺序和 Provider 元数据都不可信，必须标题/Hash 绑定后再 Fetch |
+| 候选选择 | Search 顺序和 Provider 元数据都不可信，普通媒体要有媒体对应证据，STRM 要有标题/年份/集数绑定后再 Fetch |
 | 内容门禁 | `Language=zh` 不能代替正文语言检查；Fetch 后再做格式、健康和中文字符校验 |
 | 写入确认 | 文件存在或 Refresh 成功都不够，要核对 MediaStream，最终还要看真实客户端 |
 | 复杂边界 | MultiSource STRM、未知状态和低置信度判断保持 `MANUAL`、`Unsupported` 或 `TODO` |
@@ -26,10 +26,10 @@
 ## 2. Provider 候选与错误隔离
 
 - Search 候选不等于可安装 Artifact。Provider 的名称、语言、格式、分数和返回顺序都只是待验证元数据。
-- 标题或原名匹配、Hash 匹配属于进入 Fetch 的绑定条件；没有绑定的候选保持拒绝，不能靠“第一条结果”补救。
+- 标题或原名匹配、Provider 媒体指纹匹配属于进入人工 Fetch 的绑定条件；对 STRM 不读取 `.strm` 内容、不计算 STRM 文件哈希，自动 Fetch 还要有年份或集数等结构化绑定。没有足够绑定的候选保持拒绝，不能靠“第一条结果”补救。
 - `ISubtitleManager.SearchSubtitles` 返回的候选必须通过短期 token 与同一个 Item/source 绑定；原始候选 ID 不进入响应日志或文档。
 - Fetch 使用 `GetRemoteSubtitles` 取得字节后再 Validate。内容为空、格式损坏、读取失败、超过 16 MiB 或正文语言不符合时，只隔离当前候选。
-- Provider 元数据里的 `Language=zh` 不能证明正文是中文。当前中文候选至少需要正文出现中文字符，并且继续满足 Item 标题/Hash 绑定。
+- Provider 元数据里的 `Language=zh` 不能证明正文是中文。当前中文候选至少需要正文出现中文字符，并且继续满足 Item 标题/媒体对应证据绑定。
 - 临时网络错误最多做有限重试；不要因为重试或换候选而放宽身份、语言或格式门禁。
 - 初期搜索结果最多展示 20 条；未来自动 Fetch 仍需单独限制尝试次数，不能把人工列表上限当成自动化授权。
 
@@ -53,7 +53,7 @@ Presence → Health → Preference → Action
 
 ## 4. 对轴、写入与 Refresh
 
-- 对轴只能使用管理员明确给出的整体偏移，不猜测音画偏移，不自动改写正文。
+- M1 人工对轴只能使用管理员明确给出的整体偏移，不猜测音画偏移，不自动改写正文。M3 自动对轴只在同一次运行内至少两个候选形成稳定共识时生成固定偏移，无法形成共识就转人工。
 - 当前支持 SRT、ASS、SSA；累计偏移前后最多 10 分钟，ASS/SSA 使用 10ms 步进，生成 Artifact 后必须重新 Validate。
 - 写入先计算安全 sidecar 目标，再写临时文件并原子移动到新的版本化文件名；不覆盖已有字幕。
 - Install 必须重新读取 Item/source，写入后 Refresh，再按同一 Source 和文件名确认新的外置 MediaStream。
@@ -91,3 +91,13 @@ Presence → Health → Preference → Action
 | 目标存在但 Health 未测量 | 保守返回 `MANUAL`，不能直接 KEEP 或替换 |
 | Refresh 成功但目标 MediaStream 不出现 | 安装失败，保留证据并清理本次文件 |
 | 客户端不显示已确认的 MediaStream | 客户端验收失败，不回写为成功 |
+
+## 8. M3 自动化补充规则
+
+- 自动化必须使用显式媒体库白名单；空白白名单不能回退到全库扫描。
+- 自动任务注册、定时触发和自动化开关是三个不同状态。默认关闭时不查询条目、不调用 Provider、不写文件；dry-run 只允许校验，不允许 Install。
+- M3 只处理单 Source、目标语言明确缺失且本地写入锚点安全的 Movie/Episode。已有目标字幕、多 Source、内封目标字幕和远程不可写 Source 进入“已跳过”或“需人工”。
+- M3 对 STRM 不使用 STRM 文件哈希，自动候选要求标题加年份/集数等结构化媒体对应、来源没有短片信号、语言/变体不冲突、正文目标语言存在、Health `PASS` 和 Preference `RECOMMENDED`。只有标题匹配但缺少结构化信息的候选保留给人工流程。
+- 每次运行和每个条目都要有硬上限。当前实现默认每次最多 20 个条目、每条最多 3 次 Fetch；候选失败只隔离当前条目，不通过重试放宽身份或语言门禁。
+- 自动安装仍必须使用版本化 sidecar、临时文件、Refresh 和同 Source MediaStream 对账；对账失败要删除本次创建的文件，不能以“文件存在”代替成功。
+- M3 的“已完成”只能表示写入和 MediaStream 对账完成；指定客户端播放仍是独立证据层，必须单独记录。

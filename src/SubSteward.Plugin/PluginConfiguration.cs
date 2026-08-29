@@ -17,6 +17,35 @@ namespace SubSteward.Plugin
 
         public string FormatOrder { get; set; } = "ass,ssa,srt";
 
+        /// <summary>
+        /// Enables the M3 automatic missing-subtitle task. It is deliberately
+        /// disabled until an administrator explicitly opts in.
+        /// </summary>
+        public bool AutomationEnabled { get; set; }
+
+        /// <summary>
+        /// Keeps M3 in validation-only mode. No media file is written while
+        /// this flag is true, even when AutomationEnabled is true.
+        /// </summary>
+        public bool AutomationDryRun { get; set; } = true;
+
+        /// <summary>
+        /// Explicit media-library allowlist for M3. An empty list fails closed
+        /// and prevents the task from querying media items.
+        /// </summary>
+        public List<string> AutomationLibraryIds { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Upper bound for Movie/Episode items examined by one scheduled run.
+        /// </summary>
+        public int AutomationMaxItemsPerRun { get; set; } = 20;
+
+        /// <summary>
+        /// Upper bound for provider Fetch calls attempted for one item. The
+        /// runner applies a hard ceiling of three regardless of this value.
+        /// </summary>
+        public int AutomationMaxCandidateFetchesPerItem { get; set; } = 3;
+
         public List<LibraryPreferenceOverride> LibraryOverrides { get; set; } = new List<LibraryPreferenceOverride>();
     }
 

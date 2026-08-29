@@ -2,6 +2,10 @@
 
 > 状态快照：2026-08-29。本文描述当前 Plugin/API/UI 形态和已记录证据；部署、连接和本机凭据只看未跟踪的 `LOCAL_OPERATIONS.md`。历史部署 Hash 必须重新核对，不能直接当成当前运行状态。
 
+## 项目状态：暂时搁置
+
+项目当前暂停继续开发、部署和自动化运行。本文保留暂停前的 Plugin/API/UI 形态和历史证据；目标服务器插件及部署备份已清理。以后恢复时必须重新部署和复验。
+
 ## 1. 运行时与边界
 
 SubSteward 以一个 Emby Plugin 为主运行时。当前主线不包含旧 Go 服务、独立 Web UI、Docker 运行依赖、数据库、history、quarantine 或复杂 recovery 系统。
@@ -12,7 +16,8 @@ Emby Server
        ├─ Plugin identity and configuration
        ├─ Embedded admin UI
        ├─ M1 manual API
-       └─ M2 quality, preference and conservative action advice
+       ├─ M2 quality, preference and conservative action advice
+       └─ M3 bounded automatic supplementation task
 ```
 
 当前工程位于 `src/SubSteward.Plugin`，目标框架为 `netstandard2.0`，编译基线为公开的 `MediaBrowser.Server.Core 4.9.1.90`。测试位于 `tests/SubSteward.Tests`，公开测试数据位于 `testdata/subtitles`。
@@ -26,11 +31,11 @@ M0 已完成并已从运行时移除。它只用于验证插件加载、服务�
 页面有四个顶层页签，采用现代控制台的信息层级和较克制的 Emby 表面样式：
 
 - **概况**：通过独立 Summary API 显示当前媒体库/筛选范围的完整计数、目标语言存在性、中文动作建议和待关注条目；不再把当前页当作全库。自动化摘要在功能未开放时只显示“尚未启用”，不生成虚假批次或成功率。
-- **自动化**：当前是明确标注的规划中页面，解释未来的批次结果、完成/跳过/失败/人工判断分类和折叠技术日志；它不启动扫描、后台任务或媒体写入。
+- **自动化**：当前是明确标注的规划中页面，解释未来的批次结果、完成/跳过/失败/人工判断分类和折叠技术日志；页面本身不启动扫描、后台任务或媒体写入，M3 任务由 Emby Scheduled Task 单独受配置控制。
 - **手动检查**：先选择媒体库和每页条数；指定媒体库后按 `剧 → 季 → 集` 逐层钻取，电影库直接显示电影，电影/集才进入字幕处理。Items API 仍提供全库分页和名称搜索，随后完成 `Search → Fetch/Preview → 可选固定偏移对轴 → Install`。页面以中文主标签解释存在性、健康、偏好和建议动作，内部英文状态码只作为次要标记。候选和 Artifact token 只在页面和插件短期内存中流转，不展示 Provider 原始 ID。
 - **设置**：编辑全局默认和媒体库覆盖。覆盖可设置目标语言、第二语言、双语偏好和格式顺序，关闭后恢复继承全局默认。
 
-页面只调用本节 API。多 Source 条目保持 fail-closed，自动全库扫描、批量补全、健康字幕替换和 MultiSource STRM 写入不由 UI 开启。
+页面只调用本节 API。多 Source 条目保持 fail-closed，自动全库扫描、批量补全、健康字幕替换和 MultiSource STRM 写入不由 UI 开启；M3 只接受配置中的媒体库白名单，默认关闭并先 dry-run。
 
 插件业务日志通过 Emby 的 `ILogManager` 写入宿主日志，前缀为 `[SubSteward]`。日志覆盖 Items/Summary/Browse、Search、Fetch、Preview、Align 和 Install 的开始、结果、质量计数、匹配状态与失败阶段；不写入候选原始 ID、candidate/artifact token、字幕正文、认证信息或完整媒体路径。
 
@@ -50,8 +55,14 @@ M0 已完成并已从运行时移除。它只用于验证插件加载、服务�
 | GET | `/SubSteward/Subtitles/Preview` | `ArtifactToken` | 返回 Health、编码、格式、Quality、Preference、Action 和最多 200 条 cue |
 | POST | `/SubSteward/Subtitles/Align` | `ArtifactToken`、非零 `OffsetMilliseconds` | 只做人工整体对轴；累计偏移前后最多 10 分钟，ASS/SSA 使用 10ms 步进 |
 | POST | `/SubSteward/Subtitles/Install` | `ArtifactToken` | 重读 Item/source，写版本化 sidecar，Refresh 并确认新外置 MediaStream |
+| GET | `/SubSteward/Automation` | 返回 M3 配置摘要和最近一次运行摘要 | 不返回媒体路径、Provider 原始 ID 或字幕内容 |
+| POST | `/SubSteward/Automation/Run` | 可选 `DryRun` 和单次 `ItemId`，立即执行一次 M3 任务 | 必须先通过持久化开关和白名单；单次条目必须属于授权媒体库；不能用请求参数绕过 `AutomationDryRun=false` |
 
 插件使用的 Emby 内部能力是 `ILibraryManager`、`BaseItem.GetMediaSources`、`ISubtitleManager.SearchSubtitles`、`ISubtitleManager.GetRemoteSubtitles` 和 `IProviderManager.RefreshFullItem`。这些能力不等于旧 SubBridge 的 HTTP API。
+
+### M3 Scheduled Task
+
+`M3SubtitleAutomationTask` 实现 Emby `IScheduledTask`，默认间隔为 24 小时。Emby 注册任务不代表自动化已经开启：任务首先检查 `AutomationEnabled` 和 `AutomationLibraryIds`，任一不满足就直接结束，不查询条目、不调用 Provider、不写文件。`AutomationDryRun=true` 时可以做有限 Search/Fetch/Validate，但不会 Install。
 
 ## 4. 数据流与安全门禁
 
@@ -60,12 +71,14 @@ Item + MediaSource
        ↓
 Presence → Search candidate metadata
        ↓
-candidate binding → Fetch bytes → Validate/language gate
+candidate binding → bounded Fetch × candidates → Validate/language gate
        ↓
-Preview → Quality/Preference → optional manual Align
+Quality/Preference → candidate consensus alignment → optional manual Align
        ↓
 new versioned sidecar → Refresh → MediaStream → client check
 ```
+
+M3 自动流程在 `Preview` 前增加媒体对应门禁。普通本地媒体可使用 Provider 媒体指纹；STRM 不读取 `.strm` 内容，也不计算 STRM 文件哈希，使用标题加年份或集数信息的结构化证据。写入前仍要求 Health `PASS`、正文目标语言存在和 Preference `RECOMMENDED`；dry-run 在写入节点停止。M3 会在同一次运行中 Fetch 多个候选并用文本/序列对照建立相对时间轴共识，不要求媒体目录已有外置字幕；只有共识组中的最佳候选才可进入写入。
 
 ### 媒体和 STRM
 
@@ -77,16 +90,18 @@ new versioned sidecar → Refresh → MediaStream → client check
 
 ### 候选和 Artifact
 
-- Search 结果按 Hash/标题匹配优先展示，但顺序本身不代表质量。
+- Search 结果按 Provider 媒体对应证据/标题匹配优先展示，但顺序本身不代表质量；STRM 的 `.strm` 文件本身不参与 Hash 计算，Provider 哈希也不参与 STRM 的自动排序、对应或偏好加分。
 - candidate token 和 artifact token 只保存在插件进程短期内存；原始候选 ID、内容和认证信息不写入响应或日志。
 - Fetch 读取上限为 16 MiB。格式/编码/时间轴校验失败、内容为空或中文候选正文没有中文字符时，当前候选失败，不放宽到安装。
-- Health 的 `PASS`、`WARNING`、`FAIL` 与 Preference 的 `RECOMMENDED`、`ACCEPTABLE`、`NOT_RECOMMENDED` 分开计算。M2 Action Advisor 只给建议，不执行自动 Repair/Upgrade。
+- Health 的 `PASS`、`WARNING`、`FAIL` 与 Preference 的 `RECOMMENDED`、`ACCEPTABLE`、`NOT_RECOMMENDED` 分开计算。M2 Action Advisor 只给建议；M3 自动安装只接受 Health `PASS`、正文目标语言存在、Preference `RECOMMENDED` 且媒体对应证据达标的候选。STRM 使用标题与年份/集数信息，不使用 STRM 文件哈希。
+- M3 对通过基本校验的已 Fetch 候选进行两两时间轴对照。同语言优先按规范化对白文本匹配，语言不同或变体不明时按对白序列抽样；要求至少两个候选形成稳定共识，固定偏移不超过 10 分钟且残差不超过 250ms。没有共识或出现漂移时保持 `MANUAL`。该方法只能发现候选之间的相对错位，不能单独证明共同的绝对音画偏移。
 
 ### 外置字幕深检与对轴
 
 - 单条目详情最多深检 8 条外置字幕，只接受与本地媒体锚点同目录的普通文件，单文件读取上限为 16 MiB。
 - 内封目标语言只提供 Presence，不提取正文、不 OCR、不深检。
 - 对轴支持 SRT、ASS、SSA。SRT 保留毫秒精度，ASS/SSA 以 10ms 为步进；生成新 Artifact 后重新 Validate，不猜测音画偏移。
+- M3 的自动对轴不读取已有外置字幕、音频或视频；参考角色由本次 Fetch 的其他候选临时承担，候选内容只保存在当前条目处理的内存范围内。
 
 ### 写入与确认
 
@@ -104,6 +119,11 @@ new versioned sidecar → Refresh → MediaStream → client check
 | `SecondaryLanguage` | `eng` | 第二语言 |
 | `PreferBilingual` | `false` | 是否偏好双语 |
 | `FormatOrder` | `ass,ssa,srt` | 格式偏好，逗号和分号均可分隔 |
+| `AutomationEnabled` | `false` | 是否允许 M3 自动补缺 |
+| `AutomationDryRun` | `true` | M3 是否只校验不写入 |
+| `AutomationLibraryIds` | `[]` | M3 明确授权的媒体库 ID；空列表 fail-closed |
+| `AutomationMaxItemsPerRun` | `20` | 单次任务最多检查条目数，代码上限 100 |
+| `AutomationMaxCandidateFetchesPerItem` | `3` | 单条最多 Fetch 次数，代码硬上限 3 |
 | `LibraryOverrides` | `[]` | 可启停的媒体库级覆盖 |
 
 `zho/zh/chi`、`eng/en`、`jpn/ja` 和简繁别名会归一化。简繁变体会继续作为标签证据参与 MediaStream、标题和安全文件名判断，但当前没有可靠的正文级简繁识别，因此不能自动替换。
@@ -125,6 +145,7 @@ Presence → Health → Preference → Action
 - 本机已记录 Release 编译和基础测试通过。
 - C92 Emby 4.9.5.0 曾成功加载插件并发现手动任务；单 Source STRM 样本曾完成 Search、Fetch/Preview、Install、Refresh、Emby 新字幕流识别和实际客户端播放验收。
 - 该基线还发现过错误候选和一次错误语言标记，因此当前实现增加了标题/Hash 绑定、正文语言门禁、候选隔离和最终 MediaStream 对账。
+- 当前源码已加入 M3 Scheduled Task、自动化运行器和 API-first 入口；暂停前已在 C92 验证白名单、范围上限、缺失条目门禁、STRM 对应和候选间时间轴共识。服务器插件已清理，恢复时必须重新部署和复验。
 
 ### 带时间的 C92 记录
 
@@ -147,8 +168,18 @@ Presence → Health → Preference → Action
 | 2026-08-28 | C92 UI5 缓存失效部署，Release DLL SHA-256 `C8DFD18B20C94966BB853DC65A57D4A8CE32199249B2817F986A7D7A4F04E1F9` | 主页面/控制器版本从 UI4 升级到 UI5，保留 UI3/UI4 兼容别名，避免固定资源名缓存旧页面；UI5/旧别名资源均 HTTP 200，容器 `running` 且自动重启次数为 0，远端 DLL Hash 与本地一致并确认加载；管理员 API 回归 `小时代2：青木时代` 200、Summary 200、Libraries 200 | 需要用户重新打开插件页确认左侧高对比文字和候选下载状态提示已生效 |
 | 2026-08-28 | C92 UI7 层级浏览、双语误判修正、候选源拦截与业务日志，Release DLL SHA-256 `E9B7D12EF7551ECF187397C050F68FA65179BF00ED421C1E87BA81B453E12C8B` | 主页面/控制器升级到 UI7，保留 UI3/UI4/UI5/UI6 兼容别名；本地 Release build 0 警告/0 错误、测试 74/74、Web JavaScript `node --check` 通过；`/SubSteward/Browse` 实测 `国产剧` 根层 `Series` → `Season` → `Episode` 分页均 200 且按编号排序；`小时代3：刺金时代` 的 Bilibili clip 候选标记为疑似非完整来源，Fetch 在调用 Provider 前拒绝；宿主日志已出现 `[SubSteward]` 的 Browse、Items、Search、Fetch 阶段及拒绝原因；UI7 HTML/JS HTTP 200；未执行错误候选 Install | 需要用户重新打开插件页确认实际层级视觉；客户端播放不在本次范围 |
 | 2026-08-29 | C92 UI8 B2 控制台与中文术语修正版，Release DLL SHA-256 `879BEF98A4B88420F718665F63DA503091D7E99CD1363E3510DF9BB0061F1030` | 保留 UI3–UI7 兼容别名；本地 Release build 0 警告/0 错误、测试 74/74、Web JavaScript `node --check` 和 `git diff --check` 通过；覆盖前 UI7 DLL Hash `E9B7D12EF7551ECF187397C050F68FA65179BF00ED421C1E87BA81B453E12C8B` 已做时间戳备份；远端 DLL 大小 263168 字节且 Hash 与本地一致；只重启 `emby-server`，容器 `running`、自动重启次数 0，日志确认插件加载和 `Core startup complete`；认证 UI8 HTML/JS、Libraries、Items 和 Summary 均返回 200，Items/Summary `totalCount=7356`，资源包含自动化未启用状态、手动检查和中文动作标签 | 未执行 Provider Search/Fetch、Align/Install、Refresh/MediaStream 或媒体写入；HTTP 200 不代表页面视觉已验收，需要管理员在 Emby 中打开插件页确认布局与交互 |
+| 2026-08-29 | M3 后端首轮 dry-run，Release DLL SHA-256 `B38DD4AE83960B860AF0271262BB48447A6C4EF80FE7E439D177381D28C3AA59` | 覆盖前 DLL 已备份；新 DLL 宿主挂载路径和容器内 Hash 一致；只重启 `emby-server`，容器保持 `running` 且 `restartCount=0`；认证 M3 状态 API 200；“动画电影”白名单配置成功，dry-run 扫描 100 个条目，结果为 98 个已跳过、2 个需人工、0 个失败、0 个已完成；3 个缺失目标条目均出现候选但无 Provider Hash，按当时门禁停止；测试后配置已恢复为关闭、dry-run | 该次运行尚未按 STRM 标题/年份规则验证，不能作为当前 M3 匹配口径的最终证据 |
+| 2026-08-29 | M3 STRM 对应规则修正版 dry-run，Release DLL SHA-256 `9CF80739948B49DF699F76DAC8A433BEEB08BC9F82F6E9879ABAA72B588C672E` | 覆盖前 M3 DLL 已备份；新 DLL 宿主挂载路径和容器内 Hash 一致；只重启 `emby-server`，容器保持 `running` 且 `restartCount=0`；认证 M3 状态 API 200；“动画电影”dry-run 扫描 100 个条目，结果为 98 个已跳过、2 个需人工、0 个失败、0 个已完成；“哪吒之魔童闹海”按 STRM 标题+年份尝试 3 个候选，分别触发 Health `WARNING`、低目标语言覆盖、Preference 不推荐和两次 Health 失败；另外两个缺失条目因缺少年份/集数对应保持人工；API 返回 `Status=已完成`、`StatusCode=COMPLETED`；测试后配置已恢复为关闭、dry-run | 尚未找到 Health `PASS`、正文目标语言存在且 Preference `RECOMMENDED` 的合格候选；尚未执行自动 Install、Refresh、MediaStream 对账或客户端播放；本次没有媒体写入 |
+| 2026-08-29 | M3 C92 任务注册与人工 Provider 预检 | `/ScheduledTasks` 已看到 `SubSteward 自动补缺`，Key 为 `SubStewardAutomaticSubtitleSupplement`，状态 `Idle`，默认 `IntervalTrigger` 为 24 小时；对动画电影库一个缺失条目走人工 Search/Fetch 预检，首个标题候选 Fetch 返回 `WARNING`、目标语言覆盖约 5.4%、Preference `NOT_RECOMMENDED`，后续两个候选返回校验失败；未调用 M3 Install | 尚未找到满足 STRM 标题/年份或集数对应、Health `PASS`、正文目标语言和 Preference `RECOMMENDED` 的候选；M3 自动 Install、Refresh/MediaStream 和客户端播放仍待合格候选 |
+| 2026-08-29 | M3 STRM 对应和中文状态最终修正版 dry-run，Release DLL SHA-256 `B8C0A45D6E731A4F4192FFFDB0FB733D4AD0A4FA3DA9CB6721AFFA4D26CE0955` | 新 DLL 已重新部署并核对宿主挂载路径、容器内 Hash 和插件加载；认证 M3 API 200；“动画电影”dry-run 扫描 100 个条目，结果为 98 个已跳过、2 个需人工、0 个失败、0 个已完成；缺失条目按 STRM 标题+年份进入最多 3 次 Fetch/Validate，Health/正文语言/Preference 门禁按预期拦截；API 返回中文 `Status=已完成` 并保留 `StatusCode=COMPLETED`；测试后配置恢复为关闭、dry-run，未执行 Install 或媒体写入 | 当前动画电影库没有能通过全部门禁的候选；自动 Install、Refresh、MediaStream 对账和客户端播放仍待合格候选 |
+| 2026-08-29 | M3 中文日志与来源术语最终发布版，Release DLL SHA-256 `C141B45C0F22F464B32DF3551910167184BA40A6D4B5EB2D45010A02082E5624` | 在上一版 STRM 匹配规则基础上完成日志/人工页面术语修正；重新部署并核对宿主挂载路径、容器内 Hash 和插件加载；认证 M3 状态 API 200；Scheduled Task 存在且状态 `Idle`；配置保持关闭、dry-run、动画电影白名单，未触发 Provider 或媒体写入 | STRM dry-run 的 Fetch/Validate 结果沿用上一版同逻辑证据；自动 Install、Refresh、MediaStream 对账和客户端播放仍待合格候选 |
+| 2026-08-29 | M3 STRM 片段拦截与中文日志最终发布版，Release DLL SHA-256 `5E17E938554650AB22B79F89C7390A37DDB218BCF7ADC54D784AD2D022AF3D49` | 在 C92 重新部署并核对宿主挂载路径、容器内 Hash 和插件加载；认证 M3 状态 API 200；Scheduled Task 存在且状态 `Idle`；配置保持关闭、dry-run、动画电影白名单；人工页面对 STRM 片段候选与后端保持同一拦截规则；未触发 Provider 或媒体写入 | STRM dry-run 的 Fetch/Validate 结果沿用前一版同逻辑证据；自动 Install、Refresh、MediaStream 对账和客户端播放仍待合格候选 |
+| 2026-08-29 | M3 华语电影库 STRM 合格候选 dry-run，Release DLL SHA-256 `8BBB92EB80A3D4FA990038AC48C73207A764E36AB71EF0FCA38EC04C30EFE1AC` | “华语电影”白名单 dry-run 扫描 52 个条目，结果为 42 个已跳过、10 个需人工、0 个失败、0 个已完成；“妖猫传”按 STRM 标题+年份匹配分 85，第二候选 Health `PASS`、目标语言覆盖 99%、Preference `RECOMMENDED`，被 M3 自动链路接受；API 返回中文 `Status=已完成` 和 `StatusCode=COMPLETED`；测试后配置恢复为关闭、dry-run、空白白名单 | 尚未执行自动 Install、Refresh、MediaStream 对账或客户端播放；本次是 dry-run，没有媒体写入 |
+| 2026-08-29 | M3 华语电影库 STRM 单样本正式安装，Release DLL SHA-256 `BF74A1FD4BD169B08F4454C5F07087DCC633505AD89CF17E94C14576D18E2C47` | 通过单次 `ItemId` 定向运行“妖猫传”；正式模式只扫描 1 个条目，结果为 1 个已完成、0 个已跳过、0 个失败、0 个需人工；安装日志记录生成新的 `.zh-CN.ass` sidecar；目标文件存在且文件数量为 1，临时文件数量为 0；插件详情确认单 Source、目标语言存在、外置 `ASS`、`UTF-8 BOM`、Health `PASS`，Action 为 `KEEP`；测试后配置恢复为关闭、dry-run、空白白名单 | 指定客户端实际播放尚未由用户确认；本次未进行批量自动化 |
+| 2026-08-29 | M3 候选互相对照版部署与 dry-run，Release DLL SHA-256 `FEA3BE2769F694134DF987ACF367A88A8F6851F1A52DDD5BFE27DF696897B16F` | 新 DLL 宿主挂载路径和容器内 Hash 一致；只重启 `emby-server`，容器 `running`、`restartCount=0`，插件加载和 `Core startup complete` 正常，M3 API 200；“外语电影”库《惊天魔盗团3》单条目 dry-run 按最多 3 次 Fetch 收集候选，结果为 1 个需人工、0 个写入，`SynchronizationDriftCount=1`，原因是已抓取候选字幕之间存在时间漂移，无法建立稳定共识；测试后配置恢复为关闭、dry-run、空白白名单；Scheduled Task 为 `Idle`、24 小时间隔 | 尚未找到稳定共识候选的正式安装证据；本次没有媒体写入，客户端播放仍待确认 |
+| 2026-08-29 | 项目暂停与 C92 清理 | 在完成候选互相对照 dry-run 后，已清理 C92 上的 SubSteward 插件 DLL 及其部署备份，并保留媒体目录；本地代码、测试、文档和历史证据提交到远端 | 暂停期间不再认为 C92 已加载 SubSteward；以后恢复必须重新部署、重启和复验 |
 
-因此当前最准确的状态是：M1 基线能力和当前样本的客户端验收已有证据；UI8 工作树已通过本机 build/test，完成 C92 插件、只读 API 和管理页面资源烟测，但新版 B2 布局仍等待管理员浏览器视觉确认。此前“千与千寻”的 Provider、地区码命名、安装、Refresh、MediaStream 对账和地区码修正后的真实客户端播放证据不等于本次 UI 改造重新执行了媒体验收；人工 Align 后再安装的真实链路仍未单独验收。
+因此当前最准确的状态是：项目暂时搁置。M1 基线能力和当前样本的客户端验收已有历史证据；UI8 工作树已通过本机 build/test，完成过 C92 插件、只读 API 和管理页面资源烟测，但新版 B2 布局仍等待管理员浏览器视觉确认。M3 候选互相对照版曾在外语电影库成功识别候选间时间漂移并转人工，随后 C92 插件及部署备份已清理。指定客户端播放仍待用户确认，稳定共识候选的正式安装和批量自动化仍未开放。此前“千与千寻”的人工 Provider、安装、Refresh、MediaStream 对账和客户端播放证据也不等于 M3 自动运行验收。
 
 ## 7. 当前收口边界
 
@@ -157,4 +188,5 @@ Presence → Health → Preference → Action
 - ASS 的 Script Info、Styles、残缺 HTML 和更深层结构校验仍较浅。
 - Preference 支持目标语言、第二语言、双语开关和格式顺序；用户自定义权重以及普通/样式化/高特效偏好尚未纳入。
 - `PreferenceAnalyzer` 支持已 Fetch 候选的纯计算排序，但服务入口没有接入大规模候选的批量 Deep Ranking。
+- M3 任务当前没有持久化运行历史，也没有在 UI 中提供自动化配置/结果入口；需要先完成 dry-run 和单样本真实验收，再决定展示层和批量范围。
 - 上述限制不改变 fail-closed 规则，也不授权自动 Repair、Upgrade 或 MultiSource STRM 写入。

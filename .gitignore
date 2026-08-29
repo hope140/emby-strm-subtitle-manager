@@ -38,3 +38,6 @@ temp/
 
 # Local reference-only test data.
 .scratch/
+
+# Local frontend design previews; source UI changes remain under src/.
+.frontend-design/
