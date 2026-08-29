@@ -4,8 +4,8 @@ define([], function () {
     return function (view, params) {
         var pageRoot = view && view.getAttribute && view.getAttribute("data-role") === "page"
             ? view
-            : document.querySelector('[data-role="page"][data-controller="__plugin/SubStewardUI7.js"]:not([data-substeward-initialized="true"])')
-                || document.querySelector('[data-role="page"][data-controller="__plugin/SubStewardUI7.js"]');
+            : document.querySelector('[data-role="page"][data-controller="__plugin/SubStewardUI8.js"]:not([data-substeward-initialized="true"])')
+                || document.querySelector('[data-role="page"][data-controller="__plugin/SubStewardUI8.js"]');
         if (!pageRoot || pageRoot.getAttribute("data-substeward-initialized") === "true") {
             return;
         }
@@ -28,6 +28,86 @@ define([], function () {
             "srt,ass,ssa",
             "srt,ssa,ass"
         ];
+        var ACTION_LABELS = {
+            KEEP: "保持现状",
+            SEARCH: "继续寻找",
+            MANUAL: "需要人工判断",
+            REPAIR: "建议修复",
+            UPGRADE: "可以考虑替换",
+            IGNORE: "忽略"
+        };
+        var ACTION_DESCRIPTIONS = {
+            KEEP: "现有目标字幕健康，无需处理",
+            SEARCH: "缺少可用字幕，或当前候选已被拒绝",
+            MANUAL: "信息不足或情况复杂，需要管理员确认",
+            REPAIR: "发现明确问题，但自动修复尚未开放",
+            UPGRADE: "现有字幕可用，但可能有更合适的候选",
+            IGNORE: "该媒体已明确设置为不处理",
+            OTHER: "其他尚未开放的建议"
+        };
+        var HEALTH_LABELS = {
+            PASS: "检查通过",
+            WARNING: "需要留意",
+            FAIL: "检查失败",
+            UNKNOWN: "尚未检查"
+        };
+        var PREFERENCE_LABELS = {
+            RECOMMENDED: "符合偏好",
+            ACCEPTABLE: "可以使用",
+            NOT_RECOMMENDED: "不建议使用",
+            UNKNOWN: "尚未评估"
+        };
+        var REASON_LABELS = {
+            "subtitle content is empty": "字幕内容为空",
+            "subtitle content exceeds the M1 size limit": "字幕内容超过允许的检查大小",
+            "subtitle encoding is invalid": "字幕编码无效，无法安全读取",
+            "subtitle encoding required replacement characters": "字幕解码时出现替换字符，文本可能已经损坏",
+            "subtitle contains a NUL control character": "字幕包含不应出现的 NUL 控制字符",
+            "subtitle contains an unexpected control character": "字幕包含异常控制字符",
+            "subtitle format is unsupported": "当前字幕格式不受支持",
+            "SRT cue numbering is inconsistent": "SRT 序号不连续或不一致",
+            "SRT cue is missing its timestamp": "SRT 字幕段缺少时间戳",
+            "SRT cue has an invalid timestamp": "SRT 字幕段的时间戳格式无效",
+            "SRT cue has an invalid timeline": "SRT 字幕段的开始或结束时间无效",
+            "SRT cue has no text": "SRT 字幕段没有正文",
+            "SRT contains no cues": "SRT 文件中没有可用字幕段",
+            "ASS Events format is missing Start, End, or Text": "ASS Events 格式缺少开始时间、结束时间或正文列",
+            "ASS dialogue has too few fields": "ASS 对话行字段不完整",
+            "ASS dialogue has an invalid timeline": "ASS 对话行的时间轴无效",
+            "ASS dialogue has an unbalanced override tag": "ASS 对话行的样式标签没有正确闭合",
+            "ASS is missing an Events section": "ASS 文件缺少 Events 区段",
+            "ASS contains no dialogue cues": "ASS 文件中没有可用对话行",
+            "Health FAILED and the candidate was eliminated": "字幕健康检查失败，候选已被淘汰",
+            "Health is PASS": "字幕健康检查通过",
+            "Health is WARNING; inspect it before installation": "字幕存在需要留意的问题，安装前请人工确认",
+            "The provider reported a hash match": "字幕来源报告文件指纹（Hash）匹配",
+            "Only metadata title matching is available": "目前只有标题匹配证据",
+            "No provider hash or title binding is available": "没有可用的文件指纹（Hash）或片名绑定证据",
+            "Target-language text was detected in subtitle content": "字幕正文中检测到目标语言",
+            "Bilingual content matches the configured preference": "检测到双语内容，符合当前偏好",
+            "Target-language text was not detected in subtitle content": "字幕正文中没有检测到目标语言",
+            "A candidate must have title or hash evidence before installation": "安装前必须有片名或文件指纹（Hash）绑定证据",
+            "Weak evidence or missing preference match": "匹配证据较弱，或没有满足当前偏好",
+            "The item was explicitly marked to be ignored": "该媒体已明确标记为不处理",
+            "Required subtitle state is not known": "当前无法确认所需字幕状态",
+            "M2 action requires exactly one MediaSource": "当前建议只支持单一媒体来源",
+            "Target-language presence is not known": "尚无法确认目标语言字幕是否存在",
+            "Target-language subtitle is missing and no usable candidate is available": "缺少目标语言字幕，而且目前没有可用候选",
+            "Target-language subtitle is present and its health is PASS": "目标语言字幕已经存在，并且健康检查通过",
+            "Target-language subtitle is present but its health is WARNING; inspect it manually": "目标语言字幕已经存在，但有需要留意的问题，请人工检查",
+            "Target-language subtitle is present but failed health checks; automatic Repair is disabled": "目标语言字幕健康检查失败，自动修复尚未开放",
+            "Target-language subtitle is present but its health is not known": "目标语言字幕已经存在，但尚未完成健康检查",
+            "Candidate health is not known": "尚未确认候选字幕是否健康",
+            "Candidate Health is FAIL; search for another candidate": "候选字幕健康检查失败，请寻找其他候选",
+            "Candidate health has an unknown value": "候选字幕返回了无法识别的健康状态",
+            "Candidate Health is WARNING; inspect it manually before installation": "候选字幕有需要留意的问题，安装前请人工确认",
+            "Candidate has neither title nor hash binding to the selected Item": "候选字幕与当前媒体既没有片名绑定，也没有文件指纹（Hash）绑定",
+            "Candidate preference suitability is not known": "尚未确认候选字幕是否符合当前偏好",
+            "Candidate is not recommended by Preference analysis; search for another candidate": "候选字幕不符合当前偏好，请寻找其他候选",
+            "Candidate preference suitability has an unknown value": "候选字幕返回了无法识别的偏好结果",
+            "Bilingual detection has low confidence; human confirmation is required": "双语判断置信度较低，需要人工确认",
+            "Candidate passed the M2 checks; human confirmation is required before installation": "候选已通过当前检查，安装前仍需要人工确认"
+        };
         var LANGUAGE_ALIASES = {
             "zho": "zho",
             "zh": "zho",
@@ -222,6 +302,51 @@ define([], function () {
             return item && item.Action && item.Action.Action ? item.Action.Action : "MANUAL";
         }
 
+        function normalizeStatusCode(value, fallback) {
+            var code = String(value || fallback || "UNKNOWN").trim().toUpperCase();
+            return code || String(fallback || "UNKNOWN");
+        }
+
+        function actionLabel(action) {
+            var code = normalizeStatusCode(action, "MANUAL");
+            return ACTION_LABELS[code] || "其他建议";
+        }
+
+        function healthLabel(health) {
+            var code = normalizeStatusCode(health, "UNKNOWN");
+            return HEALTH_LABELS[code] || "状态不明";
+        }
+
+        function preferenceLabel(preference) {
+            var code = normalizeStatusCode(preference, "UNKNOWN");
+            return PREFERENCE_LABELS[code] || "结果不明";
+        }
+
+        function technicalTitle(kind, value) {
+            return kind + " 内部代码：" + normalizeStatusCode(value, "UNKNOWN");
+        }
+
+        function translateReason(reason) {
+            var text = String(reason || "").trim();
+            if (!text) return "系统没有提供更多原因。";
+            if (REASON_LABELS[text]) return REASON_LABELS[text];
+            var formatMatch = /^Format\s+(.+)\s+matches a preferred format order$/i.exec(text);
+            if (formatMatch) return String(formatMatch[1] || "").toUpperCase() + " 格式符合当前优先级";
+            var pathReasons = {
+                "subtitle path is not a safe local sidecar beside the selected media": "字幕文件不在当前媒体旁的安全外置字幕位置",
+                "subtitle path is not a regular file": "字幕路径不是普通文件",
+                "subtitle file exceeds the inspection size limit": "字幕文件超过允许的检查大小",
+                "subtitle file is no longer available": "字幕文件已经不存在",
+                "subtitle directory is no longer available": "字幕目录已经不存在",
+                "subtitle file cannot be read by the Emby process": "Emby 进程没有权限读取字幕文件",
+                "subtitle file could not be read": "字幕文件读取失败",
+                "subtitle path is invalid": "字幕路径无效",
+                "subtitle path is not supported on this filesystem": "当前文件系统不支持这个字幕路径",
+                "subtitle file access was denied": "字幕文件访问被拒绝"
+            };
+            return pathReasons[text] || text;
+        }
+
         function actionClass(action) {
             if (action === "KEEP") return "ss-chip-good";
             if (action === "SEARCH" || action === "REPAIR" || action === "UPGRADE") return "ss-chip-warning";
@@ -273,7 +398,7 @@ define([], function () {
                 button.setAttribute("aria-selected", selected ? "true" : "false");
                 button.tabIndex = selected ? 0 : -1;
             });
-            ["status", "manual", "settings"].forEach(function (tabName) {
+            ["status", "automation", "manual", "settings"].forEach(function (tabName) {
                 var panel = getElement("panel" + tabName.charAt(0).toUpperCase() + tabName.slice(1));
                 panel.hidden = tabName !== name;
             });
@@ -353,10 +478,10 @@ define([], function () {
             }).length;
             getElement("statusScope").textContent = total ? (summary ? "全库统计 " : "当前页 ") + formatCount(total) + " 项" : "没有数据";
             getElement("statusMetrics").innerHTML = [
-                metricCard("统计范围", total, summary ? "当前筛选范围的全库汇总" : "列表正在载入"),
-                metricCard("目标字幕已存在", present, total ? formatPercent(present / total) + " 的当前范围" : "暂无结果"),
-                metricCard("目标字幕缺失", missing, "可进入手动工作台搜索"),
-                metricCard("需要人工判断", requiresManual, multiSource ? multiSource + " 项不是单 Source" : "包含 Health 未知状态")
+                metricCard("全部条目", total, summary ? "当前筛选范围的完整统计" : "列表正在载入"),
+                metricCard("目标字幕正常存在", present, total ? "覆盖当前范围的 " + formatPercent(present / total) : "暂无结果"),
+                metricCard("缺少目标字幕", missing, "可进入手动检查继续寻找"),
+                metricCard("需要人工判断", requiresManual, multiSource ? multiSource + " 项包含多个媒体来源" : "包含尚未检查的字幕")
             ].join("");
 
             var groups = ["KEEP", "SEARCH", "MANUAL", "OTHER"].map(function (name) {
@@ -375,7 +500,11 @@ define([], function () {
             getElement("actionBreakdown").innerHTML = groups.map(function (group) {
                 var width = total ? Math.round(group.count / total * 100) : 0;
                 var fillClass = group.name === "SEARCH" ? "is-warning" : group.name === "OTHER" ? "is-danger" : "";
-                return '<div><div class="ss-action-bar-head"><span>' + group.name + '</span><strong>'
+                var label = group.name === "OTHER" ? "其他建议" : actionLabel(group.name);
+                var description = ACTION_DESCRIPTIONS[group.name] || ACTION_DESCRIPTIONS.OTHER;
+                return '<div><div class="ss-action-bar-head"><span><span class="ss-action-label">' + escapeHtml(label)
+                    + '</span><span class="ss-action-code">' + escapeHtml(group.name) + ' · ' + escapeHtml(description)
+                    + '</span></span><strong>'
                     + formatCount(group.count) + '</strong></div><div class="ss-bar-track"><div class="ss-bar-fill '
                     + fillClass + '" style="width:' + width + '%"></div></div></div>';
             }).join("");
@@ -389,8 +518,9 @@ define([], function () {
                     return '<button class="ss-attention-row" type="button" data-open-item="' + escapeHtml(item.Id) + '">'
                         + '<span><span class="ss-row-title">' + escapeHtml(item.Name || "未命名条目") + '</span>'
                         + '<span class="ss-row-meta"><span>' + escapeHtml(item.LibraryName || "未归属媒体库") + '</span><span>·</span>'
-                        + '<span>' + (sourceCount === 1 ? (itemPresence(item) ? "目标字幕已存在" : "目标字幕缺失") : sourceCount + " 个 Source") + '</span></span></span>'
-                        + '<span class="ss-chip ' + actionClass(actionName(item)) + '">' + escapeHtml(actionName(item)) + '</span></button>';
+                        + '<span>' + (sourceCount === 1 ? (itemPresence(item) ? "目标字幕已存在" : "目标字幕缺失") : sourceCount + " 个媒体来源") + '</span></span></span>'
+                        + '<span class="ss-chip ' + actionClass(actionName(item)) + '" title="' + escapeHtml(technicalTitle("建议动作", actionName(item))) + '">'
+                        + escapeHtml(actionLabel(actionName(item))) + '</span></button>';
                 }).join("")
                 : '<div class="ss-muted">当前载入范围内没有待处理条目。</div>';
         }
@@ -415,9 +545,10 @@ define([], function () {
                     return '<button class="ss-item-row" type="button" aria-current="' + (selected ? "true" : "false")
                         + '" data-item-id="' + escapeHtml(item.Id) + '"><span><span class="ss-row-title" title="'
                         + escapeHtml(item.Name || "未命名条目") + '">' + escapeHtml(item.Name || "未命名条目") + '</span>'
-                        + '<span class="ss-row-meta"><span>' + escapeHtml(item.Type || "媒体") + '</span><span>·</span><span>'
+                        + '<span class="ss-row-meta"><span>' + escapeHtml(browseTypeLabel(item.Type)) + '</span><span>·</span><span>'
                         + escapeHtml(item.LibraryName || "未归属媒体库") + '</span></span></span><span class="ss-chip '
-                        + actionClass(actionName(item)) + '">' + escapeHtml(actionName(item)) + '</span></button>';
+                        + actionClass(actionName(item)) + '" title="' + escapeHtml(technicalTitle("建议动作", actionName(item))) + '">'
+                        + escapeHtml(actionLabel(actionName(item))) + '</span></button>';
                 }).join("")
                 : '<div class="ss-empty"><div><strong>没有匹配条目</strong><span>修改筛选条件后重试。</span></div></div>';
             renderPagination();
@@ -522,17 +653,19 @@ define([], function () {
                 if (stream.Quality && stream.Quality.TargetLanguagePresent) {
                     facts.push("目标覆盖 " + formatPercent(stream.Quality.TargetLanguageConfidence));
                 }
-                if (!facts.length && Array.isArray(stream.Reasons)) facts = stream.Reasons.slice(0, 1);
+                if (!facts.length && Array.isArray(stream.Reasons)) facts = stream.Reasons.slice(0, 1).map(translateReason);
                 return '<div class="ss-candidate"><div><div class="ss-row-title">' + escapeHtml(stream.Title || role)
                     + '</div><div class="ss-row-meta"><span>' + escapeHtml(role) + '</span><span>·</span><span>'
                     + escapeHtml(stream.LanguageLabel || stream.Language || "未知语言") + '</span><span>·</span><span>'
                     + escapeHtml(stream.IsExternal ? "外置" : "内封") + '</span></div>'
                     + (facts.length ? '<div class="ss-muted">' + escapeHtml(facts.join(" · ")) + '</div>' : '')
-                    + '</div><span class="ss-chip ' + healthClass(stream.Health) + '">' + escapeHtml(stream.Health || "UNKNOWN") + '</span></div>';
+                    + '</div><span class="ss-chip ' + healthClass(stream.Health) + '" title="' + escapeHtml(technicalTitle("健康状态", stream.Health)) + '">'
+                    + escapeHtml(healthLabel(stream.Health)) + '</span></div>';
             }).join("");
 
             return '<div class="ss-existing-subtitles"><div class="ss-inline-actions" style="justify-content:space-between;margin-top:14px">'
-                + '<span class="ss-row-title">已有字幕深检</span><span class="ss-chip ' + healthClass(targetHealth) + '">目标 ' + escapeHtml(targetHealth) + '</span></div>'
+                + '<span class="ss-row-title">已有字幕内容检查</span><span class="ss-chip ' + healthClass(targetHealth) + '" title="' + escapeHtml(technicalTitle("目标字幕健康状态", targetHealth)) + '">目标字幕：'
+                + escapeHtml(healthLabel(targetHealth)) + '</span></div>'
                 + '<div class="ss-candidate-list">' + rows + '</div></div>';
         }
 
@@ -564,21 +697,22 @@ define([], function () {
             var singleSource = sources.length === 1;
             var operationBusy = state.fetchingIndex !== null;
             var presence = source && source.Presence;
-            getElement("workbenchState").textContent = actionName(item);
+            getElement("workbenchState").textContent = actionLabel(actionName(item));
 
             var sourceControl = sources.length
                 ? '<select class="ss-select" id="sourceSelect" aria-label="选择媒体来源"' + (operationBusy ? ' disabled' : '') + '>'
                     + sources.map(function (entry) {
                         return '<option value="' + escapeHtml(entry.Id) + '"'
                             + (entry.Id === (source && source.Id) ? " selected" : "") + '>'
-                            + escapeHtml(entry.Name || entry.Container || "MediaSource") + '</option>';
+                            + escapeHtml(entry.Name || entry.Container || "媒体来源") + '</option>';
                     }).join("") + '</select>'
-                : '<span class="ss-chip ss-chip-danger">没有 MediaSource</span>';
+                : '<span class="ss-chip ss-chip-danger">没有可用媒体来源</span>';
 
             body.innerHTML = '<div class="ss-item-summary"><div><h3>' + escapeHtml(item.Name || "未命名条目")
                 + '</h3><div class="ss-row-meta"><span>' + escapeHtml(item.LibraryName || "未归属媒体库") + '</span><span>·</span><span>'
-                + escapeHtml(item.Type || "媒体") + '</span>' + (item.IsStrm ? '<span>·</span><span>STRM</span>' : "")
-                + '</div></div><div class="ss-inline-actions"><span class="ss-chip ' + actionClass(actionName(item)) + '">' + escapeHtml(actionName(item))
+                + escapeHtml(browseTypeLabel(item.Type)) + '</span>' + (item.IsStrm ? '<span>·</span><span>STRM 媒体</span>' : "")
+                + '</div></div><div class="ss-inline-actions"><span class="ss-chip ' + actionClass(actionName(item)) + '" title="' + escapeHtml(technicalTitle("建议动作", actionName(item))) + '">'
+                + escapeHtml(actionLabel(actionName(item)))
                 + '</span><button class="ss-button ss-mobile-only" id="changeItem" type="button">更换媒体</button></div></div>'
                 + renderStepper()
                 + '<div class="ss-work-grid"><section class="ss-subcard"><div class="ss-card-header"><h3>条目与来源</h3></div><div class="ss-subcard-body">'
@@ -590,7 +724,7 @@ define([], function () {
                  + renderExistingSubtitleStreams(source)
                 + '<button class="ss-button ss-button-primary" id="searchCandidates" type="button" ' + (singleSource && !operationBusy ? "" : "disabled")
                 + '>寻找字幕</button><div class="ss-feedback" id="workFeedback">'
-                + (singleSource ? "搜索会使用当前媒体库的有效目标语言。" : "多 Source 保持只读，不开放写入。") + '</div></div></section>'
+                + (singleSource ? "搜索会使用当前媒体库的有效目标语言。" : "当前媒体包含多个来源，只允许查看，不开放写入。") + '</div></div></section>'
                 + '<section class="ss-subcard"><div class="ss-card-header"><h3>' + (state.artifact ? "校验与预览" : "字幕候选")
                 + '</h3><span class="ss-chip">' + (state.artifact ? "已下载并校验" : formatCount(state.candidates.length) + " 个") + '</span></div>'
                 + '<div class="ss-subcard-body">' + renderStage() + '</div></section></div>';
@@ -653,7 +787,7 @@ define([], function () {
         function renderStage() {
             if (state.artifact) return renderArtifact(state.artifact);
             if (!state.candidates.length) {
-                return '<div class="ss-muted">尚未搜索。候选会按 Hash 或标题绑定状态排序，未绑定候选不可下载。</div>';
+                return '<div class="ss-muted">尚未搜索。候选会按文件指纹或片名对应关系排序；无法确认属于当前媒体的候选不能下载。</div>';
             }
             return '<div class="ss-candidate-list">' + state.candidates.map(function (candidate, index) {
                 var blockedSource = candidate.LikelyNonFullRelease && !candidate.IsHashMatch;
@@ -662,17 +796,17 @@ define([], function () {
                 var isLoading = state.fetchingIndex === index && fetchState.status === "loading";
                 var anotherLoading = state.fetchingIndex !== null && !isLoading;
                 var badges = candidate.IsHashMatch
-                    ? '<span class="ss-chip ss-chip-good">Hash 匹配</span>'
+                    ? '<span class="ss-chip ss-chip-good" title="字幕来源服务报告 Hash 匹配">文件指纹匹配</span>'
                     : candidate.TitleMatch
-                        ? '<span class="ss-chip ss-chip-warning">标题匹配</span>'
-                        : '<span class="ss-chip ss-chip-danger">未绑定</span>';
+                        ? '<span class="ss-chip ss-chip-warning">片名匹配</span>'
+                        : '<span class="ss-chip ss-chip-danger">无法确认对应媒体</span>';
                 var mismatchBadges = (candidate.LanguageMismatch ? '<span class="ss-chip ss-chip-warning">语言标注不符</span>' : "")
                     + (candidate.VariantMismatch ? '<span class="ss-chip ss-chip-warning">简繁变体不符</span>' : "");
                 var sourceWarning = candidate.LikelyNonFullRelease
                     ? '<span class="ss-chip ss-chip-danger">疑似片段/弹幕源</span>'
                     : "";
                 var blockedSourceHtml = blockedSource
-                    ? '<div class="ss-fetch-error" role="status">疑似短片/片段来源且没有 Hash 匹配，已禁止下载。</div>'
+                    ? '<div class="ss-fetch-error" role="status">疑似短片或片段来源，而且没有文件指纹匹配，已禁止下载。</div>'
                     : "";
                 var fetchStateHtml = isLoading
                     ? '<div class="ss-fetch-state" role="status" aria-live="polite">正在获取并校验正文，最多等待 60 秒；超时后可换候选。</div>'
@@ -685,7 +819,7 @@ define([], function () {
                 var disabled = !matched || anotherLoading;
                 return '<div class="ss-candidate"><div><div class="ss-row-title" title="' + escapeHtml(candidate.Name || "未命名候选")
                     + '">' + escapeHtml(candidate.Name || "未命名候选") + '</div><div class="ss-row-meta"><span>'
-                    + escapeHtml(candidate.Provider || "未知 Provider") + '</span><span>·</span><span>'
+                    + escapeHtml(candidate.Provider || "未知字幕来源") + '</span><span>·</span><span>'
                     + escapeHtml(candidate.LanguageLabel || candidate.Language || "未知语言") + '</span><span>·</span><span>'
                     + escapeHtml(candidate.Format || "未知格式") + '</span></div><div class="ss-chip-row">' + badges + mismatchBadges
                     + '</div><div class="ss-chip-row">' + sourceWarning + '</div>' + fetchStateHtml + '</div><button class="ss-button" type="button" data-fetch-index="' + index + '" aria-busy="'
@@ -704,28 +838,32 @@ define([], function () {
                 + escapeHtml(artifact.LanguageLabel || artifact.Language || "未知语言") + '</span><span>·</span><span>'
                 + escapeHtml(artifact.Format || "未知格式") + '</span><span>·</span><span>'
                 + escapeHtml(artifact.Encoding || "未知编码") + '</span></div><span class="ss-chip '
-                + healthClass(artifact.Health) + '">' + escapeHtml(artifact.Health || "UNKNOWN") + '</span></div>'
+                + healthClass(artifact.Health) + '" title="' + escapeHtml(technicalTitle("健康状态", artifact.Health)) + '">'
+                + escapeHtml(healthLabel(artifact.Health)) + '</span></div>'
                 + '<div class="ss-quality-grid"><div class="ss-quality-item"><span>目标语言</span><strong>'
                 + (quality.TargetLanguagePresent ? formatPercent(quality.TargetLanguageConfidence) : "未确认")
-                + '</strong></div><div class="ss-quality-item"><span>第二语言 cue</span><strong>'
+                + '</strong></div><div class="ss-quality-item"><span>第二语言字幕段</span><strong>'
                 + formatCount(quality.SecondaryLanguageCueCount) + '</strong></div><div class="ss-quality-item"><span>双语判断</span><strong>'
                 + (quality.BilingualDetected ? formatPercent(quality.BilingualConfidence) : "未发现")
-                + '</strong></div><div class="ss-quality-item"><span>偏好评估</span><strong>'
-                + escapeHtml(preference.Suitability || "未评估") + '</strong></div></div>'
+                + '</strong></div><div class="ss-quality-item"><span>是否符合偏好</span><strong title="' + escapeHtml(technicalTitle("偏好结果", preference.Suitability)) + '">'
+                + escapeHtml(preferenceLabel(preference.Suitability)) + '</strong></div></div>'
                 + (reasons.length ? '<ul class="ss-reason-list">' + reasons.map(function (reason) {
-                    return '<li>' + escapeHtml(reason) + '</li>';
+                    return '<li>' + escapeHtml(translateReason(reason)) + '</li>';
                 }).join("") + '</ul>' : "")
                 + renderAlignment(artifact)
                 + '<div class="ss-inline-actions" style="justify-content:space-between;margin-top:12px"><span class="ss-muted">'
-                + escapeHtml(action.Action ? "建议动作 " + action.Action + "。" + ((action.Reasons || []).join(" ")) : "请确认校验和偏好结果。")
+                + (action.Action
+                    ? '<strong>系统建议：' + escapeHtml(actionLabel(action.Action)) + '</strong><span class="ss-term-code">（内部代码 ' + escapeHtml(normalizeStatusCode(action.Action, "MANUAL")) + '）</span>。'
+                        + escapeHtml((action.Reasons || []).map(translateReason).join(" "))
+                    : "请确认健康检查和偏好结果。")
                 + '</span><button class="ss-button ss-button-primary" id="installArtifact" type="button" '
                 + (canInstall ? "" : "disabled") + '>安装字幕</button></div>'
-                + '<details class="ss-cue-details"><summary>展开 cue 预览（前 200 条）</summary><div class="ss-cue-list">'
+                + '<details class="ss-cue-details"><summary>展开字幕段预览（前 200 条）</summary><div class="ss-cue-list">'
                 + (cues.length ? cues.map(function (cue) {
                     return '<div class="ss-cue"><span>' + formatMilliseconds(cue.StartMilliseconds) + ' → '
                         + formatMilliseconds(cue.EndMilliseconds) + '</span><span class="ss-cue-text">'
                         + escapeHtml(cue.Text) + '</span></div>';
-                }).join("") : '<div class="ss-muted">没有可展示的 cue。</div>')
+                }).join("") : '<div class="ss-muted">没有可展示的字幕段。</div>')
                 + '</div></details></div>';
         }
 
@@ -1186,10 +1324,10 @@ define([], function () {
             } catch (error) {
                 if (!isCurrent()) return;
                 var message = error && error.code === "timeout"
-                    ? "下载校验超过 60 秒，Provider 可能暂时不可达；请换候选或稍后重试。"
+                    ? "下载和校验超过 60 秒，字幕来源服务可能暂时不可达；请更换候选或稍后重试。"
                     : error && error.status === 429
-                        ? "Provider 返回 HTTP 429，可能触发限流；请稍后重试或换候选。"
-                        : "候选下载/校验失败：" + (error && error.message ? error.message : "未知错误");
+                        ? "字幕来源服务返回 HTTP 429，当前请求过多；请稍后重试或更换候选。"
+                        : "候选字幕下载或校验失败：" + (error && error.message ? error.message : "未知错误");
                 state.fetchStates[index] = { status: "error", message: message };
                 var workFeedback = getElement("workFeedback");
                 if (workFeedback) workFeedback.textContent = message;
@@ -1248,8 +1386,8 @@ define([], function () {
         async function installArtifact() {
             if (!state.artifact || !state.selectedItem) return;
             var message = state.artifact.Health === "WARNING"
-                ? "这份字幕存在 WARNING。仍要写入新的版本化 sidecar 并刷新 Emby 吗？"
-                : "确认把这份字幕写入当前单一 MediaSource，并刷新 Emby 吗？";
+                ? "这份字幕有需要留意的问题。仍要写入新的版本化外置字幕文件并刷新 Emby 吗？"
+                : "确认把这份字幕写入当前单一媒体来源，并刷新 Emby 吗？";
             if (!window.confirm(message)) return;
             var button = getElement("installArtifact");
             setButtonBusy(button, true, "安装中…");
@@ -1306,6 +1444,12 @@ define([], function () {
             }
         });
         getElement("openManual").addEventListener("click", function () { switchTab("manual", true); });
+        pageRoot.querySelectorAll("[data-open-automation]").forEach(function (button) {
+            button.addEventListener("click", function () { switchTab("automation", true); });
+        });
+        pageRoot.querySelectorAll("[data-open-manual]").forEach(function (button) {
+            button.addEventListener("click", function () { switchTab("manual", true); });
+        });
         getElement("itemFilterForm").addEventListener("submit", function (event) {
             event.preventDefault();
             state.page = 1;

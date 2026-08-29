@@ -45,7 +45,7 @@ namespace SubSteward.Plugin
             {
                 new PluginPageInfo
                 {
-                    Name = "SubStewardUI7.html",
+                    Name = "SubStewardUI8.html",
                     DisplayName = PluginIdentity.DisplayName,
                     EmbeddedResourcePath = "SubSteward.Plugin.Web.configPage.html",
                     EnableInMainMenu = true,
@@ -54,10 +54,20 @@ namespace SubSteward.Plugin
                 },
                 new PluginPageInfo
                 {
+                    Name = "SubStewardUI8.js",
+                    EmbeddedResourcePath = "SubSteward.Plugin.Web.subSteward.js"
+                },
+                // Keep already-open UI3-UI7 URLs functional while Emby/browser caches expire.
+                new PluginPageInfo
+                {
+                    Name = "SubStewardUI7.html",
+                    EmbeddedResourcePath = "SubSteward.Plugin.Web.configPage.html"
+                },
+                new PluginPageInfo
+                {
                     Name = "SubStewardUI7.js",
                     EmbeddedResourcePath = "SubSteward.Plugin.Web.subSteward.js"
                 },
-                // Keep already-open UI3 URLs functional while Emby/browser caches expire.
                 new PluginPageInfo
                 {
                     Name = "SubStewardUI3.html",

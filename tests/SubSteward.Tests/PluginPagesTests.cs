@@ -32,18 +32,22 @@ public sealed class PluginPagesTests
         var page = reader.ReadToEnd();
 
         Assert.Contains("data-bindheader=\"true\"", page);
-        Assert.Contains("data-controller=\"__plugin/SubStewardUI7.js\"", page);
+        Assert.Contains("data-controller=\"__plugin/SubStewardUI8.js\"", page);
         Assert.Contains("is=\"emby-scroller\"", page);
         Assert.DoesNotContain("id=\"subStewardPage\"", page);
-        Assert.Contains("全局状态", page);
-        Assert.Contains("手动处理", page);
+        Assert.Contains("字幕概况", page);
+        Assert.Contains("自动化", page);
+        Assert.Contains("手动检查", page);
+        Assert.Contains("规划中，尚未启用", page);
+        Assert.Contains("当前没有自动化运行记录", page);
+        Assert.Contains("不会显示示例批次或虚构成功率", page);
         Assert.Contains("全局默认", page);
         Assert.Contains("媒体库覆盖", page);
         Assert.Contains("ss-has-selection", page);
         Assert.Contains("ss-library-selected", page);
         Assert.Contains("更换媒体库", page);
         Assert.Contains("不会自动扫描全库", page);
-        Assert.Contains("多 Source STRM", page);
+        Assert.Contains("多来源 STRM", page);
         Assert.DoesNotContain("role=\"listitem\"", page);
         Assert.Contains("<select class=\"ss-select\" id=\"globalTargetLanguage\"", page);
         Assert.Contains("<select class=\"ss-select\" id=\"globalSecondaryLanguage\"", page);
@@ -86,7 +90,14 @@ public sealed class PluginPagesTests
         Assert.Contains("normalizeLanguageChoice", controller);
         Assert.Contains("normalizeFormatOrderChoice", controller);
         Assert.Contains("旧值，请改选支持项", controller);
-        Assert.DoesNotContain("尚未开放", controller);
+        Assert.Contains("保持现状", controller);
+        Assert.Contains("继续寻找", controller);
+        Assert.Contains("需要人工判断", controller);
+        Assert.Contains("检查通过", controller);
+        Assert.Contains("需要留意", controller);
+        Assert.Contains("检查失败", controller);
+        Assert.Contains("translateReason", controller);
+        Assert.Contains("[\"status\", \"automation\", \"manual\", \"settings\"]", controller);
         Assert.Contains("itemLibraryFilter", page);
         Assert.Contains("itemPageSize", page);
         Assert.Contains("itemPagination", page);
@@ -96,14 +107,14 @@ public sealed class PluginPagesTests
         Assert.Contains("Season", controller);
         Assert.Contains("Episode", controller);
         Assert.Contains("--ss-left-text: #242424", page);
-        Assert.Contains("下载校验超过 60 秒", controller);
+        Assert.Contains("下载和校验超过 60 秒", controller);
         Assert.Contains("HTTP 429", controller);
         Assert.Contains("fetchingIndex", controller);
         Assert.Contains("PageSize", controller);
         Assert.Contains("totalCount", controller);
         Assert.Contains("browseBreadcrumb", page);
         Assert.Contains("LikelyNonFullRelease", controller);
-        Assert.Contains("候选下载/校验失败", controller);
+        Assert.Contains("候选字幕下载或校验失败", controller);
         Assert.DoesNotContain("<script>", page);
     }
 }

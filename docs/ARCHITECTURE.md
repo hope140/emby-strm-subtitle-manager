@@ -1,6 +1,6 @@
 # SubSteward 架构与验证状态
 
-> 状态快照：2026-08-28。本文描述当前 Plugin/API/UI 形态和已记录证据；部署、连接和本机凭据只看未跟踪的 `LOCAL_OPERATIONS.md`。历史部署 Hash 必须重新核对，不能直接当成当前运行状态。
+> 状态快照：2026-08-29。本文描述当前 Plugin/API/UI 形态和已记录证据；部署、连接和本机凭据只看未跟踪的 `LOCAL_OPERATIONS.md`。历史部署 Hash 必须重新核对，不能直接当成当前运行状态。
 
 ## 1. 运行时与边界
 
@@ -21,12 +21,13 @@ M0 已完成并已从运行时移除。它只用于验证插件加载、服务�
 
 ## 2. 管理页面
 
-插件通过 `IHasWebPages` 注册嵌入资源 `SubSteward.Plugin.Web.configPage.html` 和 `SubSteward.Plugin.Web.subSteward.js`，由 Emby 管理界面托管，不引入独立 HTTP 服务或旧 SubBridge Web UI。当前主页面名为 `SubStewardUI7.html`，控制器名为 `SubStewardUI7.js`，用于避开宿主旧缓存；同时保留 UI3/UI4/UI5/UI6 兼容别名，避免已经打开的旧页面直接失效。
+插件通过 `IHasWebPages` 注册嵌入资源 `SubSteward.Plugin.Web.configPage.html` 和 `SubSteward.Plugin.Web.subSteward.js`，由 Emby 管理界面托管，不引入独立 HTTP 服务或旧 SubBridge Web UI。当前主页面名为 `SubStewardUI8.html`，控制器名为 `SubStewardUI8.js`，用于避开宿主旧缓存；同时保留 UI3–UI7 兼容别名，避免已经打开的旧页面直接失效。
 
-页面有三个顶层页签：
+页面有四个顶层页签，采用现代控制台的信息层级和较克制的 Emby 表面样式：
 
-- **状态**：通过独立 Summary API 显示当前媒体库/筛选范围的完整计数、目标语言 Presence、Action 分布和待关注条目；不再把当前页当作全库。
-- **手动处理**：先选择媒体库和每页条数；指定媒体库后按 `剧 → 季 → 集` 逐层钻取，电影库直接显示电影，电影/集才进入字幕处理。Items API 仍提供全库分页和名称搜索，随后完成 `Search → Fetch/Preview → 可选固定偏移对轴 → Install`。候选和 Artifact token 只在页面和插件短期内存中流转，不展示 Provider 原始 ID。
+- **概况**：通过独立 Summary API 显示当前媒体库/筛选范围的完整计数、目标语言存在性、中文动作建议和待关注条目；不再把当前页当作全库。自动化摘要在功能未开放时只显示“尚未启用”，不生成虚假批次或成功率。
+- **自动化**：当前是明确标注的规划中页面，解释未来的批次结果、完成/跳过/失败/人工判断分类和折叠技术日志；它不启动扫描、后台任务或媒体写入。
+- **手动检查**：先选择媒体库和每页条数；指定媒体库后按 `剧 → 季 → 集` 逐层钻取，电影库直接显示电影，电影/集才进入字幕处理。Items API 仍提供全库分页和名称搜索，随后完成 `Search → Fetch/Preview → 可选固定偏移对轴 → Install`。页面以中文主标签解释存在性、健康、偏好和建议动作，内部英文状态码只作为次要标记。候选和 Artifact token 只在页面和插件短期内存中流转，不展示 Provider 原始 ID。
 - **设置**：编辑全局默认和媒体库覆盖。覆盖可设置目标语言、第二语言、双语偏好和格式顺序，关闭后恢复继承全局默认。
 
 页面只调用本节 API。多 Source 条目保持 fail-closed，自动全库扫描、批量补全、健康字幕替换和 MultiSource STRM 写入不由 UI 开启。
@@ -145,8 +146,9 @@ Presence → Health → Preference → Action
 | 2026-08-28 | C92 下载状态与左侧可读性修正版，Release DLL SHA-256 `7ADA2125A8F3C2AD7D25E3079655601FAC51338273EAE8C7A9D4A27F9D45AB31` | 依据“小时代2：青木时代”现场截图修正：左侧媒体/元数据不再继承 Emby 暗色主题的浅色变量；候选 Fetch 同时请求改为单候选锁定，按钮显示最多 60 秒等待，超时、HTTP 429 与 Provider 校验失败分别给出恢复提示并允许重试/换候选；离开条目或切换来源时丢弃过期响应；本地 Release build 0 警告/0 错误、测试 68/68、Web JavaScript `node --check` 通过；远端 DLL Hash 与本地一致，UI4 HTML/JS HTTP 200，容器 `running` 且自动重启次数为 0 | 现场验证的前三个 Thunder 候选未出现 HTTP 429，候选 0/1/2 分别快速返回校验失败；当前尚未用用户浏览器重新确认视觉截图，客户端播放不在本次修正范围 |
 | 2026-08-28 | C92 UI5 缓存失效部署，Release DLL SHA-256 `C8DFD18B20C94966BB853DC65A57D4A8CE32199249B2817F986A7D7A4F04E1F9` | 主页面/控制器版本从 UI4 升级到 UI5，保留 UI3/UI4 兼容别名，避免固定资源名缓存旧页面；UI5/旧别名资源均 HTTP 200，容器 `running` 且自动重启次数为 0，远端 DLL Hash 与本地一致并确认加载；管理员 API 回归 `小时代2：青木时代` 200、Summary 200、Libraries 200 | 需要用户重新打开插件页确认左侧高对比文字和候选下载状态提示已生效 |
 | 2026-08-28 | C92 UI7 层级浏览、双语误判修正、候选源拦截与业务日志，Release DLL SHA-256 `E9B7D12EF7551ECF187397C050F68FA65179BF00ED421C1E87BA81B453E12C8B` | 主页面/控制器升级到 UI7，保留 UI3/UI4/UI5/UI6 兼容别名；本地 Release build 0 警告/0 错误、测试 74/74、Web JavaScript `node --check` 通过；`/SubSteward/Browse` 实测 `国产剧` 根层 `Series` → `Season` → `Episode` 分页均 200 且按编号排序；`小时代3：刺金时代` 的 Bilibili clip 候选标记为疑似非完整来源，Fetch 在调用 Provider 前拒绝；宿主日志已出现 `[SubSteward]` 的 Browse、Items、Search、Fetch 阶段及拒绝原因；UI7 HTML/JS HTTP 200；未执行错误候选 Install | 需要用户重新打开插件页确认实际层级视觉；客户端播放不在本次范围 |
+| 2026-08-29 | C92 UI8 B2 控制台与中文术语修正版，Release DLL SHA-256 `879BEF98A4B88420F718665F63DA503091D7E99CD1363E3510DF9BB0061F1030` | 保留 UI3–UI7 兼容别名；本地 Release build 0 警告/0 错误、测试 74/74、Web JavaScript `node --check` 和 `git diff --check` 通过；覆盖前 UI7 DLL Hash `E9B7D12EF7551ECF187397C050F68FA65179BF00ED421C1E87BA81B453E12C8B` 已做时间戳备份；远端 DLL 大小 263168 字节且 Hash 与本地一致；只重启 `emby-server`，容器 `running`、自动重启次数 0，日志确认插件加载和 `Core startup complete`；认证 UI8 HTML/JS、Libraries、Items 和 Summary 均返回 200，Items/Summary `totalCount=7356`，资源包含自动化未启用状态、手动检查和中文动作标签 | 未执行 Provider Search/Fetch、Align/Install、Refresh/MediaStream 或媒体写入；HTTP 200 不代表页面视觉已验收，需要管理员在 Emby 中打开插件页确认布局与交互 |
 
-因此当前最准确的状态是：M1 基线能力和当前样本的客户端验收已有证据；当前工作树已通过本机 build/test，完成 C92 插件、API、管理页面烟测，以及“千与千寻”的 Provider、地区码命名、安装、Refresh、MediaStream 对账和地区码修正后的真实客户端播放确认。人工 Align 后再安装的真实链路仍未单独验收。
+因此当前最准确的状态是：M1 基线能力和当前样本的客户端验收已有证据；UI8 工作树已通过本机 build/test，完成 C92 插件、只读 API 和管理页面资源烟测，但新版 B2 布局仍等待管理员浏览器视觉确认。此前“千与千寻”的 Provider、地区码命名、安装、Refresh、MediaStream 对账和地区码修正后的真实客户端播放证据不等于本次 UI 改造重新执行了媒体验收；人工 Align 后再安装的真实链路仍未单独验收。
 
 ## 7. 当前收口边界
 

@@ -1,6 +1,6 @@
 <div data-role="page" class="page type-interior pluginConfigurationPage ss-page"
      data-require="emby-button,emby-select,emby-checkbox,emby-input"
-     data-controller="__plugin/SubStewardUI7.js"
+     data-controller="__plugin/SubStewardUI8.js"
      data-horizontal="false"
      data-forcescrollbar="false"
      data-bindheader="true"
@@ -577,6 +577,140 @@
                 .ss-stepper { grid-template-columns: repeat(3,minmax(0,1fr)); }
             }
 
+            /* B2: keep the dashboard hierarchy while flattening nested borders into Emby-like surfaces. */
+            .ss-tabbar {
+                position: sticky;
+                top: 0;
+                gap: 18px;
+                padding: 0;
+                border: 0;
+                border-bottom: 1px solid var(--ss-border);
+                border-radius: 0;
+                background: var(--ss-page);
+                box-shadow: none;
+            }
+            .ss-tab {
+                min-width: auto;
+                min-height: 44px;
+                justify-content: flex-start;
+                gap: 6px;
+                padding: 10px 2px 9px;
+                border-radius: 0;
+            }
+            .ss-tab:hover, .ss-tab[aria-selected="true"] { background: transparent; }
+            .ss-tab[aria-selected="true"]::after { right: 0; bottom: -1px; left: 0; }
+            .ss-tab-index { display: none; }
+            .ss-tab-note {
+                padding: 1px 5px;
+                border: 1px solid rgba(35,108,153,.32);
+                border-radius: 999px;
+                color: var(--ss-info);
+                font-size: .62rem;
+                font-weight: 700;
+            }
+            .ss-metric-card {
+                border: 0;
+                border-radius: var(--ss-radius-sm);
+                background: var(--ss-soft);
+            }
+            .ss-overview-grid { grid-template-columns: minmax(0, 1.42fr) minmax(260px, .76fr); gap: 16px; margin-top: 16px; }
+            .ss-overview-main { min-width: 0; }
+            .ss-section-heading {
+                display: flex;
+                align-items: flex-end;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 9px;
+            }
+            .ss-section-heading h3 { margin: 0; color: var(--ss-text); font-size: .92rem; font-weight: 600; }
+            .ss-section-heading p { margin: 4px 0 0; color: var(--ss-muted); font-size: .72rem; line-height: 1.5; }
+            .ss-automation-summary { min-width: 0; }
+            .ss-automation-empty {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                gap: 6px 12px;
+                align-items: center;
+                padding: 14px;
+                border: 1px solid var(--ss-border);
+                border-radius: var(--ss-radius-sm);
+                background: var(--ss-surface);
+            }
+            .ss-automation-empty strong { color: var(--ss-text); font-size: .88rem; }
+            .ss-automation-empty > span { grid-column: 1; color: var(--ss-muted); font-size: .72rem; line-height: 1.55; }
+            .ss-automation-empty .ss-link-button { grid-column: 2; grid-row: 1 / span 2; }
+            .ss-link-button {
+                padding: 4px 0;
+                border: 0;
+                color: var(--ss-info);
+                background: transparent;
+                cursor: pointer;
+                font-size: .76rem;
+                font-weight: 600;
+                white-space: nowrap;
+            }
+            .ss-action-section { margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--ss-border); }
+            .ss-action-section .ss-action-bars { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px 18px; }
+            .ss-action-bar-head > span { min-width: 0; }
+            .ss-action-bar-head strong { color: var(--ss-text); }
+            .ss-action-label { display: block; color: var(--ss-text); font-weight: 600; }
+            .ss-action-code { display: block; margin-top: 2px; color: var(--ss-muted); font-size: .62rem; font-weight: 400; }
+            .ss-overview-attention { min-width: 0; padding-left: 16px; border-left: 1px solid var(--ss-border); }
+            .ss-overview-attention .ss-attention-list { max-height: 372px; }
+            .ss-overview-attention .ss-attention-row { padding-inline: 2px; border-bottom: 1px solid var(--ss-border); border-radius: 0; }
+            .ss-overview-attention .ss-attention-row:hover { border-color: var(--ss-border); background: var(--ss-soft); }
+            .ss-chip-planned { border-color: rgba(35,108,153,.35); color: var(--ss-info); }
+            .ss-automation-page { display: grid; gap: 16px; }
+            .ss-automation-state {
+                display: grid;
+                grid-template-columns: auto minmax(0, 1fr) auto;
+                gap: 14px;
+                align-items: center;
+                padding: 18px;
+                border-radius: var(--ss-radius-sm);
+                background: var(--ss-soft);
+            }
+            .ss-automation-state-icon {
+                display: grid;
+                width: 38px;
+                height: 38px;
+                place-items: center;
+                border: 1px solid var(--ss-border-strong);
+                border-radius: 50%;
+                color: var(--ss-muted);
+                font-size: 1.2rem;
+            }
+            .ss-automation-state h3 { margin: 0; color: var(--ss-text); font-size: 1rem; }
+            .ss-automation-state p { margin: 5px 0 0; color: var(--ss-muted); font-size: .76rem; line-height: 1.55; }
+            .ss-result-explainer { padding-top: 2px; }
+            .ss-result-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+            .ss-result-grid > div { min-width: 0; padding: 13px; border-radius: var(--ss-radius-sm); background: var(--ss-soft); }
+            .ss-result-grid strong { color: var(--ss-text); font-size: .84rem; }
+            .ss-result-grid p { margin: 7px 0 0; color: var(--ss-muted); font-size: .7rem; line-height: 1.5; }
+            .ss-result-dot { display: block; width: 7px; height: 7px; margin-bottom: 10px; border-radius: 50%; background: var(--ss-muted); }
+            .ss-result-dot.is-good { background: var(--ss-good); }
+            .ss-result-dot.is-danger { background: var(--ss-danger); }
+            .ss-result-dot.is-warning { background: var(--ss-warning); }
+            .ss-result-dot.is-muted { opacity: .55; }
+            .ss-technical-details { border-top: 1px solid var(--ss-border); }
+            .ss-technical-details summary { min-height: 42px; padding: 12px 2px; color: var(--ss-text); cursor: pointer; font-size: .78rem; font-weight: 600; }
+            .ss-technical-details p { margin: 0 0 12px; padding: 12px; border-radius: var(--ss-radius-sm); color: var(--ss-muted); background: var(--ss-soft); font-size: .72rem; line-height: 1.6; }
+            .ss-term-code { color: var(--ss-muted); font-size: .66rem; font-weight: 500; }
+            .ss-subcard { background: var(--ss-surface); }
+            .ss-settings-card { border-color: transparent; background: var(--ss-soft); }
+            @media (max-width: 1024px) {
+                .ss-overview-grid { grid-template-columns: 1fr; }
+                .ss-overview-attention { padding-top: 15px; padding-left: 0; border-top: 1px solid var(--ss-border); border-left: 0; }
+                .ss-result-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            }
+            @media (max-width: 600px) {
+                .ss-tabbar { gap: 14px; }
+                .ss-tab { flex: 0 0 auto; }
+                .ss-automation-empty, .ss-automation-state { grid-template-columns: 1fr; }
+                .ss-automation-empty .ss-link-button { grid-column: 1; grid-row: auto; justify-self: start; }
+                .ss-action-section .ss-action-bars { grid-template-columns: 1fr; }
+                .ss-result-grid { grid-template-columns: 1fr; }
+            }
+
             @media (prefers-reduced-motion: reduce) {
                 .ss-page *, .ss-page *::before, .ss-page *::after {
                     scroll-behavior: auto !important;
@@ -594,7 +728,7 @@
                         <span class="ss-logo" aria-hidden="true">SS</span>
                         <h1 data-fd-editable="text">SubSteward</h1>
                     </div>
-                    <p class="ss-subtitle" data-fd-editable="text">Emby 内的字幕状态、偏好与单项处理</p>
+                    <p class="ss-subtitle" data-fd-editable="text">先看全局问题，再检查自动化结果和单个媒体</p>
                 </div>
                 <div class="ss-header-actions">
                     <span class="ss-last-updated" id="lastUpdated">尚未同步</span>
@@ -604,21 +738,24 @@
 
             <nav class="ss-tabbar" role="tablist" aria-label="SubSteward 页面" data-fd-id="primary-tabs">
                 <button class="ss-tab" id="tabStatus" type="button" role="tab" aria-selected="true" aria-controls="panelStatus" data-tab="status" data-fd-id="tab-status">
-                    <span class="ss-tab-index" aria-hidden="true">01</span><span>状态</span>
+                    <span class="ss-tab-index" aria-hidden="true">01</span><span>概况</span>
+                </button>
+                <button class="ss-tab" id="tabAutomation" type="button" role="tab" aria-selected="false" aria-controls="panelAutomation" data-tab="automation" data-fd-id="tab-automation">
+                    <span class="ss-tab-index" aria-hidden="true">02</span><span>自动化</span><span class="ss-tab-note">规划中</span>
                 </button>
                 <button class="ss-tab" id="tabManual" type="button" role="tab" aria-selected="false" aria-controls="panelManual" data-tab="manual" data-fd-id="tab-manual">
-                    <span class="ss-tab-index" aria-hidden="true">02</span><span>手动处理</span>
+                    <span class="ss-tab-index" aria-hidden="true">03</span><span>手动检查</span>
                 </button>
                 <button class="ss-tab" id="tabSettings" type="button" role="tab" aria-selected="false" aria-controls="panelSettings" data-tab="settings" data-fd-id="tab-settings">
-                    <span class="ss-tab-index" aria-hidden="true">03</span><span>设置</span>
+                    <span class="ss-tab-index" aria-hidden="true">04</span><span>设置</span>
                 </button>
             </nav>
 
             <section class="ss-tab-panel" id="panelStatus" role="tabpanel" aria-labelledby="tabStatus" tabindex="-1" data-fd-id="section-status">
                 <div class="ss-panel-heading">
                     <div>
-                        <h2>全局状态</h2>
-                        <p>快速确认字幕覆盖和需要人工处理的条目。统计范围会明确显示，不把抽样结果冒充全库扫描。</p>
+                        <h2>字幕概况</h2>
+                        <p>先确认当前范围有没有问题，再进入需要关注的媒体逐项检查。统计数字来自完整筛选范围，不拿当前页代替全库。</p>
                     </div>
                     <span class="ss-chip" id="statusScope">等待载入</span>
                 </div>
@@ -626,29 +763,75 @@
                     <div class="ss-card ss-metric-card ss-loading"><span class="ss-metric-label">正在读取</span></div>
                 </div>
                 <div class="ss-overview-grid">
-                    <section class="ss-card" aria-labelledby="actionBreakdownTitle" data-fd-id="card-action-breakdown">
-                        <div class="ss-card-header"><h3 id="actionBreakdownTitle">建议动作分布</h3></div>
-                        <div class="ss-card-body ss-action-bars" id="actionBreakdown"></div>
-                    </section>
-                    <section class="ss-card" aria-labelledby="attentionTitle" data-fd-id="card-attention-list">
-                        <div class="ss-card-header">
-                            <h3 id="attentionTitle">需要关注</h3>
-                            <button class="ss-button" id="openManual" type="button">进入工作台</button>
+                    <div class="ss-overview-main">
+                        <section class="ss-automation-summary" aria-labelledby="automationSummaryTitle" data-fd-id="overview-automation-summary">
+                            <div class="ss-section-heading">
+                                <div><h3 id="automationSummaryTitle">最近一次自动化</h3><p>自动补缺开放后，这里只显示最近一批的结果摘要。</p></div>
+                                <span class="ss-chip">尚未启用</span>
+                            </div>
+                            <div class="ss-automation-empty">
+                                <strong>当前没有自动化任务</strong>
+                                <span>SubSteward 现在仍以人工检查和安装为主，不会在后台擅自扫描或修改媒体。</span>
+                                <button class="ss-link-button" type="button" data-open-automation>了解未来的结果页面</button>
+                            </div>
+                        </section>
+                        <section class="ss-action-section" aria-labelledby="actionBreakdownTitle" data-fd-id="card-action-breakdown">
+                            <div class="ss-section-heading"><div><h3 id="actionBreakdownTitle">系统建议</h3><p>用中文说明当前最合适的下一步，英文代码只作为内部标记。</p></div></div>
+                            <div class="ss-action-bars" id="actionBreakdown"></div>
+                        </section>
+                    </div>
+                    <section class="ss-overview-attention" aria-labelledby="attentionTitle" data-fd-id="card-attention-list">
+                        <div class="ss-section-heading">
+                            <div><h3 id="attentionTitle">需要关注</h3><p>先按风险找问题，再进入单个媒体查看原因。</p></div>
+                            <button class="ss-link-button" id="openManual" type="button">查看全部</button>
                         </div>
-                        <div class="ss-card-body ss-attention-list" id="attentionList"></div>
+                        <div class="ss-attention-list" id="attentionList"></div>
                     </section>
                 </div>
                 <div class="ss-boundary-note" data-fd-id="status-boundary-note">
-                    <strong>当前安全边界</strong>
-                    <span>不会自动扫描全库或替换健康字幕；多 Source STRM 只展示状态，保持人工确认和 fail-closed。</span>
+                    <strong>当前保护规则</strong>
+                    <span>不会自动扫描全库或替换健康字幕；遇到多来源 STRM、状态不明或低置信度判断时会停止自动处理，要求人工确认。</span>
+                </div>
+            </section>
+
+            <section class="ss-tab-panel" id="panelAutomation" role="tabpanel" aria-labelledby="tabAutomation" tabindex="-1" hidden data-fd-id="section-automation">
+                <div class="ss-panel-heading">
+                    <div>
+                        <h2>自动化</h2>
+                        <p>未来会按任务批次展示完成、跳过、失败和需要人工判断的结果；技术日志只在排错时展开。</p>
+                    </div>
+                    <span class="ss-chip ss-chip-planned">规划中，尚未启用</span>
+                </div>
+                <div class="ss-automation-page">
+                    <section class="ss-automation-state" data-fd-id="automation-current-state">
+                        <span class="ss-automation-state-icon" aria-hidden="true">○</span>
+                        <div>
+                            <h3>当前没有自动化运行记录</h3>
+                            <p>自动补缺尚未开放，因此这里不会显示示例批次或虚构成功率。现有人工流程仍可正常使用。</p>
+                        </div>
+                        <button class="ss-button ss-button-primary" type="button" data-open-manual>进入手动检查</button>
+                    </section>
+                    <section class="ss-result-explainer" data-fd-id="automation-result-explainer">
+                        <div class="ss-section-heading"><div><h3>以后会怎样展示结果</h3><p>先看一批任务的结论，需要排错时再进入具体媒体。</p></div></div>
+                        <div class="ss-result-grid">
+                            <div><span class="ss-result-dot is-good"></span><strong>完成</strong><p>字幕已经通过校验，并完成允许的操作。</p></div>
+                            <div><span class="ss-result-dot is-muted"></span><strong>跳过</strong><p>已有健康字幕，或当前媒体不在授权范围。</p></div>
+                            <div><span class="ss-result-dot is-danger"></span><strong>失败</strong><p>操作没有完成，会说明失败阶段和保护结果。</p></div>
+                            <div><span class="ss-result-dot is-warning"></span><strong>需要人工判断</strong><p>情况不够确定，系统不会代替管理员做决定。</p></div>
+                        </div>
+                    </section>
+                    <details class="ss-technical-details">
+                        <summary>技术日志会放在哪里</summary>
+                        <p>每个批次和媒体条目会保留可搜索的业务阶段、结果和安全原因，但不会记录凭据、候选原始编号、字幕正文或完整媒体路径。</p>
+                    </details>
                 </div>
             </section>
 
             <section class="ss-tab-panel" id="panelManual" role="tabpanel" aria-labelledby="tabManual" tabindex="-1" hidden data-fd-id="section-manual-workbench">
                 <div class="ss-panel-heading">
                     <div>
-                        <h2>单项字幕工作台</h2>
-                        <p>先按媒体库逐层选择剧、季、集或电影，再在同一页完成寻找、下载校验、可选对轴和安装。</p>
+                        <h2>手动检查</h2>
+                        <p>从需要关注的问题进入单个媒体，先看发生了什么，再完成寻找、下载校验、可选对轴和安装。</p>
                     </div>
                     <span class="ss-chip">人工流程</span>
                 </div>
